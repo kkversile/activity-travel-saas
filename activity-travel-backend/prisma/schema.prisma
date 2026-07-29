@@ -1,0 +1,364 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PLATFORM_ADMIN
+  PARTNER_ADMIN
+  ACTIVITY_MANAGER
+  BOOKING_AGENT
+  VIEWER
+}
+
+enum ActivityStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum BookingStatus {
+  HOLD
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum PassengerType {
+  ADULT
+  CHILD
+  INFANT
+}
+
+enum PricingBasis {
+  PER_PERSON
+  PER_UNIT
+}
+
+model Tenant {
+  id         String      @id @default(uuid())
+  name       String
+  slug       String      @unique
+  currency   String      @default("INR")
+  timezone   String      @default("Asia/Kolkata")
+  users      User[]
+  memberships TenantMembership[]
+  activities Activity[]
+  bookings   Booking[]
+  auditLogs  AuditLog[]
+  categories Category[]
+  destinations Destination[]
+  vouchers   Voucher[]
+  customers  Customer[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+model User {
+  id          String   @id @default(uuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+  email       String   @unique
+  displayName String
+  passwordHash String?
+  role        UserRole
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  memberships TenantMembership[]
+  refreshTokens RefreshToken[]
+
+  @@index([tenantId, role])
+}
+
+model TenantMembership {
+  id        String   @id @default(uuid())
+  tenantId  String
+  userId    String
+  role      UserRole
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, userId])
+  @@index([userId, role])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  replacedByTokenHash String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId, revokedAt, expiresAt])
+}
+
+model Activity {
+  id              String             @id @default(uuid())
+  tenantId        String
+  tenant          Tenant             @relation(fields: [tenantId], references: [id])
+  name            String
+  slug            String
+  summary         String
+  description     String
+  destination     String
+  categoryId      String?
+  category        Category?       @relation(fields: [categoryId], references: [id])
+  destinationId   String?
+  destinationRef  Destination?    @relation(fields: [destinationId], references: [id])
+  timezone        String
+  durationMinutes Int
+  minAge          Int?
+  maxAge          Int?
+  accessibility   String?
+  cancellationPolicy String?
+  cancellationRules CancellationRule[]
+  meetingPoint    String?
+  pickupOptions   String[] @default([])
+  inclusions      String[] @default([])
+  exclusions      String[] @default([])
+  status          ActivityStatus     @default(DRAFT)
+  schedules       ActivitySchedule[]
+  pricePlans      PricePlan[]
+  images          ActivityImage[]
+  variants        ActivityVariant[]
+  recurringSchedules RecurringSchedule[]
+  bookings        Booking[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, status, destination])
+}
+
+model Category {
+  id         String     @id @default(uuid())
+  tenantId   String
+  name       String
+  slug       String
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  activities Activity[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@unique([tenantId, slug])
+}
+
+model Destination {
+  id         String     @id @default(uuid())
+  tenantId   String
+  name       String
+  slug       String
+  timezone   String      @default("Asia/Kolkata")
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  activities Activity[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([tenantId, slug])
+}
+
+model RecurringSchedule {
+  id          String   @id @default(uuid())
+  activityId  String
+  startsOn    DateTime @db.Date
+  endsOn      DateTime @db.Date
+  weekdays    Int[]
+  startTime   String
+  durationMinutes Int
+  capacity    Int
+  isActive    Boolean  @default(true)
+  activity    Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([activityId, startsOn, endsOn])
+}
+
+model Voucher {
+  id          String   @id @default(uuid())
+  tenantId    String
+  code        String
+  discountMinor Int?
+  discountPercent Int?
+  validFrom   DateTime?
+  validTo     DateTime?
+  maxRedemptions Int?
+  redemptionCount Int @default(0)
+  isActive    Boolean @default(true)
+  tenant      Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, code])
+}
+
+model Customer {
+  id           String    @id @default(uuid())
+  tenantId     String
+  name         String
+  email        String
+  phone        String?
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bookings     Booking[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([tenantId, email])
+  @@index([tenantId, name])
+}
+
+model ActivitySchedule {
+  id          String    @id @default(uuid())
+  activityId  String
+  activity    Activity  @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  startsAt    DateTime
+  endsAt      DateTime
+  capacity    Int
+  bookedSeats Int       @default(0)
+  isBookable  Boolean   @default(true)
+  cutoffMinutes Int      @default(0)
+  blackoutDates ScheduleBlackout[]
+  bookings    Booking[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([activityId, startsAt])
+}
+
+model PricePlan {
+  id          String   @id @default(uuid())
+  activityId  String
+  activity    Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  name        String
+  currency    String
+  adultMinor  Int
+  childMinor  Int
+  infantMinor Int
+  basis       PricingBasis @default(PER_PERSON)
+  taxPercent  Int          @default(0)
+  commissionPercent Int    @default(0)
+  validFrom   DateTime?
+  validTo     DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([activityId, isActive])
+}
+
+model ActivityImage {
+  id         String   @id @default(uuid())
+  activityId String
+  url        String
+  altText    String?
+  sortOrder  Int      @default(0)
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([activityId, sortOrder])
+}
+
+model ActivityVariant {
+  id         String   @id @default(uuid())
+  activityId String
+  name       String
+  description String?
+  isActive   Boolean  @default(true)
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([activityId, name])
+}
+
+model CancellationRule {
+  id              String   @id @default(uuid())
+  activityId      String
+  hoursBefore     Int
+  refundPercent   Int
+  activity        Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, hoursBefore])
+  @@index([activityId, hoursBefore])
+}
+
+model ScheduleBlackout {
+  id         String           @id @default(uuid())
+  scheduleId String
+  date       DateTime         @db.Date
+  reason     String?
+  schedule   ActivitySchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, date])
+}
+
+model Booking {
+  id             String           @id @default(uuid())
+  tenantId       String
+  tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  activityId     String
+  activity       Activity         @relation(fields: [activityId], references: [id])
+  scheduleId     String
+  schedule       ActivitySchedule @relation(fields: [scheduleId], references: [id])
+  reference      String           @unique
+  status         BookingStatus    @default(HOLD)
+  customerName   String
+  customerEmail  String
+  customerPhone  String?
+  customerId     String?
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  currency       String
+  subtotalMinor  Int
+  taxMinor       Int              @default(0)
+  discountMinor  Int              @default(0)
+  commissionMinor Int             @default(0)
+  refundMinor    Int              @default(0)
+  totalMinor     Int
+  holdExpiresAt  DateTime?
+  notes          String?
+  voucherCode    String?
+  cancelledAt    DateTime?
+  idempotencyKey String
+  passengers     Passenger[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, status, createdAt])
+  @@index([scheduleId, status])
+}
+
+model Passenger {
+  id        String        @id @default(uuid())
+  bookingId String
+  booking   Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  type      PassengerType
+  firstName String
+  lastName  String
+  age       Int?
+  createdAt DateTime      @default(now())
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
