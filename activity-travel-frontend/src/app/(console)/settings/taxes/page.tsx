@@ -1,0 +1,1 @@
+import { SettingsSubmodule } from "@/features/administration/SettingsSubmodule"; export default function SettingsTaxesPage() { return <SettingsSubmodule title="Taxes" description="Configure tax rules used by pricing and invoices." href="/taxes" />; }

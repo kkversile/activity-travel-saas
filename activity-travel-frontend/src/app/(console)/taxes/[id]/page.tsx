@@ -1,0 +1,1 @@
+import { ResourceDetails } from "@/features/common/ResourceDetails"; export default async function TaxDetailsPage({ params }: { params: Promise<{ id: string }> }) { return <ResourceDetails endpoint="taxes" title="Tax" id={(await params).id} />; }

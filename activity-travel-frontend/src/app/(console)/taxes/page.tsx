@@ -1,0 +1,1 @@
+import { SimpleResourceList } from "@/features/common/SimpleResourceList"; export default function TaxesPage() { return <SimpleResourceList endpoint="taxes" title="Taxes" createHref="/taxes/new" filterMode="status" />; }

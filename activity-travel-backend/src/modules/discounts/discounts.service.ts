@@ -1,0 +1,13 @@
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
+import { paginated, parsePaginationQuery } from "../../common/pagination/pagination";
+
+@Injectable()
+export class DiscountsService {
+  constructor(private readonly prisma: PrismaService) {}
+  async list(tenantId: string, q: { page?: number; pageSize?: number; search?: string; status?: "ACTIVE" | "INACTIVE" | "ARCHIVED"; sortBy?: string; sortOrder?: "asc" | "desc" }) { const p = parsePaginationQuery(q, ["name", "createdAt", "validTo"], "name"); const where = { tenantId, ...(q.status ? { status: q.status } : {}), ...(p.search ? { OR: [{ name: { contains: p.search, mode: "insensitive" as const } }, { code: { contains: p.search, mode: "insensitive" as const } }] } : {}) }; const [data, total] = await this.prisma.$transaction([this.prisma.discount.findMany({ where, orderBy: { [p.sortBy]: p.sortOrder }, skip: (p.page - 1) * p.pageSize, take: p.pageSize }), this.prisma.discount.count({ where })]); return paginated(data, p.page, p.pageSize, total); }
+  async get(tenantId: string, id: string) { const row = await this.prisma.discount.findFirst({ where: { id, tenantId } }); if (!row) throw new NotFoundException("Discount not found"); return row; }
+  async create(tenantId: string, d: { name: string; code?: string; discountMinor?: number; discountPercent?: number; validFrom?: string; validTo?: string }) { const result = await this.prisma.discount.create({ data: { tenantId, name: d.name, code: d.code?.toUpperCase(), discountMinor: d.discountMinor, discountPercent: d.discountPercent, validFrom: d.validFrom ? new Date(d.validFrom) : undefined, validTo: d.validTo ? new Date(d.validTo) : undefined } }); await this.prisma.auditLog.create({ data: { tenantId, action: "DISCOUNT_CREATED", entityType: "Discount", entityId: result.id } }); return result; }
+  async update(tenantId: string, id: string, d: { name?: string; code?: string; status?: "ACTIVE" | "INACTIVE" | "ARCHIVED"; discountMinor?: number; discountPercent?: number; validTo?: string }) { await this.get(tenantId, id); const result = await this.prisma.discount.update({ where: { id }, data: { ...d, code: d.code?.toUpperCase(), validTo: d.validTo ? new Date(d.validTo) : undefined } }); await this.prisma.auditLog.create({ data: { tenantId, action: "DISCOUNT_UPDATED", entityType: "Discount", entityId: id } }); return result; }
+  async remove(tenantId: string, id: string) { await this.get(tenantId, id); await this.prisma.discount.update({ where: { id }, data: { status: "ARCHIVED" } }); await this.prisma.auditLog.create({ data: { tenantId, action: "DISCOUNT_ARCHIVED", entityType: "Discount", entityId: id } }); return { success: true }; }
+}

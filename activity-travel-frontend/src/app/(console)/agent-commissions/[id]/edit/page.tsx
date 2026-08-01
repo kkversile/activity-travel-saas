@@ -1,0 +1,1 @@
+import { SimpleResourceForm } from "@/features/common/SimpleResourceForm"; export default async function EditCommissionPage({ params }: { params: Promise<{ id: string }> }) { return <SimpleResourceForm kind="agent-commissions" id={(await params).id} />; }

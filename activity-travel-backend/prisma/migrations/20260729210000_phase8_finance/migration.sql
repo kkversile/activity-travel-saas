@@ -1,0 +1,18 @@
+CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'CAPTURED', 'FAILED', 'REFUNDED');
+CREATE TYPE "PaymentMethod" AS ENUM ('CARD', 'BANK_TRANSFER', 'CASH', 'MOCK');
+CREATE TYPE "RefundStatus" AS ENUM ('REQUESTED', 'APPROVED', 'PROCESSED', 'FAILED');
+CREATE TYPE "InvoiceStatus" AS ENUM ('DRAFT', 'ISSUED', 'PAID', 'VOID');
+CREATE TABLE "Payment" ("id" TEXT NOT NULL, "tenantId" TEXT NOT NULL, "bookingId" TEXT NOT NULL, "amountMinor" INTEGER NOT NULL, "currency" TEXT NOT NULL, "status" "PaymentStatus" NOT NULL DEFAULT 'PENDING', "method" "PaymentMethod" NOT NULL DEFAULT 'MOCK', "providerReference" TEXT, "capturedAt" TIMESTAMP(3), "failedAt" TIMESTAMP(3), "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Payment_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Refund" ("id" TEXT NOT NULL, "tenantId" TEXT NOT NULL, "paymentId" TEXT NOT NULL, "requestedAmountMinor" INTEGER NOT NULL, "approvedAmountMinor" INTEGER, "reason" TEXT NOT NULL, "status" "RefundStatus" NOT NULL DEFAULT 'REQUESTED', "providerReference" TEXT, "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "processedAt" TIMESTAMP(3), "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Refund_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Invoice" ("id" TEXT NOT NULL, "tenantId" TEXT NOT NULL, "bookingId" TEXT NOT NULL, "invoiceNumber" TEXT NOT NULL, "subtotalMinor" INTEGER NOT NULL, "taxMinor" INTEGER NOT NULL, "totalMinor" INTEGER NOT NULL, "currency" TEXT NOT NULL, "status" "InvoiceStatus" NOT NULL DEFAULT 'DRAFT', "issueDate" TIMESTAMP(3), "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL, CONSTRAINT "Invoice_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "Invoice_tenantId_invoiceNumber_key" ON "Invoice"("tenantId", "invoiceNumber");
+CREATE INDEX "Payment_tenantId_status_createdAt_idx" ON "Payment"("tenantId", "status", "createdAt");
+CREATE INDEX "Payment_bookingId_status_idx" ON "Payment"("bookingId", "status");
+CREATE INDEX "Refund_tenantId_status_createdAt_idx" ON "Refund"("tenantId", "status", "createdAt");
+CREATE INDEX "Invoice_tenantId_status_createdAt_idx" ON "Invoice"("tenantId", "status", "createdAt");
+ALTER TABLE "Payment" ADD CONSTRAINT "Payment_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Payment" ADD CONSTRAINT "Payment_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id") ON UPDATE CASCADE;
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Refund" ADD CONSTRAINT "Refund_paymentId_fkey" FOREIGN KEY ("paymentId") REFERENCES "Payment"("id") ON UPDATE CASCADE;
+ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Invoice" ADD CONSTRAINT "Invoice_bookingId_fkey" FOREIGN KEY ("bookingId") REFERENCES "Booking"("id") ON UPDATE CASCADE;

@@ -1,0 +1,4 @@
+import { Type } from "class-transformer"; import { IsEnum, IsIn, IsInt, IsLatitude, IsLongitude, IsOptional, IsString, Length, Max, Min } from "class-validator"; import { CatalogStatus } from "@prisma/client";
+export class PickupQueryDto { @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1; @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize = 25; @IsOptional() @IsString() search?: string; @IsOptional() @IsEnum(CatalogStatus) status?: CatalogStatus; @IsOptional() @IsIn(["name", "createdAt", "updatedAt"]) sortBy = "name"; @IsOptional() @IsIn(["asc", "desc"]) sortOrder: "asc" | "desc" = "asc"; }
+export class CreatePickupDto { @IsString() @Length(2, 120) name!: string; @IsString() @Length(2, 300) address!: string; @IsOptional() @IsLatitude() latitude?: string; @IsOptional() @IsLongitude() longitude?: string; @IsOptional() @IsEnum(CatalogStatus) status?: CatalogStatus; }
+export class UpdatePickupDto extends CreatePickupDto {}

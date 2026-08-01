@@ -1,0 +1,1 @@
+import { Module } from "@nestjs/common"; import { CancellationPoliciesController } from "./cancellation-policies.controller"; import { CancellationPoliciesService } from "./cancellation-policies.service"; @Module({ controllers: [CancellationPoliciesController], providers: [CancellationPoliciesService] }) export class CancellationPoliciesModule {}

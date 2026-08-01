@@ -20,11 +20,14 @@ export class TenantAccessGuard implements CanActivate {
     }
     const membership = await this.prisma.tenantMembership.findUnique({
       where: { tenantId_userId: { tenantId, userId: request.user.id } },
-      select: { role: true }
+      select: { role: true, customRole: { select: { id: true, permissions: true, isActive: true } } }
     });
     if (!membership) throw new ForbiddenException("User is not a member of this tenant");
+    if (membership.customRole && !membership.customRole.isActive) throw new ForbiddenException("Assigned custom role is inactive");
     request.tenantId = tenantId;
     request.user.tenantRole = membership.role;
+    request.user.customRoleId = membership.customRole?.id;
+    request.user.customRolePermissions = membership.customRole?.permissions as Record<string, unknown> | undefined;
     return true;
   }
 }

@@ -12,33 +12,37 @@ export class AuthService {
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() }, include: { memberships: true } });
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() }, include: { memberships: { include: { tenant: true, customRole: { select: { id: true, name: true, permissions: true, isActive: true } } } } } });
     if (!user?.isActive || !user.passwordHash || !(await verifyPassword(dto.password, user.passwordHash))) {
       throw new UnauthorizedException("Invalid email or password");
     }
+    await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     const tokens = await this.issueTokens(user);
-    await this.prisma.auditLog.create({ data: { tenantId: user.tenantId, actorUserId: user.id, action: "LOGIN", entityType: "User", entityId: user.id } });
+    const loginTenantId = user.tenantId ?? user.memberships[0]?.tenantId;
+    if (loginTenantId) await this.prisma.auditLog.create({ data: { tenantId: loginTenantId, actorUserId: user.id, action: "LOGIN", entityType: "User", entityId: user.id } });
     return { ...tokens, user: this.publicUser(user) };
   }
 
   async refresh(dto: RefreshDto) {
+    if (!dto.refreshToken) throw new UnauthorizedException("Refresh token required");
     const tokenHash = hashToken(dto.refreshToken);
-    const existing = await this.prisma.refreshToken.findUnique({ where: { tokenHash }, include: { user: { include: { memberships: true } } } });
+    const existing = await this.prisma.refreshToken.findUnique({ where: { tokenHash }, include: { user: { include: { memberships: { include: { tenant: true, customRole: { select: { id: true, name: true, permissions: true, isActive: true } } } } } } } });
     if (!existing || existing.revokedAt || existing.expiresAt <= new Date() || !existing.user.isActive) throw new UnauthorizedException("Invalid refresh token");
     const next = await this.issueTokens(existing.user);
     const replacementHash = hashToken(next.refreshToken);
     await this.prisma.refreshToken.update({ where: { id: existing.id }, data: { revokedAt: new Date(), replacedByTokenHash: replacementHash } });
-    await this.prisma.auditLog.create({ data: { tenantId: existing.user.tenantId, actorUserId: existing.user.id, action: "REFRESH_TOKEN_ROTATED", entityType: "RefreshToken", entityId: existing.id } });
+    const refreshTenantId = existing.user.tenantId ?? existing.user.memberships[0]?.tenantId;
+    if (refreshTenantId) await this.prisma.auditLog.create({ data: { tenantId: refreshTenantId, actorUserId: existing.user.id, action: "REFRESH_TOKEN_ROTATED", entityType: "RefreshToken", entityId: existing.id } });
     return { ...next, user: this.publicUser(existing.user) };
   }
 
   async logout(dto: RefreshDto): Promise<{ success: true }> {
-    await this.prisma.refreshToken.updateMany({ where: { tokenHash: hashToken(dto.refreshToken), revokedAt: null }, data: { revokedAt: new Date() } });
+    if (dto.refreshToken) await this.prisma.refreshToken.updateMany({ where: { tokenHash: hashToken(dto.refreshToken), revokedAt: null }, data: { revokedAt: new Date() } });
     return { success: true };
   }
 
   async me(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: { memberships: { include: { tenant: true } } } });
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: { memberships: { include: { tenant: true, customRole: { select: { id: true, name: true, permissions: true, isActive: true } } } } } });
     if (!user || !user.isActive) throw new UnauthorizedException();
     return this.publicUser(user);
   }
@@ -55,7 +59,7 @@ export class AuthService {
     return { accessToken, refreshToken, expiresIn: this.accessSeconds };
   }
 
-  private publicUser(user: { id: string; email: string; displayName: string; role: string; tenantId?: string | null; memberships?: Array<{ tenantId: string; role: string; tenant?: { id: string; name: string; slug: string } }> }) {
+  private publicUser(user: { id: string; email: string; displayName: string; role: string; tenantId?: string | null; memberships?: Array<{ tenantId: string; role: string; tenant?: { id: string; name: string; slug: string }; customRole?: { id: string; name: string; permissions: unknown; isActive: boolean } | null }> }) {
     return {
       id: user.id,
       email: user.email,
@@ -65,7 +69,8 @@ export class AuthService {
       memberships: (user.memberships ?? []).map((membership) => ({
         tenantId: membership.tenantId,
         role: membership.role,
-        tenant: membership.tenant
+        tenant: membership.tenant,
+        customRole: membership.customRole
       }))
     };
   }

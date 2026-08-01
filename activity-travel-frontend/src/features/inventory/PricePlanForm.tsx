@@ -1,0 +1,22 @@
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createPricePlan } from "@/services/inventoryService";
+import { listActivities } from "@/services/activityService";
+import { listVariants } from "@/services/variantService";
+import type { Activity } from "@/types/activity";
+
+const amountFields = [["adultMinor", "Adult minor units"], ["childMinor", "Child minor units"], ["infantMinor", "Infant minor units"], ["taxPercent", "Tax %"], ["commissionPercent", "Commission %"]] as const;
+
+export function PricePlanForm() {
+  const router = useRouter();
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [variants, setVariants] = useState<{ id: string; name: string }[]>([]);
+  const [form, setForm] = useState({ activityId: "", variantId: "", name: "Standard", currency: "INR", basis: "PER_PERSON", adultMinor: "0", childMinor: "0", infantMinor: "0", taxPercent: "0", commissionPercent: "0", validFrom: "", validTo: "" });
+  const [error, setError] = useState(""); const [saving, setSaving] = useState(false);
+  useEffect(() => { void listActivities({ page: 1, pageSize: 100, sortBy: "createdAt", sortOrder: "desc" }).then((result) => setActivities(result.data)).catch(() => setError("Unable to load activities")); }, []);
+  useEffect(() => { if (!form.activityId) { setVariants([]); return; } void listVariants(`page=1&pageSize=100&activityId=${encodeURIComponent(form.activityId)}`).then((result) => setVariants(result.data.map((variant) => ({ id: variant.id, name: variant.name })))).catch(() => setError("Unable to load variants")); }, [form.activityId]);
+  async function submit(event: FormEvent) { event.preventDefault(); setSaving(true); setError(""); try { await createPricePlan({ activityId: form.activityId, ...(form.variantId ? { variantId: form.variantId } : {}), name: form.name, currency: form.currency.toUpperCase(), basis: form.basis, adultMinor: Number(form.adultMinor), childMinor: Number(form.childMinor), infantMinor: Number(form.infantMinor), taxPercent: Number(form.taxPercent), commissionPercent: Number(form.commissionPercent), ...(form.validFrom ? { validFrom: new Date(`${form.validFrom}T00:00:00Z`).toISOString() } : {}), ...(form.validTo ? { validTo: new Date(`${form.validTo}T23:59:59.999Z`).toISOString() } : {}) }); router.push("/price-plans"); } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to create price plan"); } finally { setSaving(false); } }
+  return <div><div className="page-heading"><div><p className="eyebrow">PRICING / PRICE PLANS</p><h2>Create price plan</h2></div></div><form className="panel form-grid" onSubmit={submit}><label>Activity<select value={form.activityId} onChange={(event) => setForm({ ...form, activityId: event.target.value, variantId: "" })} required><option value="">Select activity</option>{activities.map((activity) => <option key={activity.id} value={activity.id}>{activity.name}</option>)}</select></label><label>Variant<select aria-label="Variant" value={form.variantId} onChange={(event) => setForm({ ...form, variantId: event.target.value })}><option value="">All variants</option>{variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.name}</option>)}</select></label><label>Plan name<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label><label>Pricing basis<select value={form.basis} onChange={(event) => setForm({ ...form, basis: event.target.value })}><option value="PER_PERSON">Per person</option><option value="PER_UNIT">Per unit</option></select></label><label>Currency<input maxLength={3} value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value })} required /></label>{amountFields.map(([key, label]) => <label key={key}>{label}<input type="number" min="0" value={form[key]} onChange={(event) => setForm({ ...form, [key]: event.target.value })} required /></label>)}<label>Valid from<input type="date" value={form.validFrom} onChange={(event) => setForm({ ...form, validFrom: event.target.value })} /></label><label>Valid to<input type="date" value={form.validTo} onChange={(event) => setForm({ ...form, validTo: event.target.value })} /></label>{error && <div className="notice error" role="alert">{error}</div>}<div className="form-actions"><button type="button" onClick={() => router.back()}>Cancel</button><button className="primary" disabled={saving}>{saving ? "Saving..." : "Save price plan"}</button></div></form></div>;
+}

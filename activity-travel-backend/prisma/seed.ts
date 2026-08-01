@@ -67,6 +67,7 @@ async function main(): Promise<void> {
       status: ActivityStatus.PUBLISHED,
       pricePlans: {
         create: {
+          tenantId: tenant.id,
           name: "Standard",
           currency: "INR",
           adultMinor: 150000,
@@ -76,6 +77,7 @@ async function main(): Promise<void> {
       },
       schedules: {
         create: {
+          tenantId: tenant.id,
           startsAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
           endsAt: new Date(Date.now() + 27 * 60 * 60 * 1000),
           capacity: 20

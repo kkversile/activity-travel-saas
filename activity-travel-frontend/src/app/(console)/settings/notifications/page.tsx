@@ -1,0 +1,1 @@
+import { SettingsSubmodule } from "@/features/administration/SettingsSubmodule"; export default function NotificationsPage() { return <SettingsSubmodule title="Notifications" description="Manage notification preferences for operational events." href="/settings/general" />; }

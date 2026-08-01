@@ -1,0 +1,3 @@
+export function EmptyState({ title = "Nothing here yet", description = "Create your first record to get started." }: { title?: string; description?: string }) { return <div className="state-card"><strong>{title}</strong><span>{description}</span></div>; }
+export function ErrorPanel({ message, onRetry }: { message: string; onRetry?: () => void }) { return <div className="state-card error-state"><strong>Unable to load this page</strong><span>{message}</span>{onRetry && <button type="button" onClick={onRetry}>Retry</button>}</div>; }
+export function LoadingTable() { return <div className="loading-table" aria-label="Loading"><span /><span /><span /><span /></div>; }

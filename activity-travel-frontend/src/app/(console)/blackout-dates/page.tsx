@@ -1,0 +1,1 @@
+import { SimpleResourceList } from "@/features/common/SimpleResourceList"; export default function BlackoutDatesPage() { return <SimpleResourceList endpoint="blackout-dates" title="Blackout Dates" createHref="/blackout-dates/new" editable={false} filterMode="blackout" />; }

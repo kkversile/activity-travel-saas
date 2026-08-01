@@ -1,0 +1,1 @@
+import { SettingsSubmodule } from "@/features/administration/SettingsSubmodule"; export default function CurrenciesPage() { return <SettingsSubmodule title="Currencies" description="Review the tenant currency configured for financial records." href="/settings/general" />; }

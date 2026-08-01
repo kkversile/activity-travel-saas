@@ -10,4 +10,6 @@ export interface AuthenticatedUser {
 
 export interface RequestContextUser extends AuthenticatedUser {
   tenantRole?: UserRole;
+  customRoleId?: string;
+  customRolePermissions?: Record<string, unknown>;
 }

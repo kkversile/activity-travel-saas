@@ -1,0 +1,4 @@
+"use client";
+import Link from "next/link";
+import type { PricePlanRecord } from "@/services/inventoryService";
+export function PricePlanDetails({ plan }: { plan: PricePlanRecord }) { return <div><div className="page-heading"><div><p className="eyebrow">PRICING / PRICE PLANS</p><h2>{plan.name}</h2><p className="subtext">{plan.activity.name}</p></div><Link className="primary button-link" href={`/price-plans/${plan.id}/edit`}>Edit price plan</Link></div><section className="panel detail-grid"><div><span>Adult</span><strong>{plan.currency} {(plan.adultMinor / 100).toFixed(2)}</strong></div><div><span>Child</span><strong>{plan.currency} {(plan.childMinor / 100).toFixed(2)}</strong></div><div><span>Infant</span><strong>{plan.currency} {(plan.infantMinor / 100).toFixed(2)}</strong></div><div><span>Status</span><strong>{plan.isActive ? "ACTIVE" : "INACTIVE"}</strong></div></section></div>; }

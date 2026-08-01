@@ -1,5 +1,5 @@
-import { Type } from "class-transformer";
-import { IsArray, IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUrl, Max, Min } from "class-validator";
+import { Transform, Type } from "class-transformer";
+import { IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, IsUrl, Max, Min } from "class-validator";
 import { ActivityStatus, PricingBasis } from "@prisma/client";
 
 export class CreateActivityDto {
@@ -8,6 +8,8 @@ export class CreateActivityDto {
   @IsString() summary!: string;
   @IsString() description!: string;
   @IsString() destination!: string;
+  @IsOptional() @IsUUID() categoryId?: string;
+  @IsOptional() @IsUUID() destinationId?: string;
   @IsString() timezone!: string;
   @Type(() => Number) @IsInt() @Min(1) durationMinutes!: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) minAge?: number;
@@ -22,12 +24,32 @@ export class CreateActivityDto {
   @IsOptional() @IsArray() @IsUrl({}, { each: true }) images?: string[];
 }
 
+export class ActivityQueryDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize = 25;
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsEnum(ActivityStatus) status?: ActivityStatus;
+  @IsOptional() @IsString() categoryId?: string;
+  @IsOptional() @IsString() destinationId?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) minDuration?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) maxDuration?: number;
+  @IsOptional() @Transform(({ value }) => value === true || value === "true" ? true : value === false || value === "false" ? false : value) @IsBoolean() hasActiveSchedule?: boolean;
+  @IsOptional() @IsDateString() createdFrom?: string;
+  @IsOptional() @IsDateString() createdTo?: string;
+  @IsOptional() @IsDateString() publishedFrom?: string;
+  @IsOptional() @IsDateString() publishedTo?: string;
+  @IsOptional() @IsEnum(["name", "createdAt", "updatedAt", "publishedAt", "status", "destination"] as const) sortBy = "name";
+  @IsOptional() @IsEnum(["asc", "desc"] as const) sortOrder: "asc" | "desc" = "asc";
+}
+
 export class UpdateActivityDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() slug?: string;
   @IsOptional() @IsString() summary?: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() destination?: string;
+  @IsOptional() @IsUUID() categoryId?: string;
+  @IsOptional() @IsUUID() destinationId?: string;
   @IsOptional() @IsString() timezone?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) durationMinutes?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) minAge?: number;
@@ -42,7 +64,10 @@ export class UpdateActivityDto {
   @IsOptional() @IsArray() @IsUrl({}, { each: true }) images?: string[];
 }
 
+export class ActivityStatusDto { @IsEnum(ActivityStatus) status!: ActivityStatus; }
+
 export class CreateScheduleDto {
+  @IsOptional() @IsString() variantId?: string;
   @IsDateString() startsAt!: string;
   @IsDateString() endsAt!: string;
   @Type(() => Number) @IsInt() @Min(1) capacity!: number;
@@ -51,6 +76,7 @@ export class CreateScheduleDto {
 }
 
 export class CreatePricePlanDto {
+  @IsOptional() @IsString() variantId?: string;
   @IsString() name!: string;
   @IsString() currency!: string;
   @Type(() => Number) @IsInt() @Min(0) adultMinor!: number;
