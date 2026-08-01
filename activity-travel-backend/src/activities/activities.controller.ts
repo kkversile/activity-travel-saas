@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { ApiHeader, ApiTags } from "@nestjs/swagger";
 import {
   TenantContext,
@@ -10,7 +10,7 @@ import { TenantAccessGuard } from "../auth/tenant.guard";
 import { RolesGuard } from "../auth/roles.guard";
 import { Roles } from "../auth/roles.decorator";
 import { UserRole, ActivityStatus } from "@prisma/client";
-import { CreateActivityDto, CreateBlackoutDto, CreateCancellationRuleDto, CreateCategoryDto, CreateDestinationDto, CreatePricePlanDto, CreateRecurringScheduleDto, CreateScheduleDto, CreateVariantDto, UpdateActivityDto } from "./dto/activity.dto";
+import { ActivityQueryDto, ActivityStatusDto, CreateActivityDto, CreateBlackoutDto, CreateCancellationRuleDto, CreateCategoryDto, CreateDestinationDto, CreatePricePlanDto, CreateRecurringScheduleDto, CreateScheduleDto, CreateVariantDto, UpdateActivityDto } from "./dto/activity.dto";
 
 @ApiTags("activities")
 @ApiHeader({ name: "x-tenant-id", required: true })
@@ -20,8 +20,8 @@ export class ActivitiesController {
   constructor(private readonly activitiesService: ActivitiesService) {}
 
   @Get()
-  list(@TenantContext() context: TenantContextValue, @Query("search") search?: string, @Query("status") status?: ActivityStatus, @Query("page") page?: string) {
-    return this.activitiesService.list(context.tenantId, { search, status, page: page ? Number(page) : undefined });
+  list(@TenantContext() context: TenantContextValue, @Query() query: ActivityQueryDto) {
+    return this.activitiesService.list(context.tenantId, query);
   }
 
   @Post()
@@ -32,9 +32,21 @@ export class ActivitiesController {
   @Roles(UserRole.PARTNER_ADMIN, UserRole.ACTIVITY_MANAGER)
   update(@TenantContext() context: TenantContextValue, @Param("id") id: string, @Body() dto: UpdateActivityDto) { return this.activitiesService.update(context.tenantId, id, dto); }
 
+  @Patch(":id")
+  @Roles(UserRole.PARTNER_ADMIN, UserRole.ACTIVITY_MANAGER)
+  patch(@TenantContext() context: TenantContextValue, @Param("id") id: string, @Body() dto: UpdateActivityDto) { return this.activitiesService.update(context.tenantId, id, dto); }
+
   @Post(":id/publish")
   @Roles(UserRole.PARTNER_ADMIN, UserRole.ACTIVITY_MANAGER)
   publish(@TenantContext() context: TenantContextValue, @Param("id") id: string) { return this.activitiesService.publish(context.tenantId, id, ActivityStatus.PUBLISHED); }
+
+  @Patch(":id/status")
+  @Roles(UserRole.PARTNER_ADMIN, UserRole.ACTIVITY_MANAGER)
+  status(@TenantContext() context: TenantContextValue, @Param("id") id: string, @Body() body: ActivityStatusDto) { return this.activitiesService.changeStatus(context.tenantId, id, body.status); }
+
+  @Delete(":id")
+  @Roles(UserRole.PARTNER_ADMIN)
+  archive(@TenantContext() context: TenantContextValue, @Param("id") id: string) { return this.activitiesService.archive(context.tenantId, id); }
 
   @Post(":id/schedules")
   @Roles(UserRole.PARTNER_ADMIN, UserRole.ACTIVITY_MANAGER)

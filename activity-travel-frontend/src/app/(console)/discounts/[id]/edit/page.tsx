@@ -1,0 +1,1 @@
+import { SimpleResourceForm } from "@/features/common/SimpleResourceForm"; export default async function EditDiscountPage({ params }: { params: Promise<{ id: string }> }) { return <SimpleResourceForm kind="discounts" id={(await params).id} />; }

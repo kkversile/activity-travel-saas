@@ -1,0 +1,1 @@
+import { ResourceDetails } from "@/features/common/ResourceDetails"; export default async function CommissionDetailsPage({ params }: { params: Promise<{ id: string }> }) { return <ResourceDetails endpoint="agent-commissions" title="Agent commission" id={(await params).id} />; }

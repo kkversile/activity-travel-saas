@@ -1,0 +1,1 @@
+import { SimpleResourceForm } from "@/features/common/SimpleResourceForm"; export default async function EditTaxPage({ params }: { params: Promise<{ id: string }> }) { return <SimpleResourceForm kind="taxes" id={(await params).id} />; }

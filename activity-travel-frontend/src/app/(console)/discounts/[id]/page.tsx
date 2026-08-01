@@ -1,0 +1,1 @@
+import { ResourceDetails } from "@/features/common/ResourceDetails"; export default async function DiscountDetailsPage({ params }: { params: Promise<{ id: string }> }) { return <ResourceDetails endpoint="discounts" title="Discount" id={(await params).id} />; }

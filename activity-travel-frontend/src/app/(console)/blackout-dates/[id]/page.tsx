@@ -1,0 +1,1 @@
+import { ResourceDetails } from "@/features/common/ResourceDetails"; export default async function BlackoutDetailsPage({ params }: { params: Promise<{ id: string }> }) { return <ResourceDetails endpoint="blackout-dates" title="Blackout date" id={(await params).id} />; }

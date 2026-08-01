@@ -1,0 +1,2 @@
+import { RoleForm } from "@/features/administration/RoleForm";
+export default async function EditRolePage({ params }: { params: Promise<{ id: string }> }) { const { id } = await params; return <div><div className="page-heading"><div><p className="eyebrow">ADMINISTRATION / ROLES</p><h2>Edit custom role</h2><p className="subtext">Update the tenant-scoped permission set.</p></div></div><RoleForm id={id} /></div>; }

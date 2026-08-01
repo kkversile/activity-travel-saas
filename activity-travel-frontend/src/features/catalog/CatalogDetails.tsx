@@ -1,0 +1,8 @@
+"use client";
+import Link from "next/link";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { updateCatalog } from "@/services/catalogService";
+import { catalogRoute } from "@/services/catalogService";
+import type { CatalogKind, CatalogRecord } from "@/services/catalogService";
+export function CatalogDetails({ kind, record }: { kind: CatalogKind; record: CatalogRecord }) { const router = useRouter(); const route = catalogRoute(kind); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); async function archive() { if (!window.confirm(`Archive this ${kind === "categories" ? "category" : "destination"}?`)) return; setBusy(true); try { await updateCatalog(kind, record.id, { status: "ARCHIVED" }); router.push(`/${route}`); } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to archive"); } finally { setBusy(false); } } return <div><div className="page-heading"><div><p className="eyebrow">CATALOGUE</p><h2>{record.name ?? record.city}</h2><p className="subtext">{record.description ?? "No description provided."}</p></div><div className="form-actions"><Link className="primary button-link" href={`/${route}/${record.id}/edit`}>Edit</Link><button type="button" onClick={() => void archive()} disabled={busy}>Archive</button></div></div>{error && <div className="notice error">{error}</div>}<section className="panel detail-grid"><div><span>Status</span><strong>{record.status ?? "ACTIVE"}</strong></div><div><span>Slug</span><strong>{record.slug}</strong></div><div><span>Activities</span><strong>{record._count?.activities ?? 0}</strong></div><div><span>Timezone</span><strong>{record.timezone ?? "—"}</strong></div></section></div>; }

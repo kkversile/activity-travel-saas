@@ -1,0 +1,15 @@
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { apiRequest } from "@/services/apiClient";
+import { createUser, updateUser } from "@/services/userService";
+
+type CustomRole = { id: string; name: string; isActive?: boolean };
+
+export function UserForm({ id, initial }: { id?: string; initial?: { displayName: string; role: string; customRoleId?: string | null } }) {
+  const router = useRouter(); const [customRoles, setCustomRoles] = useState<CustomRole[]>([]); const [form, setForm] = useState({ displayName: initial?.displayName ?? "", email: "", password: "", role: initial?.role ?? "BOOKING_AGENT", customRoleId: initial?.customRoleId ?? "" }); const [error, setError] = useState(""); const [saving, setSaving] = useState(false);
+  useEffect(() => { void apiRequest<{ data: CustomRole[] }>("/roles?page=1&pageSize=100").then((result) => setCustomRoles(result.data.filter((role) => role.id.includes("-") && role.isActive !== false))).catch(() => undefined); }, []);
+  async function submit(event: FormEvent) { event.preventDefault(); setSaving(true); setError(""); try { if (id) await updateUser(id, { displayName: form.displayName, role: form.role, ...(form.customRoleId ? { customRoleId: form.customRoleId } : {}) }); else await createUser(form); router.push("/settings/users"); } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to save user"); } finally { setSaving(false); } }
+  return <div><div className="page-heading"><div><p className="eyebrow">ADMINISTRATION / USERS</p><h2>{id ? "Edit user" : "Create user"}</h2></div></div><form className="panel form-grid" onSubmit={submit}><label>Display name<input value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} required /></label>{!id && <><label>Email<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label><label>Password<input type="password" minLength={8} value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required /></label></>}<label>Role<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="ACTIVITY_MANAGER">Activity manager</option><option value="BOOKING_AGENT">Booking agent</option><option value="VIEWER">Viewer</option><option value="PARTNER_ADMIN">Partner admin</option></select></label><label>Custom role<select value={form.customRoleId} onChange={(event) => setForm({ ...form, customRoleId: event.target.value })}><option value="">No custom role</option>{customRoles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>{error && <div className="notice error">{error}</div>}<div className="form-actions"><button type="button" onClick={() => router.back()}>Cancel</button><button className="primary" disabled={saving}>{saving ? "Saving…" : "Save user"}</button></div></form></div>;
+}

@@ -51,6 +51,18 @@ export class CreateBookingDto {
   @IsString()
   voucherCode?: string;
 
+  @IsOptional()
+  @IsUUID()
+  supplierId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  agentId?: string;
+
+  @IsOptional()
+  @IsString()
+  source?: string;
+
   @ValidateNested({ each: true })
   @Type(() => CreatePassengerDto)
   @ArrayMinSize(1)

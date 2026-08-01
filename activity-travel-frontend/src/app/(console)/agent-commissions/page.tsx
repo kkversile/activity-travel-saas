@@ -1,0 +1,1 @@
+import { SimpleResourceList } from "@/features/common/SimpleResourceList"; export default function CommissionsPage() { return <SimpleResourceList endpoint="agent-commissions" title="Agent Commissions" createHref="/agent-commissions/new" filterMode="commission" />; }
