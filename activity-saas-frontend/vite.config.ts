@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     preview: {
-      allowedHosts: ['demo.dhisoft.in'],
+      allowedHosts: true,
     },
   };
 });
