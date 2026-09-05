@@ -10,4 +10,7 @@ export default defineConfig({
       '/api': 'http://localhost:4007',
     },
   },
+  preview: {
+    allowedHosts: ['demo.dhisoft.in'],
+  },
 });
