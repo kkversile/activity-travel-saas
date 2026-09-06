@@ -133,7 +133,7 @@ export type AvailabilitySlot = {
   };
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '/voya/api' : '/api');
 
 class ApiClient {
   token = localStorage.getItem('voya_token');
