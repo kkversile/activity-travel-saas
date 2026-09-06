@@ -10,6 +10,7 @@ import Performance from './pages/Performance';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminVendors from './pages/AdminVendors';
 import AdminReview from './pages/AdminReview';
+import './login.css';
 
 const pages = {
   dashboard: { title: 'Overview', sub: 'Welcome back, Blue Mountain Adventures', icon: '▦', component: Dashboard },
@@ -68,17 +69,28 @@ function AdminApp({ user, logout }: { user: User; logout: () => void }) {
 }
 
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
+  const demoCredentials = {
+    vendor: { email: 'vendor@voya.demo', password: 'Demo@123' },
+    admin: { email: 'admin@voya.demo', password: 'Demo@123' },
+  } as const;
   const [registering, setRegistering] = useState(false);
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('vendor@voya.demo');
-  const [password, setPassword] = useState('Demo@123');
+  const [email, setEmail] = useState<string>(demoCredentials.vendor.email);
+  const [password, setPassword] = useState<string>(demoCredentials.vendor.password);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  function selectDemoLogin(type: keyof typeof demoCredentials) {
+    const credentials = demoCredentials[type];
+    setRegistering(false);
+    setEmail(credentials.email);
+    setPassword(credentials.password);
+    setError('');
+  }
   async function submit(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('');
     try { const result = registering ? await api.register(fullName, email, password) : await api.login(email, password); api.setToken(result.accessToken); onLogin(result.user); }
     catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   }
-  return <div className="login-page"><form className="login-card" onSubmit={submit}><div className="login-brand"><span>V</span><div><h1>Voya</h1><p>Vendor Console</p></div></div><h2>{registering ? 'Create vendor account' : 'Welcome back'}</h2><p className="muted">{registering ? 'Start a fresh onboarding journey for a new vendor.' : 'Use the seeded vendor account to explore the working demo.'}</p>{error && <div className="alert error">{error}</div>}{registering && <label className="field"><span>Full Name</span><input required minLength={2} value={fullName} onChange={(e)=>setFullName(e.target.value)} /></label>}<label className="field"><span>Email</span><input required type="email" value={email} onChange={(e)=>setEmail(e.target.value)} /></label><label className="field"><span>Password</span><input required minLength={6} type="password" value={password} onChange={(e)=>setPassword(e.target.value)} /></label><button className="btn primary wide" disabled={busy}>{busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'}</button>{!registering && <div className="demo-note"><b>Demo credentials</b><code>vendor@voya.demo / Demo@123</code></div>}<button type="button" className="link-button auth-switch" onClick={() => { setRegistering(!registering); setError(''); }}>{registering ? 'Already have an account? Sign in' : 'New vendor? Start onboarding'}</button></form></div>;
+  return <div className="login-page"><form className="login-card" onSubmit={submit}><div className="login-brand"><span>V</span><div><h1>Voya</h1><p>Vendor Console</p></div></div><h2>{registering ? 'Create vendor account' : 'Welcome back'}</h2><p className="muted">{registering ? 'Start a fresh onboarding journey for a new vendor.' : 'Choose a demo account or enter your credentials.'}</p><div className="login-role-buttons"><button type="button" className="btn" onClick={() => selectDemoLogin('vendor')}>Vendor Login</button><button type="button" className="btn" onClick={() => selectDemoLogin('admin')}>Admin Login</button></div>{error && <div className="alert error">{error}</div>}{registering && <label className="field"><span>Full Name</span><input required minLength={2} value={fullName} onChange={(e)=>setFullName(e.target.value)} /></label>}<label className="field"><span>Email</span><input required type="email" value={email} onChange={(e)=>setEmail(e.target.value)} /></label><label className="field"><span>Password</span><input required minLength={6} type="password" value={password} onChange={(e)=>setPassword(e.target.value)} /></label><button className="btn primary wide" disabled={busy}>{busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'}</button>{!registering && <div className="demo-note"><b>Demo accounts</b><code>Vendor: vendor@voya.demo / Demo@123</code><code>Admin: admin@voya.demo / Demo@123</code></div>}<button type="button" className="link-button auth-switch" onClick={() => { setRegistering(!registering); setError(''); }}>{registering ? 'Already have an account? Sign in' : 'New vendor? Start onboarding'}</button></form></div>;
 }
