@@ -19,13 +19,14 @@ export default function ActivityEditor({ activity, onDone, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [ratePlans, setRatePlans] = useState<RatePlan[]>([]);
-  const [media, setMedia] = useState<Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; description?: string; rank: number }>>([]);
+  const [media, setMedia] = useState<Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; description?: string; seoTitle?: string; seoDescription?: string; rank: number }>>([]);
   const [mediaUrl, setMediaUrl] = useState('');
   const [mediaKind, setMediaKind] = useState<'IMAGE' | 'VIDEO'>('IMAGE');
   const [mediaDescription, setMediaDescription] = useState('');
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const mediaCountRef = useRef(0);
   const [showRate, setShowRate] = useState(false);
+  const mediaSrc = (url: string) => url.startsWith('/api/') ? `${(import.meta.env.VITE_API_BASE_URL || '/api')}${url.slice(4)}` : url;
 
   useEffect(() => { setForm(initial); setError(''); }, [initial]);
   useEffect(() => {
@@ -55,7 +56,7 @@ export default function ActivityEditor({ activity, onDone, onSaved }: Props) {
   async function addMedia() {
     if (!activity || !mediaUrl.trim()) return;
     try {
-      const created = await api.request<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; description?: string; rank: number }>(`/activities/${activity.id}/media`, { method: 'POST', body: JSON.stringify({ kind: mediaKind, url: mediaUrl.trim(), description: mediaDescription.trim() || undefined, rank: mediaCountRef.current + 1 }) });
+      const created = await api.request<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; description?: string; seoDescription?: string; rank: number }>(`/activities/${activity.id}/media`, { method: 'POST', body: JSON.stringify({ kind: mediaKind, url: mediaUrl.trim(), description: mediaDescription.trim() || undefined, seoDescription: mediaDescription.trim() || undefined, rank: mediaCountRef.current + 1 }) });
       mediaCountRef.current += 1; setMedia((current) => [...current, created]); setMediaUrl(''); setMediaDescription('');
     } catch (e) { setError((e as Error).message); }
   }
@@ -68,7 +69,7 @@ export default function ActivityEditor({ activity, onDone, onSaved }: Props) {
       const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error('Unable to read media file')); reader.readAsDataURL(file);
     });
     try {
-      const created = await api.request<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; description?: string; rank: number }>(`/activities/${activity.id}/media/upload`, { method: 'POST', body: JSON.stringify({ kind: 'IMAGE', fileName: file.name, dataUrl, description: mediaDescription.trim() || undefined, rank: mediaCountRef.current + 1 }) });
+      const created = await api.request<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; description?: string; seoDescription?: string; rank: number }>(`/activities/${activity.id}/media/upload`, { method: 'POST', body: JSON.stringify({ kind: 'IMAGE', fileName: file.name, dataUrl, description: mediaDescription.trim() || undefined, seoDescription: mediaDescription.trim() || undefined, rank: mediaCountRef.current + 1 }) });
       mediaCountRef.current += 1; setMedia((current) => [...current, created]); setMediaDescription('');
     } catch (e) { setError((e as Error).message); }
   }
@@ -80,8 +81,16 @@ export default function ActivityEditor({ activity, onDone, onSaved }: Props) {
 
   async function removeMedia(mediaId: string) {
     if (!activity) return;
-    try { await api.request(`/activities/${activity.id}/media/${mediaId}`, { method: 'DELETE' }); setMedia(media.filter((m) => m.id !== mediaId)); }
+    try { await api.request(`/activities/${activity.id}/media/${mediaId}`, { method: 'DELETE' }); setMedia((current) => current.filter((m) => m.id !== mediaId)); mediaCountRef.current = Math.max(0, mediaCountRef.current - 1); }
     catch (e) { setError((e as Error).message); }
+  }
+
+  async function saveMediaMeta(item: typeof media[number]) {
+    if (!activity) return;
+    try {
+      const saved = await api.request<typeof item>(`/activities/${activity.id}/media/${item.id}`, { method: 'PATCH', body: JSON.stringify({ description: item.description || undefined, seoTitle: item.seoTitle || undefined, seoDescription: item.seoDescription || undefined }) });
+      setMedia((current) => current.map((m) => m.id === item.id ? saved : m));
+    } catch (e) { setError((e as Error).message); }
   }
 
   async function submit() {
@@ -139,7 +148,7 @@ export default function ActivityEditor({ activity, onDone, onSaved }: Props) {
           <button className="btn accent small" onClick={() => { setMediaKind('VIDEO'); document.getElementById('media-url-entry')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>Add Link</button>
         </div>
         <div id="media-url-entry" className="form-grid three media-entry"><Field label="Media Type"><select value={mediaKind} onChange={(e) => setMediaKind(e.target.value as 'IMAGE' | 'VIDEO')}><option>IMAGE</option><option>VIDEO</option></select></Field><Field label="Media URL"><input placeholder="https://..." value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} /></Field><Field label="SEO description"><input placeholder="Short description" value={mediaDescription} onChange={(e) => setMediaDescription(e.target.value)} /></Field><div className="media-add"><button className="btn accent" onClick={addMedia}>Add Media URL</button></div></div>
-        <div className="media-preview-grid">{media.map((m) => <div className="media-preview-card" key={m.id}>{m.kind === 'IMAGE' ? <img src={m.url} alt={m.description || 'Activity media preview'} /> : <video src={m.url} controls preload="metadata" /> }<div className="media-preview-footer"><div><b>{m.rank === 1 ? 'Cover image' : `Gallery image ${m.rank - 1}`}</b><small className="truncate">{m.description || m.url}</small></div><button className="btn small" onClick={() => removeMedia(m.id)}>Remove</button></div></div>)}{media.length === 0 && <div className="muted">No media uploaded yet.</div>}</div>
+        <div className="media-preview-grid">{media.map((m) => <div className="media-preview-card" key={m.id}>{m.kind === 'IMAGE' ? <img src={mediaSrc(m.url)} alt={m.seoDescription || m.description || 'Activity media preview'} /> : <video src={mediaSrc(m.url)} controls preload="metadata" /> }<div className="media-preview-footer"><div><b>{m.rank === 1 ? 'Cover image' : `Gallery image ${m.rank - 1}`}</b><small className="truncate">{m.url}</small><input placeholder="SEO title" value={m.seoTitle || ''} onChange={(e) => setMedia((current) => current.map((item) => item.id === m.id ? { ...item, seoTitle: e.target.value } : item))} onBlur={() => { const latest = media.find((item) => item.id === m.id); if (latest) void saveMediaMeta(latest); }} /><input placeholder="SEO description / alt text" value={m.seoDescription || m.description || ''} onChange={(e) => setMedia((current) => current.map((item) => item.id === m.id ? { ...item, seoDescription: e.target.value, description: e.target.value } : item))} onBlur={() => { const latest = media.find((item) => item.id === m.id); if (latest) void saveMediaMeta(latest); }} /></div><button className="btn small" onClick={() => void removeMedia(m.id)}>Remove</button></div></div>)}{media.length === 0 && <div className="muted">No media uploaded yet.</div>}</div>
       </>}
     </Panel>
 

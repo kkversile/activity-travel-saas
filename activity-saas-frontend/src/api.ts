@@ -41,7 +41,7 @@ export type Activity = {
   lon?: string | number;
   status: 'DRAFT' | 'UNDER_REVIEW' | 'LIVE' | 'INACTIVE';
   ratePlans?: RatePlan[];
-  media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; description?: string; rank: number }>;
+  media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; url: string; description?: string; seoTitle?: string; seoDescription?: string; rank: number }>;
 };
 
 export type TravellerRule = {

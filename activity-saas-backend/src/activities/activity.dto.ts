@@ -41,6 +41,8 @@ export class UpdateActivityDto {
   @IsOptional() @IsEnum(ProductType) type?: ProductType;
   @IsOptional() @IsString() subType?: string;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() seoTitle?: string;
+  @IsOptional() @IsString() seoDescription?: string;
   @IsOptional() @IsString() shortDescription?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) terms?: string[];
   @IsOptional() @IsArray() faqs?: Array<{ question: string; answer: string }>;
@@ -79,6 +81,8 @@ export class ActivityMediaDto {
   @IsEnum(MediaKind) kind!: MediaKind;
   @IsUrl() url!: string;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() seoTitle?: string;
+  @IsOptional() @IsString() seoDescription?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) rank?: number;
 }
 
@@ -87,5 +91,13 @@ export class ActivityMediaUploadDto {
   @IsString() fileName!: string;
   @IsString() dataUrl!: string;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() seoTitle?: string;
+  @IsOptional() @IsString() seoDescription?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) rank?: number;
+}
+
+export class UpdateActivityMediaDto {
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() seoTitle?: string;
+  @IsOptional() @IsString() seoDescription?: string;
 }

@@ -191,6 +191,8 @@ model ActivityMedia {
   kind        MediaKind
   url         String
   description String?
+  seoTitle    String?
+  seoDescription String?
   rank        Int       @default(1)
 
   @@index([activityId, kind])

@@ -80,7 +80,14 @@ export class ActivitiesService {
     const uploadDir = join(process.cwd(), 'public/uploads');
     await mkdir(uploadDir, { recursive: true });
     await writeFile(join(uploadDir, storedName), Buffer.from(match[2], 'base64'));
-    return this.prisma.activityMedia.create({ data: { activityId: id, kind: dto.kind, url: `/api/uploads/${storedName}`, description: dto.description, rank: dto.rank || 1 } });
+    return this.prisma.activityMedia.create({ data: { activityId: id, kind: dto.kind, url: `/api/uploads/${storedName}`, description: dto.description, seoTitle: dto.seoTitle, seoDescription: dto.seoDescription, rank: dto.rank || 1 } });
+  }
+
+  async updateMedia(user: AuthUser, id: string, mediaId: string, dto: { description?: string; seoTitle?: string; seoDescription?: string }) {
+    await this.get(user, id);
+    const media = await this.prisma.activityMedia.findFirst({ where: { id: mediaId, activityId: id } });
+    if (!media) throw new NotFoundException('Media not found');
+    return this.prisma.activityMedia.update({ where: { id: mediaId }, data: { description: dto.description, seoTitle: dto.seoTitle, seoDescription: dto.seoDescription } });
   }
 
   async removeMedia(user: AuthUser, id: string, mediaId: string) {
@@ -88,6 +95,10 @@ export class ActivitiesService {
     const media = await this.prisma.activityMedia.findFirst({ where: { id: mediaId, activityId: id } });
     if (!media) throw new NotFoundException('Media not found');
     await this.prisma.activityMedia.delete({ where: { id: mediaId } });
+    if (media.url.startsWith('/api/uploads/')) {
+      const { unlink } = await import('fs/promises');
+      await unlink(join(process.cwd(), 'public/uploads', media.url.replace('/api/uploads/', ''))).catch(() => undefined);
+    }
     return { deleted: true };
   }
 
