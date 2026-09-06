@@ -93,6 +93,14 @@ export default function ActivityEditor({ activity, onDone, onSaved }: Props) {
     } catch (e) { setError((e as Error).message); }
   }
 
+  async function updateAllMediaMeta() {
+    if (!activity) return;
+    try {
+      const saved = await api.request<typeof media>(`/activities/${activity.id}/media-meta`, { method: 'PATCH', body: JSON.stringify({ media: media.map((item) => ({ id: item.id, description: item.description, seoTitle: item.seoTitle, seoDescription: item.seoDescription })) }) });
+      setMedia(saved);
+    } catch (e) { setError((e as Error).message); }
+  }
+
   async function submit() {
     if (!activity) return;
     try { const saved = await api.request<Activity>(`/activities/${activity.id}/submit`, { method: 'POST' }); onSaved(saved); }
@@ -133,7 +141,7 @@ export default function ActivityEditor({ activity, onDone, onSaved }: Props) {
       <div className="form-grid three"><Field label="Address / Meeting Point"><input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></Field><Field label="Latitude"><input type="number" step="any" value={form.lat} onChange={(e) => setForm({ ...form, lat: e.target.value })} /></Field><Field label="Longitude"><input type="number" step="any" value={form.lon} onChange={(e) => setForm({ ...form, lon: e.target.value })} /></Field></div>
     </Panel>
 
-    <Panel id="b-media" title="3 · Media" className="mt16">
+    <Panel id="b-media" title="3 · Media" className="mt16" action={activity && <button className="btn small" onClick={() => void updateAllMediaMeta()}>Update Meta</button>}>
       {!activity ? <p className="muted">Save the activity first, then add image/video URLs from the product master.</p> : <>
         <div className={`prototype-upload-card ${media.filter((m) => m.kind === 'IMAGE').length ? 'done' : ''}`}>
           <div className="upload-left"><span className="doc-icon">{media.filter((m) => m.kind === 'IMAGE').length ? '✓' : '+'}</span><div><b>Cover Image</b><small>1600×900 recommended · Rank 1</small></div></div>

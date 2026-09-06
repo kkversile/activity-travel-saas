@@ -101,3 +101,7 @@ export class UpdateActivityMediaDto {
   @IsOptional() @IsString() seoTitle?: string;
   @IsOptional() @IsString() seoDescription?: string;
 }
+
+export class BulkUpdateActivityMediaDto {
+  @IsArray() media!: Array<{ id: string; description?: string; seoTitle?: string; seoDescription?: string }>;
+}

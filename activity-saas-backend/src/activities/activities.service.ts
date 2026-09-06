@@ -90,6 +90,14 @@ export class ActivitiesService {
     return this.prisma.activityMedia.update({ where: { id: mediaId }, data: { description: dto.description, seoTitle: dto.seoTitle, seoDescription: dto.seoDescription } });
   }
 
+  async updateMediaMetadata(user: AuthUser, id: string, items: Array<{ id: string; description?: string; seoTitle?: string; seoDescription?: string }>) {
+    await this.get(user, id);
+    const media = await this.prisma.activityMedia.findMany({ where: { activityId: id, id: { in: items.map((item) => item.id) } }, select: { id: true } });
+    const validIds = new Set(media.map((item) => item.id));
+    await this.prisma.$transaction(items.filter((item) => validIds.has(item.id)).map((item) => this.prisma.activityMedia.update({ where: { id: item.id }, data: { description: item.description, seoTitle: item.seoTitle, seoDescription: item.seoDescription } })));
+    return this.prisma.activityMedia.findMany({ where: { activityId: id }, orderBy: { rank: 'asc' } });
+  }
+
   async removeMedia(user: AuthUser, id: string, mediaId: string) {
     await this.get(user, id);
     const media = await this.prisma.activityMedia.findFirst({ where: { id: mediaId, activityId: id } });

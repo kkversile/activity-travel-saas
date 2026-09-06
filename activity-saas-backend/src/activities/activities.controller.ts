@@ -5,7 +5,7 @@ import { AuthUser } from '../common/auth.types';
 import { CurrentUser } from '../common/current-user.decorator';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
-import { ActivityMediaDto, ActivityMediaUploadDto, ActivityQueryDto, CreateActivityDto, UpdateActivityDto, UpdateActivityMediaDto } from './activity.dto';
+import { ActivityMediaDto, ActivityMediaUploadDto, ActivityQueryDto, BulkUpdateActivityMediaDto, CreateActivityDto, UpdateActivityDto, UpdateActivityMediaDto } from './activity.dto';
 import { ActivitiesService } from './activities.service';
 
 @Controller('activities')
@@ -35,6 +35,9 @@ export class ActivitiesController {
 
   @Patch(':id/media/:mediaId')
   updateMedia(@CurrentUser() user: AuthUser, @Param('id') id: string, @Param('mediaId') mediaId: string, @Body() dto: UpdateActivityMediaDto) { return this.service.updateMedia(user, id, mediaId, dto); }
+
+  @Patch(':id/media-meta')
+  updateMediaMetadata(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: BulkUpdateActivityMediaDto) { return this.service.updateMediaMetadata(user, id, dto.media); }
 
   @Delete(':id/media/:mediaId')
   removeMedia(@CurrentUser() user: AuthUser, @Param('id') id: string, @Param('mediaId') mediaId: string) { return this.service.removeMedia(user, id, mediaId); }
