@@ -1,32 +1,9 @@
-# Dependencies
-**/node_modules/
-
-# Builds and test output
-**/.next/
-**/dist/
-**/build/
-**/coverage/
-**/test-results/
-**/playwright-report/
-**/*.tsbuildinfo
-
-# Local environment and secrets
-**/.env
-**/.env.*
-!**/.env.example
-
-# Logs and local runtime files
-**/*.log
-*.pid
-
-# IDE and OS files
-.vscode/
-.idea/
-*.swp
-Thumbs.db
-desktop.ini
-
-# Local database/runtime artifacts
-*.sqlite
-*.sqlite3
-*.db
+node_modules
+.env
+.env.*
+!.env.example
+dist
+coverage
+.vite
+*.log
+.DS_Store
