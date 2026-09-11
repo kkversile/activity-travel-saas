@@ -4,7 +4,7 @@ import { AuthUser } from './auth.types';
 export const PERMISSIONS = [
   'vendor.profile.view', 'vendor.profile.edit', 'document.view', 'document.upload', 'document.review',
   'product.view', 'product.edit', 'product.submit', 'product.publish', 'rateplan.view', 'rateplan.edit',
-  'inventory.view', 'inventory.edit', 'schedule.view', 'schedule.edit', 'resource.view', 'resource.edit', 'booking.view', 'booking.confirm', 'booking.cancel', 'payout.view', 'audit.view',
+  'inventory.view', 'inventory.edit', 'schedule.view', 'schedule.edit', 'resource.view', 'resource.edit', 'booking.view', 'booking.confirm', 'booking.cancel', 'booking.create', 'booking.view.own', 'booking.view.vendor', 'booking.confirm.vendor', 'booking.reject.vendor', 'booking.view.admin', 'booking.manual.decide', 'booking.expiry.run', 'payout.view', 'audit.view',
   'commercial.vendor.view', 'commercial.vendor.edit', 'commercial.internal.view', 'commercial.internal.edit', 'commercial.agent-groups.manage', 'commercial.quote.internal', 'marketplace.search', 'marketplace.view', 'eligibility.inspect', 'agent.governance.view', 'agent.governance.edit', 'marketplace.channel.manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -14,19 +14,19 @@ const operations: Permission[] = ['vendor.profile.view', 'document.view', 'produ
 const finance: Permission[] = ['vendor.profile.view', 'document.view', 'payout.view'];
 const viewer: Permission[] = ['vendor.profile.view', 'product.view', 'rateplan.view', 'schedule.view', 'inventory.view', 'resource.view', 'booking.view'];
 const agent: Record<OrganizationRole, Permission[]> = {
-  OWNER: ['marketplace.search', 'marketplace.view'],
-  CATALOGUE: ['marketplace.search', 'marketplace.view'],
-  OPERATIONS: ['marketplace.search', 'marketplace.view'],
-  VIEWER: ['marketplace.search', 'marketplace.view'],
+  OWNER: ['marketplace.search', 'marketplace.view', 'booking.create', 'booking.view.own'],
+  CATALOGUE: ['marketplace.search', 'marketplace.view', 'booking.create', 'booking.view.own'],
+  OPERATIONS: ['marketplace.search', 'marketplace.view', 'booking.create', 'booking.view.own'],
+  VIEWER: ['marketplace.search', 'marketplace.view', 'booking.create', 'booking.view.own'],
   FINANCE: [],
 };
 
 export function permissionsFor(user: Pick<AuthUser, 'role' | 'organizationRole'>): Set<Permission> {
   if (user.role === UserRole.ADMIN) return new Set(PERMISSIONS);
-  if (user.role === UserRole.SUB_ADMIN) return new Set(['vendor.profile.view', 'document.view', 'document.review', 'product.view', 'product.publish', 'booking.view', 'payout.view', 'audit.view', 'commercial.internal.view', 'commercial.internal.edit', 'commercial.agent-groups.manage', 'commercial.quote.internal', 'eligibility.inspect', 'agent.governance.view', 'agent.governance.edit', 'marketplace.channel.manage']);
+  if (user.role === UserRole.SUB_ADMIN) return new Set(['vendor.profile.view', 'document.view', 'document.review', 'product.view', 'product.publish', 'booking.view', 'booking.view.admin', 'booking.manual.decide', 'booking.expiry.run', 'payout.view', 'audit.view', 'commercial.internal.view', 'commercial.internal.edit', 'commercial.agent-groups.manage', 'commercial.quote.internal', 'eligibility.inspect', 'agent.governance.view', 'agent.governance.edit', 'marketplace.channel.manage']);
   if (user.role === UserRole.TRAVEL_AGENT) return new Set(user.organizationRole ? agent[user.organizationRole] : []);
   if (user.role !== UserRole.VENDOR) return new Set();
-  const roleMap: Record<OrganizationRole, Permission[]> = { OWNER: ['vendor.profile.view', 'vendor.profile.edit', 'document.view', 'document.upload', 'product.view', 'product.edit', 'product.submit', 'rateplan.view', 'rateplan.edit', 'inventory.view', 'inventory.edit', 'schedule.view', 'schedule.edit', 'resource.view', 'resource.edit', 'booking.view', 'booking.confirm', 'booking.cancel', 'payout.view', 'audit.view', 'commercial.vendor.view', 'commercial.vendor.edit'], CATALOGUE: catalogue, OPERATIONS: operations, FINANCE: finance, VIEWER: viewer };
+  const roleMap: Record<OrganizationRole, Permission[]> = { OWNER: ['vendor.profile.view', 'vendor.profile.edit', 'document.view', 'document.upload', 'product.view', 'product.edit', 'product.submit', 'rateplan.view', 'rateplan.edit', 'inventory.view', 'inventory.edit', 'schedule.view', 'schedule.edit', 'resource.view', 'resource.edit', 'booking.view', 'booking.confirm', 'booking.cancel', 'booking.view.vendor', 'booking.confirm.vendor', 'booking.reject.vendor', 'payout.view', 'audit.view', 'commercial.vendor.view', 'commercial.vendor.edit'], CATALOGUE: [...catalogue, 'booking.view.vendor'], OPERATIONS: [...operations, 'booking.view.vendor', 'booking.confirm.vendor', 'booking.reject.vendor'], FINANCE: [...finance, 'booking.view.vendor'], VIEWER: [...viewer, 'booking.view.vendor'] };
   return new Set(user.organizationRole ? roleMap[user.organizationRole] : []);
 }
 

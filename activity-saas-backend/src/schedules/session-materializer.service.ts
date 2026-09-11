@@ -11,7 +11,7 @@ export class SessionMaterializerService {
   async materialize(scheduleTemplateId: string, dto: MaterializeSessionsDto) {
     const from = isoDate(dto.dateFrom); const to = isoDate(dto.dateTo); const days = Math.round((to.getTime() - from.getTime()) / 86400000) + 1;
     if (days < 1 || days > 366) throw new BadRequestException('Materialization range must be 1-366 days');
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => { if ((tx as any).$executeRawUnsafe) await (tx as any).$executeRawUnsafe('SET LOCAL search_path TO public');
       const rows = await tx.$queryRawUnsafe<any[]>(`SELECT * FROM "ScheduleTemplate" WHERE "id" = $1 FOR UPDATE`, scheduleTemplateId); if (!rows[0]) throw new NotFoundException('Schedule not found'); if (Number(rows[0].version) !== dto.expectedVersion) throw new ConflictException('Schedule changed; reload and retry.');
       const schedule = await tx.scheduleTemplate.findUnique({ where: { id: scheduleTemplateId }, include: { variant: true, slotTemplates: { where: { active: true, archivedAt: null }, orderBy: { rank: 'asc' } }, exceptions: { where: { archivedAt: null, serviceDate: { gte: from, lte: to } } } } }); if (!schedule) throw new NotFoundException('Schedule not found');
       if (schedule.status !== 'ACTIVE') throw new ConflictException('Only ACTIVE schedules can be materialized'); if (!schedule.operatingModel) throw new ConflictException('Schedule operating model is missing'); validateTimezone(schedule.timezone);

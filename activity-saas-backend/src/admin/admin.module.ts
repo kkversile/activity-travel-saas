@@ -4,6 +4,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { EligibilityModule } from '../eligibility/eligibility.module';
+import { BookingsModule } from '../bookings/bookings.module';
 
-@Module({ imports: [PrismaModule, AuthModule, EligibilityModule], controllers: [AdminController], providers: [AdminService] })
+@Module({ imports: [PrismaModule, AuthModule, EligibilityModule, BookingsModule], controllers: [AdminController], providers: [AdminService] })
 export class AdminModule {}

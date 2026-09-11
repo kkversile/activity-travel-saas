@@ -48,6 +48,7 @@ export type ProductRevision = {
   lat?: string | number;
   lon?: string | number;
   media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; externalUrl?: string | null; fileAssetId?: string | null; description?: string; seoTitle?: string; seoDescription?: string; rank: number }>;
+  bookingQuestions?: Array<{ id: string; code: string; label: string; helpText?: string | null; type: 'TEXT' | 'NUMBER' | 'BOOLEAN' | 'SELECT'; required: boolean; options?: unknown; appliesPerTraveller: boolean; rank: number }>;
 };
 
 export type ProductVariant = { id: string; productId: string; variantCode: string; name: string; description?: string; status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'; version: number; durationMinutes?: number; privateShared?: string; vehicleType?: string; pickupIncluded: boolean; pickupType?: string; pickupInput?: string; pickupTimings?: string; dropoffIncluded: boolean; dropoffTimings?: string; mealIncluded: boolean; mealType?: string; menu?: string[]; mealVariety?: string; pointsOfInterest?: string[]; inclusions: string[]; exclusions: string[]; suitableFor: string[]; ratePlans?: RatePlan[] };
@@ -96,7 +97,7 @@ export type RatePlan = {
   commercialReadiness?: { ready: boolean; reasonCodes: string[]; activeVersion?: CommercialVersion | null; draftVersion?: CommercialVersion | null };
 };
 
-export type CommercialVersion = { id: string; versionNumber: number; status: 'DRAFT' | 'ACTIVE' | 'RETIRED'; effectiveFrom: string; effectiveTo?: string | null; supplierModel?: string | null; currency: string; pricingUnit?: string | null; supplierBaseAmount?: string | number | null; supplierCommissionPercent?: string | number | null; bookingMode?: string | null; travellerPrices: Array<{ id?: string; travellerType: TravellerRule['type']; amount: string | number }> };
+export type CommercialVersion = { id: string; versionNumber: number; status: 'DRAFT' | 'ACTIVE' | 'RETIRED'; effectiveFrom: string; effectiveTo?: string | null; supplierModel?: string | null; currency: string; pricingUnit?: string | null; supplierBaseAmount?: string | number | null; supplierCommissionPercent?: string | number | null; bookingMode?: string | null; confirmationSlaMinutes?: number | null; travellerPrices: Array<{ id?: string; travellerType: TravellerRule['type']; amount: string | number }> };
 
 export type Booking = {
   id: string;
@@ -105,11 +106,22 @@ export type Booking = {
   serviceDate: string;
   pax: number;
   amount: number;
-  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED';
+  status: string;
   customerName: string;
   product: { productCode: string; currentRevision?: { productName: string } | null };
   ratePlan?: { name: string };
+  bookingMode?: string | null;
+  confirmationDueAt?: string | null;
+  productRevisionId?: string | null;
+  events?: Array<{ eventType: string; fromStatus?: string | null; toStatus: string; createdAt: string; reason?: string | null }>;
 };
+
+export type BookingTimelineEvent = { eventType: string; fromStatus?: string | null; toStatus?: string | null; createdAt: string; reason?: string | null; metadata?: Record<string, unknown> | null; actorRole?: string | null };
+export type BookingSnapshot = { productSnapshot: Record<string, any>; variantSnapshot: Record<string, any>; ratePlanSnapshot: Record<string, any>; sessionSnapshot: Record<string, any>; travellerSummary: Record<string, any>; cancellationPolicySnapshot: Array<Record<string, any>>; pickupSnapshot?: Record<string, any> | null; questionsSnapshot: Array<Record<string, any>>; agentSnapshot: { tenantId: string; tenantName: string; userId: string; userName?: string; email?: string } };
+export type CanonicalBooking = { id: string; bookingCode: string; recordType: 'CANONICAL' | 'LEGACY'; status: string; bookingMode?: string | null; serviceDate: string; serviceTimezone?: string | null; confirmationDueAt?: string | null; confirmedAt?: string | null; rejectedAt?: string | null; expiredAt?: string | null; customerName: string; customerEmail?: string | null; amount?: number; currency?: string; snapshot?: BookingSnapshot | null; travellers: Array<Record<string, any>>; timeline: BookingTimelineEvent[] };
+export type AgentBooking = CanonicalBooking & { economics?: Record<string, any> | null };
+export type VendorBooking = CanonicalBooking & { vendor: { id?: string; name?: string }; agent?: { id: string; name: string } | null; economics?: Record<string, any> | null };
+export type AdminBooking = CanonicalBooking & { vendorTenant?: Record<string, any>; agentTenant?: Record<string, any>; agentUser?: Record<string, any>; product?: Record<string, any>; ratePlan?: Record<string, any>; economicsSnapshot?: Record<string, any> | null; inventoryHolds?: Array<Record<string, any>>; inventoryAllocations?: Array<Record<string, any>> };
 
 export type InventoryRow = {
   id: string; productId: string; productCode: string; productName?: string | null; variantId: string; scheduleId: string; scheduleName: string;
@@ -121,6 +133,13 @@ export type InventoryResource = { id: string; resourceCode: string; name: string
 export type Schedule = { id: string; variantId: string; scheduleCode: string; name: string; status: 'DRAFT'|'ACTIVE'|'INACTIVE'|'ARCHIVED'; operatingModel?: string|null; timezone: string; effectiveFrom: string; effectiveTo?: string|null; operatingDays: string[]; capacityUnit: string; capacityUnitReviewRequired?: boolean; defaultCapacity?: number|null; version: number; slotTemplates: Array<{ id:string; slotCode:string; label?:string|null; startTime:string; endTime?:string|null; active:boolean; archivedAt?:string|null }>; ratePlanMappings: Array<{ id:string; active:boolean; ratePlan:{id:string;ratePlanCode:string;name:string} }>; exceptions?: Array<{id:string;serviceDate:string;slotTemplateId?:string|null;type:string;reason:string}>; resourceRequirements?: Array<{id:string;resourceType:string;quantity:number;required:boolean;version:number;active:boolean;archivedAt?:string|null}>; variant?: ProductVariant };
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '/voya/api' : '/api');
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  details?: unknown;
+  constructor(status: number, message: string, code?: string, details?: unknown) { super(message); this.name = 'ApiError'; this.status = status; this.code = code; this.details = details; }
+}
 
 class ApiClient {
   token = localStorage.getItem('voya_token');
@@ -145,9 +164,13 @@ class ApiClient {
       let message = `${res.status} ${res.statusText}`;
       try {
         const body = await res.json();
-        message = Array.isArray(body.message) ? body.message.join(', ') : body.message || message;
-      } catch { /* ignore */ }
-      throw new Error(message);
+        const payload = body.message && typeof body.message === 'object' ? body.message : body;
+        message = Array.isArray(payload.message) ? payload.message.join(', ') : payload.message || message;
+        throw new ApiError(res.status, message, payload.code, payload.details || payload.gates);
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(res.status, message);
+      }
     }
     if (res.status === 204) return undefined as T;
     return res.json();

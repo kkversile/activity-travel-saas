@@ -1,12 +1,12 @@
 import { AgentCommercialModel, BookingMode, CommercialRuleKind, CommercialScopeType, CommercialStackingMode, PricingUnit, SupplierCommercialModel, TaxMode, TravellerType, VoyaRevenueModel } from '@prisma/client';
 import { PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsDateString, IsEnum, IsInt, IsObject, IsOptional, IsString, Matches, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsDateString, IsEnum, IsInt, IsObject, IsOptional, IsString, Matches, Max, Min, ValidateNested } from 'class-validator';
 
 const DECIMAL = /^\d+(\.\d{1,4})?$/;
 export class TravellerPriceDto { @IsEnum(TravellerType) travellerType!: TravellerType; @IsString() @Matches(DECIMAL) amount!: string; }
 export class CreateCommercialVersionDto {
-  @IsDateString() effectiveFrom!: string; @IsOptional() @IsDateString() effectiveTo?: string; @IsOptional() @IsEnum(SupplierCommercialModel) supplierModel?: SupplierCommercialModel; @IsOptional() @IsString() currency?: string; @IsOptional() @IsEnum(PricingUnit) pricingUnit?: PricingUnit; @IsOptional() @IsString() @Matches(DECIMAL) supplierBaseAmount?: string; @IsOptional() @IsString() @Matches(DECIMAL) supplierCommissionPercent?: string; @IsOptional() @IsEnum(BookingMode) bookingMode?: BookingMode; @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => TravellerPriceDto) travellerPrices?: TravellerPriceDto[];
+  @IsDateString() effectiveFrom!: string; @IsOptional() @IsDateString() effectiveTo?: string; @IsOptional() @IsEnum(SupplierCommercialModel) supplierModel?: SupplierCommercialModel; @IsOptional() @IsString() currency?: string; @IsOptional() @IsEnum(PricingUnit) pricingUnit?: PricingUnit; @IsOptional() @IsString() @Matches(DECIMAL) supplierBaseAmount?: string; @IsOptional() @IsString() @Matches(DECIMAL) supplierCommissionPercent?: string; @IsOptional() @IsEnum(BookingMode) bookingMode?: BookingMode; @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(525600) confirmationSlaMinutes?: number; @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => TravellerPriceDto) travellerPrices?: TravellerPriceDto[];
 }
 export class UpdateCommercialVersionDto extends PartialType(CreateCommercialVersionDto) {}
 export class CreateCommercialRuleDto { @IsString() code!: string; @IsString() name!: string; @IsEnum(CommercialRuleKind) kind!: CommercialRuleKind; @IsEnum(CommercialScopeType) scopeType!: CommercialScopeType; @IsOptional() @IsString() vendorTenantId?: string; @IsOptional() @IsString() productId?: string; @IsOptional() @IsString() variantId?: string; @IsOptional() @IsString() ratePlanId?: string; @IsOptional() @IsString() agentGroupId?: string; @IsOptional() @IsString() agentTenantId?: string; }

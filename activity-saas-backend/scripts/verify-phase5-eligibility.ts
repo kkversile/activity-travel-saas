@@ -14,7 +14,8 @@ async function main() {
   const plan: any = await prisma.ratePlan.findFirst({ where: { ratePlanCode: 'RP-DEMO-001', channelMappings: { some: { enabled: true, channel: { code: 'VOYA_AGENT' } } } }, include: { variant: { include: { product: true, schedules: true } } } });
   const tomorrow = new Date(); tomorrow.setUTCHours(0, 0, 0, 0); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   const controlledSchedule = plan?.variant.schedules.find((schedule: any) => schedule.scheduleCode === 'SEED-SUNRISE-SHARED');
-  const session: any = controlledSchedule ? await prisma.serviceSession.findFirst({ where: { scheduleTemplateId: controlledSchedule.id, serviceDate: { gte: tomorrow }, status: 'OPEN', archivedAt: null }, orderBy: { serviceDate: 'asc' } }) : null;
+  const candidateSessions: any[] = controlledSchedule ? await prisma.serviceSession.findMany({ where: { scheduleTemplateId: controlledSchedule.id, serviceDate: { gte: tomorrow }, status: 'OPEN', archivedAt: null }, include: { inventoryState: true }, orderBy: { serviceDate: 'asc' } }) : [];
+  const session: any = candidateSessions.find((item) => Number(item.inventoryState?.totalCapacity ?? 0) - Number(item.inventoryState?.blockedCapacity ?? 0) - Number(item.inventoryState?.heldCapacity ?? 0) - Number(item.inventoryState?.confirmedCapacity ?? 0) >= 2) ?? candidateSessions[0];
   if (!agent || !plan || !session) throw new Error('Controlled Phase 5 fixture is incomplete; run npm run prisma:seed first.');
   const before = { counts: await snapshot(), state: await prisma.inventoryState.findUnique({ where: { sessionId: session.id }, select: { heldCapacity: true, confirmedCapacity: true, blockedCapacity: true } }) };
   const safeNow = session.startsAt ? new Date(new Date(session.startsAt).getTime() - 10_800_000) : new Date(new Date(session.serviceDate).getTime() - 86_400_000);

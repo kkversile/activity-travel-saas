@@ -1,88 +1,164 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { BookingStatus } from '@prisma/client';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { BookingMode, BookingRecordType, BookingStatus, Prisma, ProductRevisionStatus, TenantKind } from '@prisma/client';
 import { FilePurpose, FileVisibility } from '@prisma/client';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
-import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { CommercialService } from '../commercial/commercial.service';
+import { EligibilityService } from '../eligibility/eligibility.service';
+import { normalizeTravellers } from '../eligibility/traveller-normalization';
+import { InventoryReservationService } from '../inventory/inventory-reservation.service';
+import { capacityQuantity } from '../inventory/inventory.types';
 import { OutboxService } from '../outbox/outbox.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { BookingCreateDto, BookingDecisionDto, BookingListQueryDto, BookingPreviewDto, BookingTravellerDetailDto } from './booking.dto';
+import { bookingRequestFingerprint, fingerprint } from './booking-fingerprint';
+import { CancellationPolicyService } from './cancellation-policy.service';
+import { BookingProjectionService } from './booking-projection.service';
+import { BookingSnapshotService } from './booking-snapshot.service';
+
+const bookingInclude: any = { events: { orderBy: { createdAt: 'asc' } }, travellers: { orderBy: { sequence: 'asc' } }, operationalSnapshot: true, economicsSnapshot: true, inventoryHolds: true, inventoryAllocations: true, vendorTenant: { select: { id: true, name: true } }, agentTenant: { select: { id: true, name: true } }, agentUser: { select: { id: true, fullName: true, email: true } }, product: { select: { id: true, productCode: true } }, ratePlan: { select: { id: true, ratePlanCode: true, name: true } } };
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService, private readonly audit: AuditService, private readonly outbox: OutboxService) {}
+  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly eligibility: EligibilityService, private readonly commercial: CommercialService, private readonly inventory: InventoryReservationService, private readonly policy: CancellationPolicyService, private readonly snapshot: BookingSnapshotService, private readonly projection: BookingProjectionService) {}
 
-  private voucherPdf(lines: string[]) {
-    const escape = (value: string) => value.replace(/([\\()])/g, '\\$1');
-    const text = lines.map((line, index) => `BT /F1 ${index === 0 ? 18 : 11} Tf 50 ${750 - index * 28} Td (${escape(line)}) Tj ET`).join('\n');
-    const objects = [
-      '<< /Type /Catalog /Pages 2 0 R >>',
-      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
-      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-      `<< /Length ${Buffer.byteLength(text, 'utf8')} >>\nstream\n${text}\nendstream`,
-    ];
-    const chunks = ['%PDF-1.4\n'];
-    const offsets = [0];
-    for (let i = 0; i < objects.length; i += 1) { offsets.push(Buffer.byteLength(chunks.join(''), 'utf8')); chunks.push(`${i + 1} 0 obj\n${objects[i]}\nendobj\n`); }
-    const xref = Buffer.byteLength(chunks.join(''), 'utf8');
-    chunks.push(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
-    return Buffer.from(chunks.join(''), 'utf8');
-  }
-
-  async list(user: AuthUser, status?: BookingStatus) {
-    const tenantId = requireTenant(user);
-    const rows = await this.prisma.booking.findMany({
-      where: { tenantId, ...(status ? { status } : {}) },
-      include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } }, ratePlan: { select: { name: true } } },
-      orderBy: [{ serviceDate: 'asc' }, { createdAt: 'desc' }],
-      take: 200,
-    });
-    return rows.map((b) => ({ ...b, amount: Number(b.amount) }));
-  }
-
-  async confirm(user: AuthUser, id: string) {
-    const tenantId = requireTenant(user);
-    const changed = await this.prisma.$transaction(async (tx) => {
-      const changed = await tx.booking.updateMany({ where: { id, tenantId, status: BookingStatus.PENDING }, data: { status: BookingStatus.CONFIRMED, version: { increment: 1 } } });
-      if (changed.count === 1) { await this.audit.write(tx, { actor: user, tenantId, action: 'BOOKING_CONFIRMED', entityType: 'Booking', entityId: id, afterState: { status: BookingStatus.CONFIRMED } }); await this.outbox.enqueue(tx, { tenantId, eventType: 'BOOKING_CONFIRMED', aggregateType: 'Booking', aggregateId: id, payload: { status: BookingStatus.CONFIRMED } }); }
-      return changed;
-    });
-    if (changed.count !== 1) {
-      const exists = await this.prisma.booking.findFirst({ where: { id, tenantId } });
-      if (!exists) throw new NotFoundException('Booking not found');
-      throw new ConflictException(`Booking cannot be confirmed from ${exists.status}`);
-    }
-    return this.prisma.booking.findUnique({ where: { id } });
-  }
-
-  async cancel(user: AuthUser, id: string) {
-    const tenantId = requireTenant(user);
-    const changed = await this.prisma.$transaction(async (tx) => { const changed = await tx.booking.updateMany({ where: { id, tenantId, status: { in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] } }, data: { status: BookingStatus.CANCELLED, version: { increment: 1 } } }); if (changed.count === 1) { await this.audit.write(tx, { actor: user, tenantId, action: 'BOOKING_CANCELLED', entityType: 'Booking', entityId: id, afterState: { status: BookingStatus.CANCELLED } }); await this.outbox.enqueue(tx, { tenantId, eventType: 'BOOKING_CANCELLED', aggregateType: 'Booking', aggregateId: id, payload: { status: BookingStatus.CANCELLED } }); } return changed; });
-    if (changed.count !== 1) throw new ConflictException('Booking cannot be cancelled');
-    return this.prisma.booking.findUnique({ where: { id } });
-  }
-
-  async voucher(user: AuthUser, id: string) {
-    const tenantId = requireTenant(user);
-    const booking = await this.prisma.booking.findFirst({ where: { id, tenantId }, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true, address: true } } } }, ratePlan: { select: { name: true, variant: { select: { pickupInput: true } } } } } });
-    if (!booking) throw new NotFoundException('Booking not found');
-    if (!([BookingStatus.CONFIRMED, BookingStatus.COMPLETED] as BookingStatus[]).includes(booking.status)) throw new ConflictException('Voucher is available only for confirmed bookings');
-    const voucherCode = `VCH-${booking.bookingCode}`;
-    const pdf = this.voucherPdf([
-      'VOYA BOOKING VOUCHER',
-      `Voucher: ${voucherCode}`,
-      `Booking ID: ${booking.bookingCode}`,
-      `Product: ${booking.product.currentRevision?.productName || booking.product.productCode}`,
-      `Rate plan: ${booking.ratePlan?.name || 'Standard'}`,
-      `Service date: ${new Date(booking.serviceDate).toLocaleDateString('en-IN')}`,
-      `Travellers: ${booking.pax}`,
-      `Amount: INR ${Number(booking.amount).toFixed(2)}`,
-      `Meeting point: ${booking.product.currentRevision?.address || booking.ratePlan?.variant?.pickupInput || 'As confirmed with the vendor'}`,
-      'Status: CONFIRMED',
+  private assertAgent(user: AuthUser) { if (user.role !== 'TRAVEL_AGENT' || !user.tenantId) throw new ForbiddenException('An authenticated Travel Agent is required'); return user.tenantId; }
+  private async loadContext(client: any, ratePlanId: string, sessionId: string, agentTenantId: string) {
+    const [plan, session, agent] = await Promise.all([
+      client.ratePlan.findUnique({
+        where: { id: ratePlanId },
+        include: {
+          travellerRules: true,
+          cancellationRules: true,
+          channelMappings: { include: { channel: true } },
+          scheduleMappings: { where: { active: true } },
+          variant: {
+            include: {
+              product: {
+                include: {
+                  tenant: { include: { vendorProfile: true } },
+                  currentRevision: {
+                    include: { bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+      client.serviceSession.findUnique({ where: { id: sessionId }, include: { inventoryState: true, scheduleTemplate: true } }),
+      client.tenant.findUnique({ where: { id: agentTenantId }, include: { agentProfile: true } }),
     ]);
-    const existing = await this.prisma.fileAsset.findFirst({ where: { tenantId, purpose: FilePurpose.BOOKING_VOUCHER, entityId: booking.id, archivedAt: null }, orderBy: { createdAt: 'desc' } });
-    const asset = existing ?? await (async () => { const saved = await this.storage.save(pdf, FilePurpose.BOOKING_VOUCHER, '.pdf'); try { return await this.prisma.fileAsset.create({ data: { tenantId, storageKey: saved.storageKey, originalName: `voucher-${booking.bookingCode}.pdf`, mimeType: 'application/pdf', sizeBytes: saved.sizeBytes, visibility: FileVisibility.PRIVATE, purpose: FilePurpose.BOOKING_VOUCHER, entityType: 'Booking', entityId: booking.id, createdById: user.sub } }); } catch (error) { await this.storage.remove(saved.storageKey); throw error; } })();
-    return { voucherCode, fileId: asset.id, fileName: asset.originalName, booking };
+    return { plan, session, agent };
   }
+
+  private requestFingerprint(agentTenantId: string, dto: BookingCreateDto) { return bookingRequestFingerprint({ agentTenantId, ratePlanId: dto.ratePlanId, sessionId: dto.sessionId, travellers: normalizeTravellers(dto.travellers as any).normalizedTravellers, units: dto.units ?? null, travellerDetails: dto.travellerDetails ?? null, pickupDetails: dto.pickupDetails ?? null, bookingAnswers: dto.bookingAnswers ?? {}, customerName: dto.customerName, customerEmail: dto.customerEmail }); }
+  private contextFingerprint(context: any, quote: any, policyFingerprint: string) { const { plan, session } = context; return fingerprint({ productRevisionId: plan.variant.product.currentRevision.id, variantId: plan.variant.id, variantVersion: plan.variant.version, ratePlanId: plan.id, ratePlanCode: plan.ratePlanCode, sessionId: session.id, sessionVersion: session.version, sessionKey: session.sessionKey, serviceTimezone: session.scheduleTemplate.timezone, quoteFingerprint: quote.quoteFingerprint, cancellationPolicyFingerprint: policyFingerprint }); }
+
+  async preview(user: AuthUser, dto: BookingPreviewDto) {
+    const agentTenantId = this.assertAgent(user); const now = new Date(); const context = await this.loadContext(this.prisma, dto.ratePlanId, dto.sessionId, agentTenantId);
+    const eligibility = await this.eligibility.evaluate({ agentTenantId, ratePlanId: dto.ratePlanId, sessionId: dto.sessionId, travellers: dto.travellers as any, units: dto.units, channelCode: 'VOYA_AGENT', now });
+    if (!context.plan || !context.session || !context.agent) return { eligible: false, bookingMode: eligibility.bookingMode, gates: eligibility.gates, priceChanged: false, contextFingerprint: null };
+    const quote = await this.commercial.evaluateInternal({ ratePlanId: dto.ratePlanId, serviceDate: new Date(context.session.serviceDate), units: dto.units ?? 1, travellers: normalizeTravellers(dto.travellers as any).normalizedTravellers, agentTenantId }, this.prisma);
+    const policy = await this.policy.load(this.prisma, dto.ratePlanId); const currentQuoteFingerprint = quote.quoteFingerprint ?? this.commercial.quoteFingerprint(quote); const contextFingerprint = this.contextFingerprint(context, { ...quote, quoteFingerprint: currentQuoteFingerprint }, policy.fingerprint); const currentAmount = quote.finalAmount?.toString() ?? null;
+    return { eligible: eligibility.eligible && quote.ready, bookingMode: quote.bookingMode, price: this.commercial.projectForAgent({ ...quote, quoteFingerprint: currentQuoteFingerprint }), quoteFingerprint: currentQuoteFingerprint, priceChanged: Boolean((dto.sourceQuoteFingerprint && dto.sourceQuoteFingerprint !== currentQuoteFingerprint) || (dto.sourceFinalAmount && dto.sourceFinalAmount !== currentAmount)), previousPrice: dto.sourceFinalAmount ?? null, cancellationPolicy: policy.policy, cancellationPolicyFingerprint: policy.fingerprint, questions: context.plan.variant.product.currentRevision.bookingQuestions, capacityConsumption: eligibility.capacityConsumption, confirmationSlaMinutes: quote.confirmationSlaMinutes ?? null, confirmationDueEstimate: quote.bookingMode !== BookingMode.INSTANT && quote.confirmationSlaMinutes ? new Date(now.getTime() + quote.confirmationSlaMinutes * 60_000) : null, productRevisionId: context.plan.variant.product.currentRevision.id, variantVersion: context.plan.variant.version, contextFingerprint, gates: eligibility.gates };
+  }
+
+  async create(user: AuthUser, dto: BookingCreateDto, idempotencyKey: string) {
+    const agentTenantId = this.assertAgent(user); if (!idempotencyKey?.trim()) throw new ConflictException('Idempotency-Key is required'); const key = idempotencyKey.trim(); const requestFingerprint = this.requestFingerprint(agentTenantId, dto);
+    const existing = await this.prisma.booking.findFirst({ where: { agentTenantId, idempotencyKey: key }, include: bookingInclude }); if (existing) return this.resolveIdempotency(existing, requestFingerprint);
+    try {
+      const saved = await this.prisma.$transaction(async (tx) => { if ((tx as any).$executeRawUnsafe) await (tx as any).$executeRawUnsafe('SET LOCAL search_path TO public');
+        const context = await this.loadContext(tx, dto.ratePlanId, dto.sessionId, agentTenantId); if (!context.plan || !context.session || !context.agent) throw new NotFoundException('Booking context not found');
+        if (context.agent.kind !== TenantKind.TRAVEL_AGENT || context.agent.agentProfile?.verificationStatus !== 'APPROVED') throw new ForbiddenException('Travel Agent approval is required'); const plan = context.plan; const session = context.session; const vendor = plan.variant.product.tenant; if (vendor.kind !== TenantKind.VENDOR || vendor.vendorProfile?.verificationStatus !== 'VERIFIED') throw new ConflictException('VENDOR_NOT_VERIFIED');
+        const normalized = normalizeTravellers(dto.travellers as any); const capacity = capacityQuantity(session.scheduleTemplate.capacityUnit, session.scheduleTemplate.capacityUnit === 'UNIT' ? (dto.units ?? 1) : session.scheduleTemplate.capacityUnit === 'BOOKING' ? 1 : normalized.totalPax); const quoteBeforeLock = await this.commercial.evaluateInternal({ ratePlanId: plan.id, serviceDate: new Date(session.serviceDate), units: dto.units ?? 1, travellers: normalized.normalizedTravellers, agentTenantId }, tx); if (!quoteBeforeLock.bookingMode) throw new ConflictException('BOOKING_MODE_MISSING');
+        const channel = plan.channelMappings.find((mapping: any) => mapping.channel.code === 'VOYA_AGENT' && mapping.enabled && mapping.channel.active); if (!channel) throw new ConflictException('MARKETPLACE_CHANNEL_NOT_CONFIGURED');
+        const booking = await tx.booking.create({ data: { recordType: BookingRecordType.CANONICAL, bookingCode: `VY-${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`, vendorTenantId: vendor.id, agentTenantId, agentUserId: user.sub, productId: plan.variant.product.id, productRevisionId: plan.variant.product.currentRevision?.id, variantId: plan.variant.id, ratePlanId: plan.id, sessionId: session.id, distributionChannelId: channel.channel.id, bookingMode: quoteBeforeLock.bookingMode, channel: channel.channel.code, serviceDate: session.serviceDate, serviceTimezone: session.scheduleTemplate.timezone, pax: normalized.totalPax, paxBreakdown: normalized.quantitiesByType as Prisma.InputJsonValue, units: dto.units, capacityConsumption: capacity, amount: quoteBeforeLock.finalAmount ?? 0, currency: quoteBeforeLock.currency ?? plan.currency, status: BookingStatus.NEW, idempotencyKey: key, requestFingerprint, customerName: dto.customerName, customerEmail: dto.customerEmail } });
+        const lockedState = await this.inventory.lockStateForBooking(tx, session.id); if (!lockedState) throw new NotFoundException('Inventory state not found');
+        const finalEligibility = await this.eligibility.evaluate({ agentTenantId, ratePlanId: plan.id, sessionId: session.id, travellers: dto.travellers as any, units: dto.units, channelCode: channel.channel.code, now: new Date() }, { client: tx }); if (!finalEligibility.eligible) throw new ConflictException({ code: finalEligibility.gates.find((gate) => gate.status === 'FAIL')?.code ?? 'ELIGIBILITY_FAILED', message: 'Booking eligibility failed', gates: finalEligibility.gates });
+        const quote = await this.commercial.evaluateInternal({ ratePlanId: plan.id, serviceDate: new Date(session.serviceDate), units: dto.units ?? 1, travellers: normalized.normalizedTravellers, agentTenantId }, tx); const quoteFingerprint = quote.quoteFingerprint ?? this.commercial.quoteFingerprint(quote); if (!quote.ready) throw new ConflictException({ code: quote.reasonCodes?.[0] ?? 'COMMERCIAL_NOT_READY', message: 'Current commercial quote is not ready' });
+        if (quoteFingerprint !== dto.expectedQuoteFingerprint) throw new ConflictException({ code: 'PRICE_CHANGED', message: 'The price changed; refresh Preview before creating the booking', currentQuoteFingerprint: quoteFingerprint }); if (dto.sourceQuoteFingerprint && dto.sourceQuoteFingerprint !== dto.expectedQuoteFingerprint && !dto.priceChangeAcknowledged) throw new ConflictException('PRICE_CHANGE_ACK_REQUIRED');
+        const cancellation = await this.policy.load(tx, plan.id); if (cancellation.fingerprint !== dto.expectedCancellationPolicyFingerprint) throw new ConflictException({ code: 'CANCELLATION_POLICY_CHANGED', message: 'Cancellation policy changed; refresh Preview' }); if (!dto.cancellationPolicyAcknowledged) throw new ConflictException('CANCELLATION_POLICY_ACK_REQUIRED'); const contextFingerprint = this.contextFingerprint(context, { ...quote, quoteFingerprint }, cancellation.fingerprint); if (contextFingerprint !== dto.expectedContextFingerprint) throw new ConflictException({ code: 'BOOKING_CONTEXT_CHANGED', message: 'Booking context changed; refresh Preview' });
+        const details = this.validateTravellerDetails(dto.travellerDetails ?? dto.travellers, normalized); this.validateAnswers(plan.variant.product.currentRevision.bookingQuestions, details, dto.bookingAnswers ?? {});
+        const sla = quote.bookingMode === BookingMode.INSTANT ? null : quote.confirmationSlaMinutes; if (quote.bookingMode !== BookingMode.INSTANT && (!Number.isInteger(sla) || (sla ?? 0) <= 0)) throw new ConflictException('CONFIRMATION_SLA_MISSING'); const now = new Date(); const due = typeof sla === 'number' ? new Date(now.getTime() + sla * 60_000) : null; const updated = await tx.booking.update({ where: { id: booking.id }, data: { bookingMode: quote.bookingMode, amount: quote.finalAmount ?? 0, currency: quote.currency ?? plan.currency, confirmationDueAt: due, status: quote.bookingMode === BookingMode.INSTANT ? BookingStatus.CONFIRMED : quote.bookingMode === BookingMode.VENDOR_CONFIRMATION ? BookingStatus.PENDING_VENDOR_CONFIRMATION : BookingStatus.PENDING_MANUAL_REVIEW, confirmedAt: quote.bookingMode === BookingMode.INSTANT ? now : null, capacityConsumption: finalEligibility.capacityConsumption, pax: normalized.totalPax, paxBreakdown: normalized.quantitiesByType as Prisma.InputJsonValue } });
+        for (const [index, detail] of details.entries()) await tx.bookingTraveller.create({ data: { bookingId: booking.id, travellerType: detail.travellerType as any, sequence: index + 1, quantity: detail.quantity, fullName: detail.fullName, age: detail.age, email: detail.email, phone: detail.phone, isLead: detail.isLead === true, answers: (detail.answers ?? {}) as Prisma.InputJsonValue } });
+        await this.snapshot.create(tx, { booking: updated, plan, session, agent: context.agent, user, policy: cancellation.policy, policyFingerprint: cancellation.fingerprint, questions: plan.variant.product.currentRevision.bookingQuestions, bookingAnswers: dto.bookingAnswers ?? {}, pickupDetails: dto.pickupDetails, cancellationAcknowledgedAt: now, quote }); await tx.bookingEconomicsSnapshot.create({ data: { bookingId: booking.id, ...this.commercial.toBookingSnapshotData(quote) } as any });
+        if (quote.bookingMode === BookingMode.INSTANT) await this.inventory.confirmDirectInTransaction(tx, { sessionId: session.id, quantity: finalEligibility.capacityConsumption!, bookingId: booking.id, referenceKey: `booking:${booking.id}`, reason: 'instant booking', actor: user }); else await this.inventory.createHoldInTransaction(tx, { sessionId: session.id, quantity: finalEligibility.capacityConsumption!, bookingId: booking.id, referenceKey: `booking:${booking.id}`, expiresAt: due!, reason: quote.bookingMode === BookingMode.VENDOR_CONFIRMATION ? 'vendor confirmation' : 'manual review', actor: user });
+        await this.addEvent(tx, updated, 'BOOKING_CREATED', BookingStatus.NEW, updated.status, user); if (updated.status === BookingStatus.CONFIRMED) await this.addEvent(tx, updated, 'BOOKING_CONFIRMED', BookingStatus.NEW, updated.status, user); else await this.addEvent(tx, updated, updated.status === BookingStatus.PENDING_VENDOR_CONFIRMATION ? 'BOOKING_PENDING_VENDOR_CONFIRMATION' : 'BOOKING_PENDING_MANUAL_REVIEW', BookingStatus.NEW, updated.status, user);
+        await this.audit.write(tx, { actor: user, tenantId: agentTenantId, action: 'BOOKING_CREATED', entityType: 'Booking', entityId: booking.id, metadata: { bookingMode: updated.bookingMode, status: updated.status } }); await this.outbox.enqueue(tx, { tenantId: agentTenantId, eventType: 'BOOKING_CREATED', aggregateType: 'Booking', aggregateId: booking.id, payload: { bookingCode: booking.bookingCode, status: updated.status, bookingMode: updated.bookingMode } }); if (updated.status === BookingStatus.CONFIRMED) await this.outbox.enqueue(tx, { tenantId: agentTenantId, eventType: 'BOOKING_CONFIRMED', aggregateType: 'Booking', aggregateId: booking.id, payload: { bookingCode: booking.bookingCode } });
+        return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, include: bookingInclude });
+      }, { timeout: 30000, maxWait: 30000 });
+      return this.projection.forAgent(saved);
+    } catch (error: any) { if (error?.code === 'P2002') { const duplicate = await this.prisma.booking.findFirst({ where: { agentTenantId, idempotencyKey: key }, include: bookingInclude }); if (duplicate) return this.resolveIdempotency(duplicate, requestFingerprint); } throw error; }
+  }
+
+  private resolveIdempotency(booking: any, requestFingerprint: string) { if (booking.requestFingerprint !== requestFingerprint) throw new ConflictException({ code: 'IDEMPOTENCY_KEY_REUSED', message: 'Idempotency-Key was already used for a different request' }); return this.projection.forAgent(booking); }
+  private validateTravellerDetails(details: BookingTravellerDetailDto[], normalized: any) { if (!details?.length) throw new ConflictException('Traveller details are required'); const leadCount = details.filter((detail) => detail.isLead === true).length; if (!leadCount) throw new ConflictException('LEAD_TRAVELLER_REQUIRED'); if (leadCount > 1) throw new ConflictException('MULTIPLE_LEAD_TRAVELLERS'); const quantities = details.reduce((map: Record<string, number>, detail: any) => { map[detail.travellerType] = (map[detail.travellerType] ?? 0) + detail.quantity; return map; }, {}); const expected = normalized.quantitiesByType as Record<string, number>; const types = new Set([...Object.keys(quantities), ...Object.keys(expected)]); for (const type of types) if ((quantities[type] ?? 0) !== (expected[type] ?? 0)) throw new ConflictException('TRAVELLER_DETAILS_MISMATCH'); return details; }
+  private validateAnswers(questions: any[], details: BookingTravellerDetailDto[], answers: Record<string, unknown>) { const known = new Set(questions.map((question) => question.code)); for (const key of Object.keys(answers)) if (!known.has(key)) throw new ConflictException(`Unknown booking answer: ${key}`); const check = (question: any, value: unknown, required: boolean) => { if (value === undefined || value === null || (question.type === 'TEXT' && typeof value === 'string' && !value.trim())) { if (required) throw new ConflictException(`BOOKING_ANSWER_REQUIRED:${question.code}`); return; } if (question.type === 'TEXT' && typeof value !== 'string') throw new ConflictException(`BOOKING_ANSWER_INVALID:${question.code}`); if (question.type === 'NUMBER' && (typeof value !== 'number' || !Number.isFinite(value))) throw new ConflictException(`BOOKING_ANSWER_INVALID:${question.code}`); if (question.type === 'BOOLEAN' && typeof value !== 'boolean') throw new ConflictException(`BOOKING_ANSWER_INVALID:${question.code}`); if (question.type === 'SELECT' && !((Array.isArray(question.options) ? question.options : Object.values(question.options ?? {})).map(String).includes(String(value)))) throw new ConflictException(`BOOKING_ANSWER_INVALID:${question.code}`); }; for (const question of questions) if (question.appliesPerTraveller) for (const detail of details) check(question, detail.answers?.[question.code], question.required); else check(question, answers[question.code], question.required); }
+  private async addEvent(tx: Prisma.TransactionClient, booking: any, eventType: string, fromStatus: BookingStatus | null, toStatus: BookingStatus | null, actor: AuthUser | null, reason?: string, metadata?: Record<string, unknown>) { return tx.bookingEvent.create({ data: { bookingId: booking.id, eventType, fromStatus, toStatus, actorUserId: actor?.sub ?? null, actorRole: actor?.role ?? null, reason: reason ?? null, metadata: metadata as Prisma.InputJsonValue | undefined } }); }
+
+  async agentList(user: AuthUser, query: BookingListQueryDto) { const agentTenantId = this.assertAgent(user); const rows = await this.prisma.booking.findMany({ where: { recordType: BookingRecordType.CANONICAL, agentTenantId, ...(query.status ? { status: query.status } : {}), ...(query.bookingMode ? { bookingMode: query.bookingMode } : {}), ...(query.from || query.to ? { serviceDate: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } } : {}) }, include: bookingInclude, orderBy: [{ serviceDate: 'asc' }, { createdAt: 'desc' }], take: 200 }); return rows.map((row) => this.projection.forAgent(row)); }
+  async agentDetail(user: AuthUser, id: string) { const agentTenantId = this.assertAgent(user); const row = await this.prisma.booking.findFirst({ where: { id, recordType: BookingRecordType.CANONICAL, agentTenantId }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); return this.projection.forAgent(row); }
+  async vendorList(user: AuthUser, query: BookingListQueryDto) { const vendorTenantId = requireTenant(user); const rows = await this.prisma.booking.findMany({ where: { vendorTenantId, ...(query.status ? { status: query.status } : {}), ...(query.bookingMode ? { bookingMode: query.bookingMode } : {}), ...(query.agentTenantId ? { agentTenantId: query.agentTenantId } : {}), ...(query.from || query.to ? { serviceDate: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } } : {}) }, include: bookingInclude, orderBy: [{ confirmationDueAt: 'asc' }, { createdAt: 'desc' }], take: 200 }); return rows.map((row) => this.projection.forVendor(row)); }
+  async vendorDetail(user: AuthUser, id: string) { const vendorTenantId = requireTenant(user); const row = await this.prisma.booking.findFirst({ where: { id, vendorTenantId }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); return this.projection.forVendor(row); }
+
+  private async lockBooking(tx: Prisma.TransactionClient, id: string) { const rows = await tx.$queryRawUnsafe<any[]>(`SELECT * FROM "public"."Booking" WHERE "id" = $1 FOR UPDATE`, id); if (!rows[0]) throw new NotFoundException('Booking not found'); return tx.booking.findUniqueOrThrow({ where: { id }, include: bookingInclude }); }
+  async vendorConfirm(user: AuthUser, id: string) {
+    const vendorTenantId = requireTenant(user);
+    const now = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
+      const booking = await this.lockBooking(tx, id);
+      if (booking.vendorTenantId !== vendorTenantId) throw new NotFoundException('Booking not found');
+      if (booking.recordType !== BookingRecordType.CANONICAL || booking.status !== BookingStatus.PENDING_VENDOR_CONFIRMATION) throw new ConflictException(`Booking cannot be confirmed from ${booking.status}`);
+      if (!booking.confirmationDueAt || now >= booking.confirmationDueAt) {
+        await this.expireLocked(tx, booking, null, 'confirmation deadline reached', now);
+        return { outcome: 'EXPIRED' as const };
+      }
+      const hold = await tx.inventoryHold.findFirst({ where: { bookingId: booking.id, status: 'ACTIVE' } });
+      if (!hold) throw new ConflictException('BOOKING_HOLD_MISSING');
+      await this.inventory.convertHoldToConfirmedInTransaction(tx, hold.id, { bookingId: booking.id, referenceKey: `booking:${booking.id}`, actor: user });
+      const updated = await tx.booking.update({ where: { id: booking.id }, data: { status: BookingStatus.CONFIRMED, confirmedAt: now, version: { increment: 1 } } });
+      await this.addEvent(tx, updated, 'VENDOR_CONFIRMED', BookingStatus.PENDING_VENDOR_CONFIRMATION, BookingStatus.CONFIRMED, user);
+      await this.audit.write(tx, { actor: user, tenantId: vendorTenantId, action: 'BOOKING_VENDOR_CONFIRMED', entityType: 'Booking', entityId: id });
+      await this.outbox.enqueue(tx, { tenantId: vendorTenantId, eventType: 'BOOKING_CONFIRMED', aggregateType: 'Booking', aggregateId: id, payload: { bookingCode: booking.bookingCode } });
+      return { outcome: 'CONFIRMED' as const, booking: await tx.booking.findUniqueOrThrow({ where: { id }, include: bookingInclude }) };
+    }, { timeout: 30000, maxWait: 30000 });
+    if (result.outcome === 'EXPIRED') throw new ConflictException('BOOKING_CONFIRMATION_EXPIRED');
+    return this.projection.forVendor(result.booking);
+  }
+  async vendorReject(user: AuthUser, id: string, dto: BookingDecisionDto) { const vendorTenantId = requireTenant(user); if (!dto.reason?.trim()) throw new ConflictException('A rejection reason is required'); const now = new Date(); const result = await this.prisma.$transaction(async (tx) => { const booking = await this.lockBooking(tx, id); if (booking.vendorTenantId !== vendorTenantId) throw new NotFoundException('Booking not found'); if (booking.recordType !== BookingRecordType.CANONICAL || booking.status !== BookingStatus.PENDING_VENDOR_CONFIRMATION) throw new ConflictException(`Booking cannot be rejected from ${booking.status}`); if (await this.expireIfDueLocked(tx, booking, user, now)) return { outcome: 'EXPIRED' as const }; const hold = await tx.inventoryHold.findFirst({ where: { bookingId: booking.id, status: 'ACTIVE' } }); if (!hold) throw new ConflictException('BOOKING_HOLD_MISSING'); await this.inventory.releaseHoldInTransaction(tx, hold.id, dto.reason.trim(), user); const updated = await tx.booking.update({ where: { id: booking.id }, data: { status: BookingStatus.VENDOR_REJECTED, rejectedAt: now, version: { increment: 1 } } }); await this.addEvent(tx, updated, 'VENDOR_REJECTED', BookingStatus.PENDING_VENDOR_CONFIRMATION, BookingStatus.VENDOR_REJECTED, user, dto.reason.trim()); await this.audit.write(tx, { actor: user, tenantId: vendorTenantId, action: 'BOOKING_VENDOR_REJECTED', entityType: 'Booking', entityId: id, reason: dto.reason }); await this.outbox.enqueue(tx, { tenantId: vendorTenantId, eventType: 'BOOKING_VENDOR_REJECTED', aggregateType: 'Booking', aggregateId: id, payload: { bookingCode: booking.bookingCode, reason: dto.reason.trim() } }); return { outcome: 'REJECTED' as const, booking: await tx.booking.findUniqueOrThrow({ where: { id }, include: bookingInclude }) }; }, { timeout: 30000, maxWait: 30000 }); if (result.outcome === 'EXPIRED') throw new ConflictException('BOOKING_CONFIRMATION_EXPIRED'); return this.projection.forVendor(result.booking); }
+  async manualConfirm(user: AuthUser, id: string) {
+    const now = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
+      const booking = await this.lockBooking(tx, id);
+      if (booking.recordType !== BookingRecordType.CANONICAL || booking.status !== BookingStatus.PENDING_MANUAL_REVIEW) throw new ConflictException(`Booking cannot be confirmed from ${booking.status}`);
+      if (!booking.confirmationDueAt || now >= booking.confirmationDueAt) {
+        await this.expireLocked(tx, booking, null, 'confirmation deadline reached', now);
+        return { outcome: 'EXPIRED' as const };
+      }
+      const hold = await tx.inventoryHold.findFirst({ where: { bookingId: booking.id, status: 'ACTIVE' } });
+      if (!hold) throw new ConflictException('BOOKING_HOLD_MISSING');
+      await this.inventory.convertHoldToConfirmedInTransaction(tx, hold.id, { bookingId: booking.id, referenceKey: `booking:${booking.id}`, actor: user });
+      const updated = await tx.booking.update({ where: { id: booking.id }, data: { status: BookingStatus.CONFIRMED, confirmedAt: now, version: { increment: 1 } } });
+      await this.addEvent(tx, updated, 'MANUAL_CONFIRMED', BookingStatus.PENDING_MANUAL_REVIEW, BookingStatus.CONFIRMED, user);
+      await this.audit.write(tx, { actor: user, action: 'BOOKING_MANUAL_CONFIRMED', entityType: 'Booking', entityId: id });
+      await this.outbox.enqueue(tx, { eventType: 'BOOKING_CONFIRMED', aggregateType: 'Booking', aggregateId: id, payload: { bookingCode: booking.bookingCode } });
+      return { outcome: 'CONFIRMED' as const, booking: await tx.booking.findUniqueOrThrow({ where: { id }, include: bookingInclude }) };
+    }, { timeout: 30000, maxWait: 30000 });
+    if (result.outcome === 'EXPIRED') throw new ConflictException('BOOKING_CONFIRMATION_EXPIRED');
+    return this.projection.forAdmin(result.booking);
+  }
+  async manualReject(user: AuthUser, id: string, dto: BookingDecisionDto) { if (!dto.reason?.trim()) throw new ConflictException('A rejection reason is required'); const now = new Date(); const result = await this.prisma.$transaction(async (tx) => { const booking = await this.lockBooking(tx, id); if (booking.recordType !== BookingRecordType.CANONICAL || booking.status !== BookingStatus.PENDING_MANUAL_REVIEW) throw new ConflictException(`Booking cannot be rejected from ${booking.status}`); if (await this.expireIfDueLocked(tx, booking, user, now)) return { outcome: 'EXPIRED' as const }; const hold = await tx.inventoryHold.findFirst({ where: { bookingId: booking.id, status: 'ACTIVE' } }); if (!hold) throw new ConflictException('BOOKING_HOLD_MISSING'); await this.inventory.releaseHoldInTransaction(tx, hold.id, dto.reason.trim(), user); const updated = await tx.booking.update({ where: { id: booking.id }, data: { status: BookingStatus.MANUAL_REJECTED, rejectedAt: now, version: { increment: 1 } } }); await this.addEvent(tx, updated, 'MANUAL_REJECTED', BookingStatus.PENDING_MANUAL_REVIEW, BookingStatus.MANUAL_REJECTED, user, dto.reason.trim()); await this.audit.write(tx, { actor: user, action: 'BOOKING_MANUAL_REJECTED', entityType: 'Booking', entityId: id, reason: dto.reason }); await this.outbox.enqueue(tx, { eventType: 'BOOKING_MANUAL_REJECTED', aggregateType: 'Booking', aggregateId: id, payload: { bookingCode: booking.bookingCode, reason: dto.reason.trim() } }); return { outcome: 'REJECTED' as const, booking: await tx.booking.findUniqueOrThrow({ where: { id }, include: bookingInclude }) }; }, { timeout: 30000, maxWait: 30000 }); if (result.outcome === 'EXPIRED') throw new ConflictException('BOOKING_CONFIRMATION_EXPIRED'); return this.projection.forAdmin(result.booking); }
+  private async expireIfDueLocked(tx: Prisma.TransactionClient, booking: any, actor: AuthUser | null, now: Date) { if (!booking.confirmationDueAt || now >= booking.confirmationDueAt) { await this.expireLocked(tx, booking, actor, 'confirmation deadline reached', now); return true; } return false; }
+  async expireLocked(tx: Prisma.TransactionClient, booking: any, actor: AuthUser | null, reason: string, now = new Date()) { const hold = await tx.inventoryHold.findFirst({ where: { bookingId: booking.id, status: 'ACTIVE' } }); if (hold) await this.inventory.expireHoldInTransaction(tx, hold.id, actor); const updated = await tx.booking.update({ where: { id: booking.id }, data: { status: BookingStatus.CONFIRMATION_EXPIRED, expiredAt: now, version: { increment: 1 } } }); await this.addEvent(tx, updated, 'CONFIRMATION_EXPIRED', booking.status, BookingStatus.CONFIRMATION_EXPIRED, actor, reason, actor ? undefined : { actorType: 'SYSTEM' }); await this.audit.write(tx, { actor, action: 'BOOKING_CONFIRMATION_EXPIRED', entityType: 'Booking', entityId: booking.id, reason }); await this.outbox.enqueue(tx, { eventType: 'BOOKING_CONFIRMATION_EXPIRED', aggregateType: 'Booking', aggregateId: booking.id, payload: { bookingCode: booking.bookingCode } }); return updated; }
+  async adminList(query: BookingListQueryDto) { const rows = await this.prisma.booking.findMany({ where: { ...(query.status ? { status: query.status } : {}), ...(query.bookingMode ? { bookingMode: query.bookingMode } : {}), ...(query.vendorTenantId ? { vendorTenantId: query.vendorTenantId } : {}), ...(query.agentTenantId ? { agentTenantId: query.agentTenantId } : {}), ...(query.from || query.to ? { serviceDate: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } } : {}) }, include: bookingInclude, orderBy: { createdAt: 'desc' }, take: 500 }); return rows.map((row) => this.projection.forAdmin(row)); }
+  async adminDetail(id: string) { const row = await this.prisma.booking.findUnique({ where: { id }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); return this.projection.forAdmin(row); }
+
+  async list(user: AuthUser, status?: BookingStatus) { return this.vendorList(user, { status }); }
+  async confirm(user: AuthUser, id: string) { const booking = await this.prisma.booking.findFirst({ where: { id, vendorTenantId: requireTenant(user), recordType: BookingRecordType.LEGACY, status: BookingStatus.PENDING } }); if (!booking) throw new ConflictException('Legacy booking cannot be confirmed'); return this.prisma.booking.update({ where: { id }, data: { status: BookingStatus.CONFIRMED, version: { increment: 1 } } }); }
+  async cancel(user: AuthUser, id: string) { const booking = await this.prisma.booking.findFirst({ where: { id, vendorTenantId: requireTenant(user) } }); if (!booking) throw new NotFoundException('Booking not found'); if (booking.recordType === BookingRecordType.CANONICAL) throw new ConflictException('CANCELLATION_ENGINE_NOT_IMPLEMENTED'); return this.prisma.booking.update({ where: { id }, data: { status: BookingStatus.CANCELLED, version: { increment: 1 } } }); }
+  async voucher(user: AuthUser, id: string) { const tenantId = requireTenant(user); const booking: any = await this.prisma.booking.findFirst({ where: { id, vendorTenantId: tenantId }, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true, address: true } } } }, ratePlan: { select: { name: true, variant: { select: { pickupInput: true } } } } } }); if (!booking) throw new NotFoundException('Booking not found'); if (booking.recordType === BookingRecordType.CANONICAL) throw new ConflictException('FULFILMENT_NOT_IMPLEMENTED'); if (![BookingStatus.CONFIRMED, BookingStatus.COMPLETED].includes(booking.status)) throw new ConflictException('Voucher is available only for confirmed bookings'); const existing = await this.prisma.fileAsset.findFirst({ where: { tenantId, purpose: FilePurpose.BOOKING_VOUCHER, entityId: booking.id, archivedAt: null }, orderBy: { createdAt: 'desc' } }); if (existing) return { voucherCode: `VCH-${booking.bookingCode}`, fileId: existing.id, fileName: existing.originalName, booking }; throw new ConflictException('Legacy voucher generation is unavailable in this build'); }
 }

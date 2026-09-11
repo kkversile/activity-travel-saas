@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -11,13 +11,21 @@ import { PermissionsGuard } from '../common/permissions.guard';
 import { AgentSuspensionDto, DocumentReviewDto, EligibilityInspectDto, VendorVerificationDto } from './governance.dto';
 import { EligibilityService } from '../eligibility/eligibility.service';
 import { AdminService } from './admin.service';
+import { BookingDecisionDto, BookingListQueryDto } from '../bookings/booking.dto';
+import { BookingExpiryService } from '../bookings/booking-expiry.service';
+import { BookingsService } from '../bookings/bookings.service';
 
 @Controller('admin')
 @ApiTags('Administration')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
 export class AdminController {
-  constructor(private readonly service: AdminService, private readonly eligibility: EligibilityService) {}
+  constructor(private readonly service: AdminService, private readonly eligibility: EligibilityService, private readonly bookings: BookingsService, private readonly expiry: BookingExpiryService) {}
+  @Get('bookings') @Permissions('booking.view.admin') bookingsList(@Query() query: BookingListQueryDto) { return this.bookings.adminList(query); }
+  @Get('bookings/:id') @Permissions('booking.view.admin') bookingsDetail(@Param('id') id: string) { return this.bookings.adminDetail(id); }
+  @Post('bookings/:id/manual-confirm') @Permissions('booking.manual.decide') manualConfirm(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.bookings.manualConfirm(user, id); }
+  @Post('bookings/:id/manual-reject') @Permissions('booking.manual.decide') manualReject(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: BookingDecisionDto) { return this.bookings.manualReject(user, id, dto); }
+  @Post('bookings/expire-due') @Permissions('booking.expiry.run') expireDue(@CurrentUser() user: AuthUser) { return this.expiry.expireDue(new Date(), user); }
   @Get('dashboard') @Permissions('audit.view') dashboard() { return this.service.dashboard(); }
   @Get('vendors') @Permissions('vendor.profile.view') vendors() { return this.service.vendors(); }
   @Get('agents') @Permissions('agent.governance.view') agents() { return this.service.agents(); }

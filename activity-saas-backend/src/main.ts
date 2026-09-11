@@ -73,7 +73,7 @@ async function hydrateSwaggerDocument(document: any, app: any) {
       ratePlan ? prisma.ratePlanCommercialVersion.findFirst({ where: { ratePlanId: ratePlan.id }, orderBy: { versionNumber: 'desc' }, select: { id: true } }) : null,
       schedule ? prisma.serviceSession.findFirst({ where: { scheduleTemplateId: schedule.id }, orderBy: { serviceDate: 'asc' }, select: { id: true } }) : null,
       prisma.resource.findFirst({ where: { tenantId: tenant.id, active: true, archivedAt: null }, orderBy: { updatedAt: 'desc' }, select: { id: true } }),
-      prisma.booking.findFirst({ where: { tenantId: tenant.id }, orderBy: { updatedAt: 'desc' }, select: { id: true } }),
+      prisma.booking.findFirst({ where: { vendorTenantId: tenant.id }, orderBy: { updatedAt: 'desc' }, select: { id: true } }),
       prisma.vendorDocumentVersion.findFirst({ where: { vendorDocument: { tenantId: tenant.id } }, orderBy: { createdAt: 'desc' }, select: { id: true } }),
       prisma.fileAsset.findFirst({ where: { tenantId: tenant.id, visibility: 'PRIVATE' }, orderBy: { createdAt: 'desc' }, select: { id: true } }),
       prisma.scheduleResourceRequirement.findFirst({ where: { archivedAt: null, scheduleTemplate: { variant: { product: { tenantId: tenant.id } } } }, orderBy: { updatedAt: 'desc' }, select: { id: true } }),

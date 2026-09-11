@@ -157,10 +157,32 @@ enum MediaKind {
 }
 
 enum BookingStatus {
+  NEW
   PENDING
+  PENDING_VENDOR_CONFIRMATION
+  PENDING_MANUAL_REVIEW
   CONFIRMED
+  VENDOR_REJECTED
+  MANUAL_REJECTED
+  CONFIRMATION_EXPIRED
+  FULFILLED
+  REDEEMED
   CANCELLED
+  NO_SHOW
+  CUSTOMER_CHANGE_REQUESTED
   COMPLETED
+}
+
+enum BookingRecordType {
+  LEGACY
+  CANONICAL
+}
+
+enum BookingQuestionType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  SELECT
 }
 
 enum FileVisibility {
@@ -299,7 +321,8 @@ model Tenant {
   users                   User[]
   vendorProfile           VendorProfile?
   agentProfile            AgentProfile?
-  bookings                Booking[]
+  vendorBookings          Booking[]          @relation("BookingVendor")
+  agentBookings           Booking[]          @relation("BookingAgent")
   payouts                 Payout[]
   auditLogs               AuditLog[]
   fileAssets              FileAsset[]
@@ -331,6 +354,7 @@ model User {
   reviewedProductRevisions        ProductRevision[]           @relation("ProductRevisionReviewedBy")
   createdCommercialVersions       RatePlanCommercialVersion[] @relation("CommercialVersionCreatedBy")
   activatedCommercialVersions     RatePlanCommercialVersion[] @relation("CommercialVersionActivatedBy")
+  agentBookings                   Booking[]                   @relation("BookingAgentUser")
   createdCommercialRules          CommercialRule[]            @relation("CommercialRuleCreatedBy")
   createdCommercialRuleVersions   CommercialRuleVersion[]     @relation("CommercialRuleVersionCreatedBy")
   activatedCommercialRuleVersions CommercialRuleVersion[]     @relation("CommercialRuleVersionActivatedBy")
@@ -463,37 +487,37 @@ model Product {
 }
 
 model ProductRevision {
-  id                  String                @id @default(uuid())
+  id                  String                   @id @default(uuid())
   productId           String
-  product             Product               @relation("ProductRevisions", fields: [productId], references: [id], onDelete: Cascade)
+  product             Product                  @relation("ProductRevisions", fields: [productId], references: [id], onDelete: Cascade)
   versionNumber       Int
-  status              ProductRevisionStatus @default(DRAFT)
+  status              ProductRevisionStatus    @default(DRAFT)
   productName         String
   type                ProductType
   subType             String
   description         String
   shortDescription    String?
-  terms               String[]              @default([])
-  faqs                Json                  @default("[]")
-  highlights          String[]              @default([])
-  channels            String[]              @default([])
+  terms               String[]                 @default([])
+  faqs                Json                     @default("[]")
+  highlights          String[]                 @default([])
+  channels            String[]                 @default([])
   highlightedPriority Int?
-  isHotelLinked       Boolean               @default(false)
-  attachedHotelIds    String[]              @default([])
-  howToRedeem         String[]              @default([])
+  isHotelLinked       Boolean                  @default(false)
+  attachedHotelIds    String[]                 @default([])
+  howToRedeem         String[]                 @default([])
   subCategory         String?
-  persuasions         String[]              @default([])
-  labels              String[]              @default([])
+  persuasions         String[]                 @default([])
+  labels              String[]                 @default([])
   rank                Int?
-  starRating          Decimal?              @db.Decimal(3, 2)
-  safetyMeasures      String[]              @default([])
-  importantInfo       String[]              @default([])
-  thingsToCarry       String[]              @default([])
-  additionalInfo      String[]              @default([])
+  starRating          Decimal?                 @db.Decimal(3, 2)
+  safetyMeasures      String[]                 @default([])
+  importantInfo       String[]                 @default([])
+  thingsToCarry       String[]                 @default([])
+  additionalInfo      String[]                 @default([])
   metaname            String?
   cityCode            String?
-  lat                 Decimal?              @db.Decimal(10, 7)
-  lon                 Decimal?              @db.Decimal(10, 7)
+  lat                 Decimal?                 @db.Decimal(10, 7)
+  lon                 Decimal?                 @db.Decimal(10, 7)
   address             String?
   cityName            String
   countryName         String
@@ -503,13 +527,15 @@ model ProductRevision {
   submittedAt         DateTime?
   reviewedAt          DateTime?
   reviewedById        String?
-  reviewedBy          User?                 @relation("ProductRevisionReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedBy          User?                    @relation("ProductRevisionReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   createdById         String
-  createdBy           User                  @relation("ProductRevisionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdBy           User                     @relation("ProductRevisionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   media               ProductMedia[]
-  currentForProducts  Product[]             @relation("CurrentProductRevision")
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  currentForProducts  Product[]                @relation("CurrentProductRevision")
+  bookingQuestions    ProductBookingQuestion[]
+  bookings            Booking[]
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
 
   @@unique([productId, versionNumber])
   @@unique([id, productId])
@@ -533,6 +559,26 @@ model ProductMedia {
   updatedAt      DateTime        @updatedAt
 
   @@index([revisionId, kind])
+}
+
+model ProductBookingQuestion {
+  id                  String              @id @default(uuid())
+  productRevisionId   String
+  productRevision     ProductRevision     @relation(fields: [productRevisionId], references: [id], onDelete: Cascade)
+  code                String
+  label               String
+  helpText            String?
+  type                BookingQuestionType
+  required            Boolean             @default(false)
+  options             Json?
+  appliesPerTraveller Boolean             @default(false)
+  rank                Int                 @default(0)
+  archivedAt          DateTime?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([productRevisionId, code])
+  @@index([productRevisionId, archivedAt, rank])
 }
 
 model ProductVariant {
@@ -566,6 +612,7 @@ model ProductVariant {
   ratePlans        RatePlan[]
   schedules        ScheduleTemplate[]
   commercialRules  CommercialRule[]
+  bookings         Booking[]
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
@@ -624,6 +671,7 @@ model DistributionChannel {
   name      String
   active    Boolean                  @default(true)
   mappings  RatePlanChannelMapping[]
+  bookings  Booking[]
   createdAt DateTime                 @default(now())
   updatedAt DateTime                 @updatedAt
 }
@@ -672,6 +720,7 @@ model RatePlanCommercialVersion {
   supplierBaseAmount        Decimal?                   @db.Decimal(18, 4)
   supplierCommissionPercent Decimal?                   @db.Decimal(9, 4)
   bookingMode               BookingMode?
+  confirmationSlaMinutes    Int?
   sourcePayload             Json?
   createdById               String
   createdBy                 User                       @relation("CommercialVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -885,6 +934,7 @@ model ServiceSession {
   archivedAt          DateTime?
   sourcePayload       Json?
   inventoryState      InventoryState?
+  bookings            Booking[]
   resourceAllocations SessionResourceAllocation[]
   createdAt           DateTime                    @default(now())
   updatedAt           DateTime                    @updatedAt
@@ -918,6 +968,7 @@ model InventoryHold {
   status              InventoryHoldStatus  @default(ACTIVE)
   referenceKey        String?
   bookingId           String?
+  booking             Booking?             @relation("BookingHolds", fields: [bookingId], references: [id], onDelete: Restrict)
   expiresAt           DateTime
   releasedAt          DateTime?
   convertedAt         DateTime?
@@ -942,6 +993,7 @@ model InventoryAllocation {
   sourceHoldId     String?                   @unique
   sourceHold       InventoryHold?            @relation(fields: [sourceHoldId], references: [id], onDelete: Restrict)
   bookingId        String?
+  booking          Booking?                  @relation("BookingAllocations", fields: [bookingId], references: [id], onDelete: Restrict)
   releasedAt       DateTime?
   reason           String?
   createdAt        DateTime                  @default(now())
@@ -1044,29 +1096,125 @@ model PricingRule {
 }
 
 model Booking {
-  id                String                    @id @default(uuid())
-  tenantId          String
-  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productId         String
-  product           Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
-  ratePlanId        String?
-  ratePlan          RatePlan?                 @relation(fields: [ratePlanId], references: [id], onDelete: SetNull)
-  bookingCode       String                    @unique
-  channel           String
-  serviceDate       DateTime                  @db.Date
-  pax               Int
-  paxBreakdown      Json                      @default("{}")
-  amount            Decimal                   @db.Decimal(12, 2)
-  status            BookingStatus             @default(PENDING)
-  customerName      String
-  customerEmail     String?
-  version           Int                       @default(1)
-  economicsSnapshot BookingEconomicsSnapshot?
-  createdAt         DateTime                  @default(now())
-  updatedAt         DateTime                  @updatedAt
+  id                    String                    @id @default(uuid())
+  recordType            BookingRecordType         @default(LEGACY)
+  bookingCode           String                    @unique
+  vendorTenantId        String
+  vendorTenant          Tenant                    @relation("BookingVendor", fields: [vendorTenantId], references: [id], onDelete: Restrict)
+  agentTenantId         String?
+  agentTenant           Tenant?                   @relation("BookingAgent", fields: [agentTenantId], references: [id], onDelete: Restrict)
+  agentUserId           String?
+  agentUser             User?                     @relation("BookingAgentUser", fields: [agentUserId], references: [id], onDelete: Restrict)
+  productId             String
+  product               Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productRevisionId     String?
+  productRevision       ProductRevision?          @relation(fields: [productRevisionId], references: [id], onDelete: Restrict)
+  variantId             String?
+  variant               ProductVariant?           @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  ratePlanId            String?
+  ratePlan              RatePlan?                 @relation(fields: [ratePlanId], references: [id], onDelete: SetNull)
+  sessionId             String?
+  session               ServiceSession?           @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  distributionChannelId String?
+  distributionChannel   DistributionChannel?      @relation(fields: [distributionChannelId], references: [id], onDelete: Restrict)
+  bookingMode           BookingMode?
+  channel               String
+  serviceDate           DateTime                  @db.Date
+  serviceTimezone       String?
+  pax                   Int
+  paxBreakdown          Json                      @default("{}")
+  units                 Int?
+  capacityConsumption   Int?
+  amount                Decimal                   @db.Decimal(12, 2)
+  currency              String                    @default("INR")
+  status                BookingStatus             @default(PENDING)
+  confirmationDueAt     DateTime?
+  confirmedAt           DateTime?
+  rejectedAt            DateTime?
+  expiredAt             DateTime?
+  idempotencyKey        String?
+  requestFingerprint    String?
+  customerName          String
+  customerEmail         String?
+  version               Int                       @default(1)
+  economicsSnapshot     BookingEconomicsSnapshot?
+  operationalSnapshot   BookingSnapshot?
+  travellers            BookingTraveller[]
+  events                BookingEvent[]
+  inventoryHolds        InventoryHold[]           @relation("BookingHolds")
+  inventoryAllocations  InventoryAllocation[]     @relation("BookingAllocations")
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
 
-  @@index([tenantId, status])
-  @@index([tenantId, serviceDate])
+  @@unique([agentTenantId, idempotencyKey])
+  @@index([vendorTenantId, status])
+  @@index([agentTenantId, status])
+  @@index([sessionId, status])
+  @@index([confirmationDueAt, status])
+  @@index([vendorTenantId, serviceDate])
+}
+
+model BookingSnapshot {
+  id                            String       @id @default(uuid())
+  bookingId                     String       @unique
+  booking                       Booking      @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  productRevisionId             String
+  scheduleTemplateId            String
+  sessionId                     String
+  productSnapshot               Json
+  variantSnapshot               Json
+  ratePlanSnapshot              Json
+  sessionSnapshot               Json
+  travellerSummary              Json
+  capacityUnit                  CapacityUnit
+  capacityConsumption           Int
+  bookingMode                   BookingMode
+  cancellationPolicySnapshot    Json
+  cancellationPolicyFingerprint String
+  cancellationAcknowledgedAt    DateTime
+  pickupSnapshot                Json?
+  questionsSnapshot             Json
+  bookingAnswers                Json
+  agentSnapshot                 Json
+  channelSnapshot               Json
+  confirmationPolicySnapshot    Json
+  createdAt                     DateTime     @default(now())
+}
+
+model BookingTraveller {
+  id            String        @id @default(uuid())
+  bookingId     String
+  booking       Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  travellerType TravellerType
+  sequence      Int
+  quantity      Int           @default(1)
+  fullName      String?
+  age           Int?
+  email         String?
+  phone         String?
+  isLead        Boolean       @default(false)
+  answers       Json          @default("{}")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([bookingId, sequence])
+  @@index([bookingId, travellerType])
+}
+
+model BookingEvent {
+  id          String         @id @default(uuid())
+  bookingId   String
+  booking     Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  eventType   String
+  fromStatus  BookingStatus?
+  toStatus    BookingStatus?
+  actorUserId String?
+  actorRole   UserRole?
+  reason      String?
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+
+  @@index([bookingId, createdAt])
 }
 
 model BookingEconomicsSnapshot {

@@ -16,18 +16,18 @@ export class DashboardService {
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 
     const [todayBookings, revenue, pending, totalBookings, cancelled, listings, liveListings, recentBookings] = await Promise.all([
-      this.prisma.booking.count({ where: { tenantId, createdAt: { gte: today, lt: tomorrow } } }),
+      this.prisma.booking.count({ where: { vendorTenantId: tenantId, createdAt: { gte: today, lt: tomorrow } } }),
       this.prisma.booking.aggregate({
         _sum: { amount: true },
-        where: { tenantId, createdAt: { gte: monthStart }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] } },
+        where: { vendorTenantId: tenantId, createdAt: { gte: monthStart }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] } },
       }),
-      this.prisma.booking.count({ where: { tenantId, status: BookingStatus.PENDING } }),
-      this.prisma.booking.count({ where: { tenantId, createdAt: { gte: monthStart } } }),
-      this.prisma.booking.count({ where: { tenantId, createdAt: { gte: monthStart }, status: BookingStatus.CANCELLED } }),
+      this.prisma.booking.count({ where: { vendorTenantId: tenantId, status: BookingStatus.PENDING } }),
+      this.prisma.booking.count({ where: { vendorTenantId: tenantId, createdAt: { gte: monthStart } } }),
+      this.prisma.booking.count({ where: { vendorTenantId: tenantId, createdAt: { gte: monthStart }, status: BookingStatus.CANCELLED } }),
       this.prisma.product.count({ where: { tenantId } }),
       this.prisma.product.count({ where: { tenantId, status: ProductStatus.LIVE } }),
       this.prisma.booking.findMany({
-        where: { tenantId },
+        where: { vendorTenantId: tenantId },
         orderBy: { createdAt: 'desc' },
         take: 5,
         include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } } },

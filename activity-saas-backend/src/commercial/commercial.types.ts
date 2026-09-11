@@ -9,7 +9,7 @@ export type QuoteInput = {
   channel?: string;
 };
 
-export type ReasonCode = 'NO_ACTIVE_COMMERCIAL_VERSION' | 'COMMERCIAL_VERSION_MISSING' | 'SUPPLIER_MODEL_MISSING' | 'SUPPLIER_MODEL_UNSUPPORTED' | 'PRICING_UNIT_MISSING' | 'BOOKING_MODE_MISSING' | 'SUPPLIER_BASE_AMOUNT_MISSING' | 'TRAVELLER_PRICE_MISSING' | 'VOYA_REVENUE_RULE_MISSING' | 'AGENT_COMMERCIAL_UNCONFIGURED' | 'AGENT_FACING_QUOTE_INCOMPLETE' | 'AGENT_ELIGIBILITY_UNCONFIGURED' | 'AGENT_COMMERCIAL_DENIED' | 'FOC_UNSUPPORTED_PRICING_UNIT' | 'FOC_FUNDING_MODEL_NOT_LOCKED' | 'AMBIGUOUS_RULE' | 'INVALID_RULE_CONFIG' | 'TAX_CONFIGURATION_MISSING' | 'LEGACY_COMMERCIAL_REVIEW_REQUIRED';
+export type ReasonCode = 'NO_ACTIVE_COMMERCIAL_VERSION' | 'COMMERCIAL_VERSION_MISSING' | 'SUPPLIER_MODEL_MISSING' | 'SUPPLIER_MODEL_UNSUPPORTED' | 'PRICING_UNIT_MISSING' | 'BOOKING_MODE_MISSING' | 'SUPPLIER_BASE_AMOUNT_MISSING' | 'TRAVELLER_PRICE_MISSING' | 'VOYA_REVENUE_RULE_MISSING' | 'AGENT_COMMERCIAL_UNCONFIGURED' | 'AGENT_FACING_QUOTE_INCOMPLETE' | 'AGENT_ELIGIBILITY_UNCONFIGURED' | 'AGENT_COMMERCIAL_DENIED' | 'FOC_UNSUPPORTED_PRICING_UNIT' | 'FOC_FUNDING_MODEL_NOT_LOCKED' | 'AMBIGUOUS_RULE' | 'INVALID_RULE_CONFIG' | 'TAX_CONFIGURATION_MISSING' | 'LEGACY_COMMERCIAL_REVIEW_REQUIRED' | 'CONFIRMATION_SLA_MISSING';
 export type AppliedRule = { ruleId: string; ruleVersionId: string; kind: CommercialRuleKind; scope: string; priority: number; stackingMode: string; effectiveFrom: string; effectiveTo?: string | null; config: unknown };
 export type QuoteResult = {
   ready: boolean;
@@ -17,6 +17,8 @@ export type QuoteResult = {
   currency: string;
   pricingUnit?: PricingUnit;
   bookingMode?: BookingMode;
+  confirmationSlaMinutes?: number | null;
+  quoteFingerprint?: string;
   ratePlanCommercialVersionId?: string;
   commercialVersionNumber?: number;
   supplier?: { model?: SupplierCommercialModel; grossBasis: string; commission: string; vendorPayable: string };

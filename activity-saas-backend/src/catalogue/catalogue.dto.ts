@@ -1,4 +1,4 @@
-import { MediaKind, ProductRevisionStatus, ProductType } from '@prisma/client';
+import { BookingQuestionType, MediaKind, ProductRevisionStatus, ProductType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { OmitType, PartialType } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsDefined, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, Max, Min, MinLength, ValidateNested } from 'class-validator';
@@ -47,6 +47,19 @@ export class CreateProductDto {
 export class CreateProductRevisionDto {
   @IsOptional() @IsString() sourceRevisionId?: string;
 }
+
+export class BookingQuestionDto {
+  @IsString() code!: string;
+  @IsString() label!: string;
+  @IsOptional() @IsString() helpText?: string;
+  @IsEnum(BookingQuestionType) type!: BookingQuestionType;
+  @IsOptional() @IsBoolean() required?: boolean;
+  @IsOptional() @IsArray() options?: unknown[];
+  @IsOptional() @IsBoolean() appliesPerTraveller?: boolean;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) rank?: number;
+}
+
+export class UpdateBookingQuestionDto extends PartialType(BookingQuestionDto) {}
 
 export class ProductQueryDto {
   @IsOptional() @IsEnum(ProductRevisionStatus) revisionStatus?: ProductRevisionStatus;

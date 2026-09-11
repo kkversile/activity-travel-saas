@@ -9,6 +9,7 @@ import { AgentGroupMemberDto, CreateAgentGroupDto, CreateCommercialRuleDto, Crea
 import { CommercialCalculatorService } from './commercial-calculator.service';
 import { validateRuleConfig } from './commercial-validation';
 import { selectEffectiveVersion } from './commercial-resolution';
+import { fingerprint } from '../bookings/booking-fingerprint';
 
 const versionSelect = { travellerPrices: true } as const;
 const dateWindow = (date: Date) => ({ effectiveFrom: { lte: date }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: date } }] });
@@ -33,6 +34,7 @@ export class CommercialService {
     if (version.supplierModel && !['NET_RATE', 'COMMISSIONABLE'].includes(version.supplierModel)) add('SUPPLIER_MODEL_UNSUPPORTED');
     if (!version.pricingUnit) add('PRICING_UNIT_MISSING');
     if (!version.bookingMode) add('BOOKING_MODE_MISSING');
+    if (version.bookingMode !== 'INSTANT' && (!Number.isInteger(version.confirmationSlaMinutes) || version.confirmationSlaMinutes <= 0)) add('CONFIRMATION_SLA_MISSING');
     if (version.supplierBaseAmount === null || version.supplierBaseAmount === undefined) add('SUPPLIER_BASE_AMOUNT_MISSING');
     if (version.supplierModel === 'COMMISSIONABLE' && (version.supplierCommissionPercent === null || version.supplierCommissionPercent === undefined)) add('INVALID_COMMERCIAL_VERSION');
     if (version.pricingUnit === 'PER_PERSON') {
@@ -84,7 +86,7 @@ export class CommercialService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "RatePlan" WHERE "id" = ${id} FOR UPDATE`;
       const latest = await tx.ratePlanCommercialVersion.findFirst({ where: { ratePlanId: id }, orderBy: { versionNumber: 'desc' }, select: { versionNumber: true } });
-      const version = await tx.ratePlanCommercialVersion.create({ data: { ratePlanId: id, versionNumber: (latest?.versionNumber || 0) + 1, effectiveFrom: from, effectiveTo: to, supplierModel: dto.supplierModel, currency: dto.currency || plan.currency, pricingUnit: dto.pricingUnit, supplierBaseAmount: dto.supplierBaseAmount, supplierCommissionPercent: dto.supplierCommissionPercent, bookingMode: dto.bookingMode, createdById: user.sub, travellerPrices: dto.travellerPrices?.length ? { create: dto.travellerPrices.map((p) => ({ travellerType: p.travellerType, amount: p.amount })) } : undefined }, include: versionSelect });
+      const version = await tx.ratePlanCommercialVersion.create({ data: { ratePlanId: id, versionNumber: (latest?.versionNumber || 0) + 1, effectiveFrom: from, effectiveTo: to, supplierModel: dto.supplierModel, currency: dto.currency || plan.currency, pricingUnit: dto.pricingUnit, supplierBaseAmount: dto.supplierBaseAmount, supplierCommissionPercent: dto.supplierCommissionPercent, bookingMode: dto.bookingMode, confirmationSlaMinutes: dto.confirmationSlaMinutes, createdById: user.sub, travellerPrices: dto.travellerPrices?.length ? { create: dto.travellerPrices.map((p) => ({ travellerType: p.travellerType, amount: p.amount })) } : undefined }, include: versionSelect });
       await this.audit.write(tx, { actor: user, tenantId: this.tenantId(user), action: 'COMMERCIAL_VERSION_CREATED', entityType: 'RatePlanCommercialVersion', entityId: version.id, afterState: { ratePlanId: id, versionNumber: version.versionNumber, status: version.status } });
       await this.outbox.enqueue(tx, { tenantId: this.tenantId(user), eventType: 'COMMERCIAL_VERSION_CREATED', aggregateType: 'RatePlanCommercialVersion', aggregateId: version.id, payload: { ratePlanId: id, versionNumber: version.versionNumber } });
       return version;
@@ -100,7 +102,7 @@ export class CommercialService {
       const locked = await tx.$queryRaw<Array<{ status: string }>>`SELECT "status"::text AS status FROM "RatePlanCommercialVersion" WHERE "id" = ${id} FOR UPDATE`;
       if (locked[0]?.status !== CommercialVersionStatus.DRAFT) throw new ConflictException('Only draft commercial versions are editable');
       if (dto.travellerPrices) await tx.ratePlanTravellerPrice.deleteMany({ where: { commercialVersionId: id } });
-      const updatedCount = await tx.ratePlanCommercialVersion.updateMany({ where: { id, status: CommercialVersionStatus.DRAFT }, data: { effectiveFrom: from, effectiveTo: to, supplierModel: dto.supplierModel, currency: dto.currency, pricingUnit: dto.pricingUnit, supplierBaseAmount: dto.supplierBaseAmount, supplierCommissionPercent: dto.supplierCommissionPercent, bookingMode: dto.bookingMode } });
+      const updatedCount = await tx.ratePlanCommercialVersion.updateMany({ where: { id, status: CommercialVersionStatus.DRAFT }, data: { effectiveFrom: from, effectiveTo: to, supplierModel: dto.supplierModel, currency: dto.currency, pricingUnit: dto.pricingUnit, supplierBaseAmount: dto.supplierBaseAmount, supplierCommissionPercent: dto.supplierCommissionPercent, bookingMode: dto.bookingMode, confirmationSlaMinutes: dto.confirmationSlaMinutes } });
       if (updatedCount.count !== 1) throw new ConflictException('Commercial version was activated concurrently; reload and retry');
       if (dto.travellerPrices) await tx.ratePlanTravellerPrice.createMany({ data: dto.travellerPrices.map((p) => ({ commercialVersionId: id, travellerType: p.travellerType, amount: p.amount })) });
       const updated = await tx.ratePlanCommercialVersion.findUniqueOrThrow({ where: { id }, include: versionSelect });
@@ -114,6 +116,7 @@ export class CommercialService {
     if (!version.supplierModel) reasons.push('supplierModel');
     if (!version.pricingUnit) reasons.push('pricingUnit');
     if (!version.bookingMode) reasons.push('bookingMode');
+    if (version.bookingMode !== 'INSTANT' && (!Number.isInteger(version.confirmationSlaMinutes) || version.confirmationSlaMinutes <= 0)) reasons.push('CONFIRMATION_SLA_MISSING');
     if (version.supplierBaseAmount === null || version.supplierBaseAmount === undefined) reasons.push('supplierBaseAmount');
     if (version.supplierModel && !['NET_RATE', 'COMMISSIONABLE'].includes(version.supplierModel)) reasons.push('SUPPLIER_MODEL_UNSUPPORTED');
     if (version.supplierModel === 'COMMISSIONABLE' && (version.supplierCommissionPercent === null || version.supplierCommissionPercent === undefined)) reasons.push('supplierCommissionPercent');
@@ -180,6 +183,9 @@ export class CommercialService {
     try { version = selectEffectiveVersion(versions as any, input.serviceDate); } catch { ambiguousVersion = true; }
     const result = this.calculator.calculate(input, version, await this.resolveRules({ ...input, serviceDate: input.serviceDate.toISOString() } as QuoteDto, client));
     if (ambiguousVersion && !result.reasonCodes.includes('AMBIGUOUS_RULE')) { result.reasonCodes.push('AMBIGUOUS_RULE'); result.ready = false; }
+    if (version?.bookingMode !== 'INSTANT' && (!Number.isInteger(version?.confirmationSlaMinutes) || version.confirmationSlaMinutes <= 0)) { if (!result.reasonCodes.includes('CONFIRMATION_SLA_MISSING')) result.reasonCodes.push('CONFIRMATION_SLA_MISSING'); result.ready = false; }
+    result.confirmationSlaMinutes = version?.confirmationSlaMinutes ?? null;
+    result.quoteFingerprint = this.quoteFingerprint(result);
     return result;
   }
 
@@ -196,7 +202,13 @@ export class CommercialService {
       ratePlanCommercialVersionId: result.ratePlanCommercialVersionId,
       ready: result.ready,
       reasonCodes: result.reasonCodes,
+      quoteFingerprint: result.quoteFingerprint ?? this.quoteFingerprint(result),
+      confirmationSlaMinutes: result.confirmationSlaMinutes ?? null,
     };
+  }
+
+  quoteFingerprint(result: any) {
+    return fingerprint({ ratePlanCommercialVersionId: result.ratePlanCommercialVersionId ?? null, currency: result.currency ?? null, pricingUnit: result.pricingUnit ?? null, bookingMode: result.bookingMode ?? null, finalAmount: result.finalAmount ?? null, tax: result.tax ?? null, promotion: result.promotion ?? { amount: result.promotionAmount ?? null, funder: result.promotionFunder ?? null }, foc: result.foc ?? { amount: result.focAmount ?? null }, commercialEligibility: result.commercialEligibility ?? null, ruleVersionIds: (result.appliedRules ?? []).map((rule: any) => rule.ruleVersionId).sort() });
   }
 
   async quote(user: AuthUser, dto: QuoteDto) {

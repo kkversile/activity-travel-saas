@@ -21,10 +21,10 @@ export class FilesService {
       if (asset.purpose === FilePurpose.VENDOR_DOCUMENT && (asset.entityType !== 'VendorDocument' || !asset.entityId)) throw new ForbiddenException('Vendor document relationship is invalid');
       if (asset.purpose === FilePurpose.BOOKING_VOUCHER && (asset.entityType !== 'Booking' || !asset.entityId)) throw new ForbiddenException('Booking voucher relationship is invalid');
       if (asset.purpose === FilePurpose.BOOKING_VOUCHER) {
-        const bookingWhere: { id: string; tenantId?: string } = { id: asset.entityId! };
+        const bookingWhere: any = { id: asset.entityId! };
         if (user.role !== 'ADMIN' && user.role !== 'SUB_ADMIN') {
           if (!user.tenantId) throw new ForbiddenException('Tenant context is required');
-          bookingWhere.tenantId = user.tenantId;
+          bookingWhere.OR = [{ vendorTenantId: user.tenantId }, { agentTenantId: user.tenantId }];
         }
         const booking = await this.prisma.booking.findFirst({ where: bookingWhere, select: { id: true } });
         if (!booking) throw new ForbiddenException('Booking voucher relationship is invalid');

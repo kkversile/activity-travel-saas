@@ -28,7 +28,7 @@ export class InventoryService {
 
   async bulkApply(user: AuthUser, dto: InventoryBulkApplyDto) {
     const tenantId = requireTenant(user); if (!dto.rows.length) throw new ConflictException('At least one inventory row is required'); const statusMutation = dto.rows.some((row) => row.sessionStatus !== undefined); if (statusMutation && dto.expectedScheduleVersion == null) throw new ConflictException('expectedScheduleVersion is required for status mutation');
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => { if ((tx as any).$executeRawUnsafe) await (tx as any).$executeRawUnsafe('SET LOCAL search_path TO public');
       let schedule: any = null;
       if (statusMutation) { const scheduleRows = await tx.$queryRawUnsafe(`SELECT * FROM "ScheduleTemplate" WHERE "id" = $1 FOR UPDATE`, dto.scheduleTemplateId) as any[]; if (!scheduleRows[0]) throw new NotFoundException('Schedule not found'); if (Number(scheduleRows[0].version) !== dto.expectedScheduleVersion) throw new ConflictException('Schedule changed; reload and retry.'); schedule = scheduleRows[0]; }
       const rows = [...dto.rows].sort((a, b) => a.sessionId.localeCompare(b.sessionId)); const locked: any[] = [];

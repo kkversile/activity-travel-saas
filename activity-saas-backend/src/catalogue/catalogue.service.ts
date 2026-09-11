@@ -9,7 +9,7 @@ import { FilePurpose, FileVisibility } from '@prisma/client';
 import { StorageService } from '../storage/storage.service';
 import { ArchiveVariantDto, CreateProductDto, CreateProductRevisionDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, ProductRevisionDto, RejectProductRevisionDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
 
-const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
+const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
 const variantInclude = { ratePlans: { include: { travellerRules: true, cancellationRules: { orderBy: { minDaysBefore: 'desc' as const } } }, orderBy: { createdAt: 'asc' as const } } };
 
 @Injectable()
@@ -63,11 +63,11 @@ export class CatalogueService {
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE`);
       const working = await tx.productRevision.findFirst({ where: { productId, status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW] } }, orderBy: { versionNumber: 'desc' } });
       if (working) return working;
-      const published = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.PUBLISHED }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } } } });
-      const latest = await tx.productRevision.findFirst({ where: { productId }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } } } });
+      const published = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.PUBLISHED }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } } } });
+      const latest = await tx.productRevision.findFirst({ where: { productId }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } } } });
       let source = published;
       if (dto.sourceRevisionId) {
-        source = await tx.productRevision.findFirst({ where: { id: dto.sourceRevisionId, productId, status: { in: [ProductRevisionStatus.PUBLISHED, ProductRevisionStatus.REJECTED, ProductRevisionStatus.SUPERSEDED] } }, include: { media: { where: { archivedAt: null } } } });
+        source = await tx.productRevision.findFirst({ where: { id: dto.sourceRevisionId, productId, status: { in: [ProductRevisionStatus.PUBLISHED, ProductRevisionStatus.REJECTED, ProductRevisionStatus.SUPERSEDED] } }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } } } });
         if (!source) throw new ConflictException('Source revision must belong to this Product and be immutable history');
       } else if (latest?.status === ProductRevisionStatus.REJECTED && (!published || latest.versionNumber > published.versionNumber)) {
         source = latest;
@@ -76,11 +76,65 @@ export class CatalogueService {
       }
       if (!source) throw new ConflictException('Product has no revision to clone');
       const maxVersion = await tx.productRevision.aggregate({ where: { productId }, _max: { versionNumber: true } });
-      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, versionNumber: _version, status: _status, rejectionReason: _reason, submittedAt: _submitted, reviewedAt: _reviewed, reviewedById: _reviewedBy, createdById: _createdBy, productId: _productId, sourcePayload: _sourcePayload, media: sourceMedia, ...content } = source;
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, versionNumber: _version, status: _status, rejectionReason: _reason, submittedAt: _submitted, reviewedAt: _reviewed, reviewedById: _reviewedBy, createdById: _createdBy, productId: _productId, sourcePayload: _sourcePayload, media: sourceMedia, bookingQuestions: sourceQuestions, ...content } = source;
       const revision = await tx.productRevision.create({ data: { ...content, faqs: (source.faqs ?? []) as Prisma.InputJsonValue, ...(source.sourcePayload ? { sourcePayload: source.sourcePayload as Prisma.InputJsonValue } : {}), productId, versionNumber: (maxVersion._max.versionNumber ?? 0) + 1, createdById: user.sub, status: ProductRevisionStatus.DRAFT } });
-      if (sourceMedia.length) await tx.productMedia.createMany({ data: sourceMedia.map(({ id: _mediaId, revisionId: _revisionId, createdAt: _mediaCreatedAt, updatedAt: _mediaUpdatedAt, archivedAt: _archivedAt, ...media }) => ({ ...media, revisionId: revision.id })) });
+      if ((sourceMedia ?? []).length) await tx.productMedia.createMany({ data: sourceMedia.map(({ id: _mediaId, revisionId: _revisionId, createdAt: _mediaCreatedAt, updatedAt: _mediaUpdatedAt, archivedAt: _archivedAt, ...media }) => ({ ...media, revisionId: revision.id })) });
+      if ((sourceQuestions ?? []).length) await tx.productBookingQuestion.createMany({ data: sourceQuestions.map(({ id: _questionId, productRevisionId: _sourceRevisionId, createdAt: _questionCreatedAt, updatedAt: _questionUpdatedAt, archivedAt: _questionArchivedAt, options, ...question }) => ({ ...question, productRevisionId: revision.id, ...(options == null ? {} : { options: options as Prisma.InputJsonValue }) })) });
       await this.audit.write(tx, { actor: user, tenantId: product.tenantId, action: 'PRODUCT_REVISION_CREATED', entityType: 'ProductRevision', entityId: revision.id, afterState: { productId, sourceRevisionId: source.id, newRevisionId: revision.id, versionNumber: revision.versionNumber } });
       return revision;
+    });
+  }
+
+  async listBookingQuestions(user: AuthUser, revisionId: string) {
+    const tenantId = requireTenant(user);
+    const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } } });
+    if (!revision) throw new NotFoundException('Product revision not found');
+    return this.prisma.productBookingQuestion.findMany({ where: { productRevisionId: revisionId, archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] });
+  }
+
+  async createBookingQuestion(user: AuthUser, revisionId: string, dto: import('./catalogue.dto').BookingQuestionDto) {
+    const tenantId = requireTenant(user);
+    return this.prisma.$transaction(async (tx) => {
+      const revision = await tx.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } } });
+      if (!revision) throw new NotFoundException('Product revision not found');
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "public"."ProductRevision" WHERE "id" = ${revisionId} FOR UPDATE`);
+      const locked = await tx.productRevision.findUniqueOrThrow({ where: { id: revisionId } });
+      this.assertMutableRevision(locked);
+      try {
+        const question = await tx.productBookingQuestion.create({ data: { productRevisionId: revisionId, code: dto.code.trim(), label: dto.label.trim(), helpText: dto.helpText?.trim(), type: dto.type, required: dto.required ?? false, options: dto.options as Prisma.InputJsonValue | undefined, appliesPerTraveller: dto.appliesPerTraveller ?? false, rank: dto.rank ?? 0 } });
+        await this.audit.write(tx, { actor: user, tenantId, action: 'BOOKING_QUESTION_CREATED', entityType: 'ProductBookingQuestion', entityId: question.id, metadata: { productId: locked.productId, revisionId, questionId: question.id, code: question.code } });
+        return question;
+      } catch (error: any) { if (error?.code === 'P2002') throw new ConflictException('Question code already exists on this revision'); throw error; }
+    });
+  }
+
+  async updateBookingQuestion(user: AuthUser, id: string, dto: import('./catalogue.dto').UpdateBookingQuestionDto) {
+    const tenantId = requireTenant(user);
+    return this.prisma.$transaction(async (tx) => {
+      const question = await tx.productBookingQuestion.findFirst({ where: { id, productRevision: { product: { tenantId } } } });
+      if (!question) throw new NotFoundException('Booking question not found');
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "public"."ProductRevision" WHERE "id" = ${question.productRevisionId} FOR UPDATE`);
+      const revision = await tx.productRevision.findUniqueOrThrow({ where: { id: question.productRevisionId } });
+      this.assertMutableRevision(revision);
+      try {
+        const updated = await tx.productBookingQuestion.update({ where: { id }, data: { ...(dto.code === undefined ? {} : { code: dto.code.trim() }), ...(dto.label === undefined ? {} : { label: dto.label.trim() }), ...(dto.helpText === undefined ? {} : { helpText: dto.helpText?.trim() }), ...(dto.type === undefined ? {} : { type: dto.type }), ...(dto.required === undefined ? {} : { required: dto.required }), ...(dto.options === undefined ? {} : { options: dto.options as Prisma.InputJsonValue }), ...(dto.appliesPerTraveller === undefined ? {} : { appliesPerTraveller: dto.appliesPerTraveller }), ...(dto.rank === undefined ? {} : { rank: dto.rank }) } });
+        await this.audit.write(tx, { actor: user, tenantId, action: 'BOOKING_QUESTION_UPDATED', entityType: 'ProductBookingQuestion', entityId: id, metadata: { productId: revision.productId, revisionId: revision.id, questionId: id, code: updated.code } });
+        return updated;
+      } catch (error: any) { if (error?.code === 'P2002') throw new ConflictException('Question code already exists on this revision'); throw error; }
+    });
+  }
+
+  async archiveBookingQuestion(user: AuthUser, id: string) {
+    const tenantId = requireTenant(user);
+    return this.prisma.$transaction(async (tx) => {
+      const question = await tx.productBookingQuestion.findFirst({ where: { id, productRevision: { product: { tenantId } } } });
+      if (!question) throw new NotFoundException('Booking question not found');
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "public"."ProductRevision" WHERE "id" = ${question.productRevisionId} FOR UPDATE`);
+      const revision = await tx.productRevision.findUniqueOrThrow({ where: { id: question.productRevisionId } });
+      this.assertMutableRevision(revision);
+      const archived = await tx.productBookingQuestion.update({ where: { id }, data: { archivedAt: new Date() } });
+      await this.audit.write(tx, { actor: user, tenantId, action: 'BOOKING_QUESTION_ARCHIVED', entityType: 'ProductBookingQuestion', entityId: id, metadata: { productId: revision.productId, revisionId: revision.id, questionId: id, code: question.code } });
+      return archived;
     });
   }
 
