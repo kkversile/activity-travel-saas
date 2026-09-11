@@ -13,7 +13,8 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:db:push": "prisma db push",
     "verify:phase4-1": "tsx scripts/verify-phase4-1-integrity.ts",
-    "verify:phase4-2": "tsx scripts/verify-phase4-2-integrity.ts"
+    "verify:phase4-2": "tsx scripts/verify-phase4-2-integrity.ts",
+    "verify:phase5": "tsx scripts/verify-phase5-eligibility.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

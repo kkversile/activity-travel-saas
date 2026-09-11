@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { BookingStatus, DocumentReviewStatus, Prisma, ProductRevisionStatus, TenantKind, VendorVerificationStatus } from '@prisma/client';
+import { AgentVerificationStatus, BookingStatus, DocumentReviewStatus, Prisma, ProductRevisionStatus, TenantKind, VendorVerificationStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
 import { OutboxService } from '../outbox/outbox.service';
@@ -11,6 +11,28 @@ const documentsInclude = { vendorDocuments: { include: { versions: { orderBy: { 
 @Injectable()
 export class AdminService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService) {}
+
+  agents() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.TRAVEL_AGENT }, include: { agentProfile: true, users: { select: { id: true, email: true, fullName: true, active: true, organizationRole: true } } }, orderBy: { createdAt: 'desc' } }); }
+  async approveAgent(actor: AuthUser, tenantId: string) { return this.setAgentVerification(actor, tenantId, AgentVerificationStatus.APPROVED); }
+  async suspendAgent(actor: AuthUser, tenantId: string, reason: string) { return this.setAgentVerification(actor, tenantId, AgentVerificationStatus.SUSPENDED, reason); }
+  private async setAgentVerification(actor: AuthUser, tenantId: string, status: AgentVerificationStatus, reason?: string) {
+    if (status === AgentVerificationStatus.SUSPENDED && !reason?.trim()) throw new ConflictException('A reason is required when suspending an agent');
+    const tenant = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.TRAVEL_AGENT }, include: { agentProfile: true } });
+    if (!tenant) throw new NotFoundException('Travel Agent tenant not found');
+    return this.prisma.$transaction(async (tx) => {
+      const profile = await tx.agentProfile.upsert({ where: { tenantId }, update: { verificationStatus: status, reviewReason: reason?.trim() || null, reviewedAt: new Date(), reviewedById: actor.sub }, create: { tenantId, legalBusinessName: tenant.name, verificationStatus: status, reviewReason: reason?.trim() || null, reviewedAt: new Date(), reviewedById: actor.sub } });
+      const eventType = status === AgentVerificationStatus.APPROVED ? 'AGENT_APPROVED' : 'AGENT_SUSPENDED';
+      await this.audit.write(tx, { actor, tenantId, action: eventType, entityType: 'AgentProfile', entityId: profile.id, reason, beforeState: tenant.agentProfile, afterState: { verificationStatus: status } });
+      await this.outbox.enqueue(tx, { tenantId, eventType, aggregateType: 'AgentProfile', aggregateId: profile.id, payload: { status, reason: reason?.trim() || null } });
+      return profile;
+    });
+  }
+
+  async setRatePlanChannel(actor: AuthUser, ratePlanId: string, enabled: boolean) {
+    const channel = await this.prisma.distributionChannel.upsert({ where: { code: 'VOYA_AGENT' }, update: { active: true }, create: { code: 'VOYA_AGENT', name: 'Voya Travel Agent Marketplace' } });
+    const plan = await this.prisma.ratePlan.findUnique({ where: { id: ratePlanId }, include: { variant: { include: { product: true } } } }); if (!plan) throw new NotFoundException('Rate plan not found');
+    return this.prisma.$transaction(async (tx) => { const mapping = await tx.ratePlanChannelMapping.upsert({ where: { ratePlanId_channelId: { ratePlanId, channelId: channel.id } }, update: { enabled, version: { increment: 1 } }, create: { ratePlanId, channelId: channel.id, enabled } }); const eventType = enabled ? 'RATEPLAN_CHANNEL_ENABLED' : 'RATEPLAN_CHANNEL_DISABLED'; await this.audit.write(tx, { actor, tenantId: plan.variant.product.tenantId, action: eventType, entityType: 'RatePlanChannelMapping', entityId: mapping.id, afterState: { ratePlanId, channelCode: 'VOYA_AGENT', enabled } }); await this.outbox.enqueue(tx, { tenantId: plan.variant.product.tenantId, eventType, aggregateType: 'RatePlanChannelMapping', aggregateId: mapping.id, payload: { ratePlanId, channelCode: 'VOYA_AGENT', enabled } }); return mapping; });
+  }
   async dashboard() { const [vendors, pendingVendors, products, reviewProducts, bookings, pendingBookings] = await Promise.all([this.prisma.tenant.count({ where: { kind: TenantKind.VENDOR } }), this.prisma.vendorProfile.count({ where: { verificationStatus: VendorVerificationStatus.PENDING } }), this.prisma.product.count({ where: { tenant: { kind: TenantKind.VENDOR } } }), this.prisma.productRevision.count({ where: { product: { tenant: { kind: TenantKind.VENDOR } }, status: ProductRevisionStatus.UNDER_REVIEW } }), this.prisma.booking.count({ where: { tenant: { kind: TenantKind.VENDOR } } }), this.prisma.booking.count({ where: { tenant: { kind: TenantKind.VENDOR }, status: BookingStatus.PENDING } })]); return { vendors, pendingVendors, products, listings: products, reviewProducts, reviewActivities: reviewProducts, bookings, pendingBookings }; }
   vendors() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { email: true, fullName: true, active: true } }, _count: { select: { products: true, bookings: true, payouts: true } } }, orderBy: { createdAt: 'desc' } }); }
   async vendor(tenantId: string) { const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { email: true, fullName: true, active: true } }, products: { include: { currentRevision: true, variants: { include: { ratePlans: true } } }, orderBy: { updatedAt: 'desc' } }, _count: { select: { bookings: true, payouts: true } } } }); if (!vendor) throw new NotFoundException('Vendor not found'); return vendor; }

@@ -36,4 +36,15 @@ describe('Phase 1 permission matrix', () => {
     expect(hasPermission(agent, 'booking.confirm')).toBe(false);
     expect(hasPermission(agent, 'payout.view')).toBe(false);
   });
+
+  it('applies the explicit Agent organization matrix', () => {
+    for (const role of [OrganizationRole.OWNER, OrganizationRole.CATALOGUE, OrganizationRole.OPERATIONS, OrganizationRole.VIEWER]) {
+      expect(hasPermission(user(UserRole.TRAVEL_AGENT, role), 'marketplace.search')).toBe(true);
+      expect(hasPermission(user(UserRole.TRAVEL_AGENT, role), 'marketplace.view')).toBe(true);
+    }
+    expect(hasPermission(user(UserRole.TRAVEL_AGENT, OrganizationRole.FINANCE), 'marketplace.search')).toBe(false);
+    expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'eligibility.inspect')).toBe(false);
+    expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'marketplace.channel.manage')).toBe(false);
+    expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'commercial.internal.view')).toBe(false);
+  });
 });

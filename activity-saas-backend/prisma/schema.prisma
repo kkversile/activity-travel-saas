@@ -116,6 +116,12 @@ enum VendorVerificationStatus {
   SUSPENDED
 }
 
+enum AgentVerificationStatus {
+  PENDING
+  APPROVED
+  SUSPENDED
+}
+
 enum ProductType {
   ACTIVITY
   MEALS
@@ -292,6 +298,7 @@ model Tenant {
   kind                    TenantKind         @default(VENDOR)
   users                   User[]
   vendorProfile           VendorProfile?
+  agentProfile            AgentProfile?
   bookings                Booking[]
   payouts                 Payout[]
   auditLogs               AuditLog[]
@@ -327,6 +334,7 @@ model User {
   createdCommercialRules          CommercialRule[]            @relation("CommercialRuleCreatedBy")
   createdCommercialRuleVersions   CommercialRuleVersion[]     @relation("CommercialRuleVersionCreatedBy")
   activatedCommercialRuleVersions CommercialRuleVersion[]     @relation("CommercialRuleVersionActivatedBy")
+  reviewedAgentProfiles           AgentProfile[]              @relation("AgentProfileReviewedBy")
   createdAt                       DateTime                    @default(now())
   updatedAt                       DateTime                    @updatedAt
 
@@ -355,6 +363,22 @@ model VendorProfile {
   documentStatus      Json                     @default("{}")
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
+}
+
+model AgentProfile {
+  id                 String                  @id @default(uuid())
+  tenantId           String                  @unique
+  tenant             Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  legalBusinessName  String
+  verificationStatus AgentVerificationStatus @default(PENDING)
+  reviewReason       String?
+  reviewedAt         DateTime?
+  reviewedById       String?
+  reviewedBy         User?                   @relation("AgentProfileReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@index([verificationStatus])
 }
 
 model FileAsset {
@@ -576,12 +600,14 @@ model RatePlan {
   autoRedeem          Boolean                     @default(false)
   qrType              String?
   cutOffMinutes       Int                         @default(0)
+  dateLevelCutoffTime String?
   adultRequired       Boolean                     @default(false)
   minAdultRequired    Int                         @default(0)
   sourcePayload       Json?
   travellerRules      TravellerRule[]
   cancellationRules   CancellationRule[]
   scheduleMappings    RatePlanSchedule[]
+  channelMappings     RatePlanChannelMapping[]
   bookings            Booking[]
   commercialVersions  RatePlanCommercialVersion[]
   commercialRules     CommercialRule[]
@@ -590,6 +616,31 @@ model RatePlan {
 
   @@unique([variantId, ratePlanCode])
   @@index([variantId, status])
+}
+
+model DistributionChannel {
+  id        String                   @id @default(uuid())
+  code      String                   @unique
+  name      String
+  active    Boolean                  @default(true)
+  mappings  RatePlanChannelMapping[]
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+}
+
+model RatePlanChannelMapping {
+  id         String              @id @default(uuid())
+  ratePlanId String
+  ratePlan   RatePlan            @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  channelId  String
+  channel    DistributionChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  enabled    Boolean             @default(true)
+  version    Int                 @default(1)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@unique([ratePlanId, channelId])
+  @@index([channelId, enabled])
 }
 
 model TravellerRule {

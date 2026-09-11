@@ -1,7 +1,7 @@
 import { ChargeType, RatePlanStatus, TravellerType } from '@prisma/client';
 import { PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsNumber, IsOptional, IsString, Matches, Min, ValidateNested } from 'class-validator';
 
 export class TravellerRuleDto {
   @IsEnum(TravellerType) type!: TravellerType;
@@ -34,6 +34,7 @@ export class CreateRatePlanDto {
   @IsOptional() @IsBoolean() offlineVoucher?: boolean;
   @IsOptional() @IsBoolean() autoRedeem?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) cutOffMinutes?: number;
+  @IsOptional() @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) dateLevelCutoffTime?: string;
   @IsOptional() @IsBoolean() adultRequired?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) minAdultRequired?: number;
 

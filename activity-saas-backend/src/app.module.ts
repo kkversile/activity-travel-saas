@@ -20,6 +20,8 @@ import { CommercialModule } from './commercial/commercial.module';
 import { SchedulesModule } from './schedules/schedules.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { ResourcesModule } from './resources/resources.module';
+import { EligibilityModule } from './eligibility/eligibility.module';
+import { MarketplaceModule } from './marketplace/marketplace.module';
 
 function validateEnvironment(config: Record<string, unknown>) {
   const databaseUrl = String(config.DATABASE_URL ?? '');
@@ -45,6 +47,8 @@ function validateEnvironment(config: Record<string, unknown>) {
     SchedulesModule,
     InventoryModule,
     ResourcesModule,
+    EligibilityModule,
+    MarketplaceModule,
     BookingsModule,
     PayoutsModule,
     AdminModule,

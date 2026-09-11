@@ -142,12 +142,12 @@ export class CommercialService {
     });
   }
 
-  private async resolveRules(input: QuoteDto) {
+  private async resolveRules(input: QuoteDto, client: PrismaService | Prisma.TransactionClient = this.prisma) {
     const date = new Date(input.serviceDate);
-    const candidates: any[] = await this.prisma.commercialRule.findMany({ where: { archivedAt: null, versions: { some: { status: CommercialRuleVersionStatus.ACTIVE, ...dateWindow(date) } } }, include: { versions: { where: { status: CommercialRuleVersionStatus.ACTIVE, ...dateWindow(date) }, orderBy: { versionNumber: 'desc' } }, agentGroup: { include: { members: true } } } });
-    const plan = await this.prisma.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { variant: { include: { product: true } } } });
+    const candidates: any[] = await client.commercialRule.findMany({ where: { archivedAt: null, versions: { some: { status: CommercialRuleVersionStatus.ACTIVE, ...dateWindow(date) } } }, include: { versions: { where: { status: CommercialRuleVersionStatus.ACTIVE, ...dateWindow(date) }, orderBy: { versionNumber: 'desc' } }, agentGroup: { include: { members: true } } } });
+    const plan = await client.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { variant: { include: { product: true } } } });
     if (!plan) throw new NotFoundException('Rate plan not found');
-    const groupIds = input.agentTenantId ? (await this.prisma.agentGroupMember.findMany({ where: { agentTenantId: input.agentTenantId, agentGroup: { active: true } }, select: { agentGroupId: true } })).map((g) => g.agentGroupId) : [];
+    const groupIds = input.agentTenantId ? (await client.agentGroupMember.findMany({ where: { agentTenantId: input.agentTenantId, agentGroup: { active: true } }, select: { agentGroupId: true } })).map((g) => g.agentGroupId) : [];
     const ids: Record<string, string | undefined> = { VENDOR: plan.variant.product.tenantId, PRODUCT: plan.variant.productId, VARIANT: plan.variantId, RATE_PLAN: plan.id, AGENT: input.agentTenantId };
     const specificity: Record<string, number> = { GLOBAL: 0, VENDOR: 1, PRODUCT: 2, VARIANT: 3, RATE_PLAN: 4, AGENT_GROUP: 5, AGENT: 6 };
     const scopeField: Record<string, string> = { VENDOR: 'vendorTenantId', PRODUCT: 'productId', VARIANT: 'variantId', RATE_PLAN: 'ratePlanId' };
@@ -164,6 +164,39 @@ export class CommercialService {
       selected.push(...top.map((x) => ({ rule: { ...x.r, versions: [x.v] }, config: x.v.config })));
     }
     return selected;
+  }
+
+  /** Trusted server-side calculation seam for marketplace and Phase 6.
+   * The caller has already established the agent context; this method never
+   * uses vendor-user ownership checks and returns the full internal result
+   * only to other backend services.
+   */
+  async evaluateInternal(input: { ratePlanId: string; serviceDate: Date; units: number; travellers: Array<{ travellerType: string; quantity: number }>; agentTenantId?: string; channel?: string }, client: PrismaService | Prisma.TransactionClient = this.prisma) {
+    const plan = await client.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { variant: { include: { product: true } } } });
+    if (!plan) throw new NotFoundException('Rate plan not found');
+    const versions = await client.ratePlanCommercialVersion.findMany({ where: { ratePlanId: plan.id, status: CommercialVersionStatus.ACTIVE, ...dateWindow(input.serviceDate) }, include: versionSelect });
+    let version: any = null;
+    let ambiguousVersion = false;
+    try { version = selectEffectiveVersion(versions as any, input.serviceDate); } catch { ambiguousVersion = true; }
+    const result = this.calculator.calculate(input, version, await this.resolveRules({ ...input, serviceDate: input.serviceDate.toISOString() } as QuoteDto, client));
+    if (ambiguousVersion && !result.reasonCodes.includes('AMBIGUOUS_RULE')) { result.reasonCodes.push('AMBIGUOUS_RULE'); result.ready = false; }
+    return result;
+  }
+
+  projectForAgent(result: any) {
+    return {
+      currency: result.currency,
+      pricingUnit: result.pricingUnit,
+      bookingMode: result.bookingMode,
+      finalAmount: result.finalAmount,
+      agentFacingAmount: result.agentFacingAmount,
+      tax: result.tax ? { mode: result.tax.mode, amount: result.tax.amount } : null,
+      promotion: { amount: result.promotionAmount, funder: result.promotionFunder },
+      commercialEligibility: result.commercialEligibility,
+      ratePlanCommercialVersionId: result.ratePlanCommercialVersionId,
+      ready: result.ready,
+      reasonCodes: result.reasonCodes,
+    };
   }
 
   async quote(user: AuthUser, dto: QuoteDto) {
