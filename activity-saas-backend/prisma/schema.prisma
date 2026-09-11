@@ -1,0 +1,1111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantKind {
+  PLATFORM
+  VENDOR
+  TRAVEL_AGENT
+}
+
+enum SupplierCommercialModel {
+  NET_RATE
+  COMMISSIONABLE
+  GROSS_RATE
+  HYBRID
+}
+
+enum PricingUnit {
+  PER_PERSON
+  PER_BOOKING
+  PER_UNIT
+  GROUP
+}
+
+enum BookingMode {
+  INSTANT
+  VENDOR_CONFIRMATION
+  MANUAL_ON_REQUEST
+}
+
+enum CommercialVersionStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum CommercialRuleKind {
+  VOYA_REVENUE
+  AGENT_COMMERCIAL
+  TAX
+  PROMOTION
+  FOC
+  ELIGIBILITY
+}
+
+enum CommercialScopeType {
+  GLOBAL
+  VENDOR
+  PRODUCT
+  VARIANT
+  RATE_PLAN
+  AGENT_GROUP
+  AGENT
+}
+
+enum CommercialStackingMode {
+  EXCLUSIVE
+  STACKABLE
+}
+
+enum CommercialRuleVersionStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum VoyaRevenueModel {
+  MARKUP_FIXED
+  MARKUP_PERCENT
+  COMMISSION_PERCENT
+  HYBRID
+}
+
+enum AgentCommercialModel {
+  NET_PLUS_MARKUP
+  SELLING_PRICE_COMMISSION
+  AGENT_SPECIFIC_PRICE
+}
+
+enum TaxMode {
+  EXCLUSIVE
+  INCLUSIVE
+  NONE
+}
+
+enum PromotionFunder {
+  SUPPLIER
+  VOYA
+  SHARED
+  AGENT
+}
+
+enum UserRole {
+  ADMIN
+  SUB_ADMIN
+  VENDOR
+  TRAVEL_AGENT
+}
+
+enum OrganizationRole {
+  OWNER
+  CATALOGUE
+  OPERATIONS
+  FINANCE
+  VIEWER
+}
+
+enum VendorVerificationStatus {
+  PENDING
+  VERIFIED
+  SUSPENDED
+}
+
+enum ProductType {
+  ACTIVITY
+  MEALS
+  TRANSFER
+  PACKAGE_ADDON
+  OTHERS
+}
+
+enum RatePlanStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+  BLACKLISTED
+}
+
+enum TravellerType {
+  ADULT
+  CHILD
+  SENIOR
+  YOUTH
+  INFANT
+  GROUP
+}
+
+enum ChargeType {
+  PERCENTAGE
+  ABSOLUTE
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum FileVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum FilePurpose {
+  PRODUCT_MEDIA
+  VENDOR_DOCUMENT
+  BOOKING_VOUCHER
+  FULFILMENT_DOCUMENT
+  OTHER
+}
+
+enum VendorDocumentType {
+  GSTIN
+  PAN
+  BANK_PROOF
+  TRADE_LICENSE
+}
+
+enum DocumentReviewStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+enum ProductStatus {
+  DRAFT
+  LIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum ProductRevisionStatus {
+  DRAFT
+  UNDER_REVIEW
+  PUBLISHED
+  REJECTED
+  SUPERSEDED
+}
+
+enum VariantStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum OperatingModel {
+  ALL_DAY
+  FIXED_SLOT
+  MULTIPLE_SLOTS
+  DATE_CAPACITY
+  ON_REQUEST_DATE
+}
+
+enum ScheduleStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum CapacityUnit {
+  PERSON
+  BOOKING
+  UNIT
+}
+
+enum SessionStatus {
+  OPEN
+  CLOSED
+  BLACKOUT
+  ARCHIVED
+}
+
+enum ScheduleExceptionType {
+  BLACKOUT
+  CLOSED
+}
+
+enum InventoryHoldStatus {
+  ACTIVE
+  CONVERTED
+  RELEASED
+  EXPIRED
+}
+
+enum InventoryAllocationStatus {
+  CONFIRMED
+  RELEASED
+}
+
+enum ResourceAllocationStatus {
+  ACTIVE
+  RELEASED
+}
+
+enum ResourceType {
+  VEHICLE
+  GUIDE
+  BOAT
+  EQUIPMENT
+  INSTRUCTOR
+  VENUE
+  OTHER
+}
+
+enum ResourceAllocationMode {
+  EXCLUSIVE
+  SHARED
+  CAPACITY
+}
+
+enum PayoutStatus {
+  SCHEDULED
+  IN_TRANSIT
+  PAID
+  FAILED
+}
+
+model Tenant {
+  id                      String             @id @default(uuid())
+  name                    String
+  slug                    String             @unique
+  kind                    TenantKind         @default(VENDOR)
+  users                   User[]
+  vendorProfile           VendorProfile?
+  bookings                Booking[]
+  payouts                 Payout[]
+  auditLogs               AuditLog[]
+  fileAssets              FileAsset[]
+  vendorDocuments         VendorDocument[]
+  outboxEvents            OutboxEvent[]
+  products                Product[]
+  resources               Resource[]
+  agentGroupMembers       AgentGroupMember[]
+  commercialRulesAsVendor CommercialRule[]   @relation("CommercialRuleVendor")
+  commercialRulesAsAgent  CommercialRule[]   @relation("CommercialRuleAgent")
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+}
+
+model User {
+  id                              String                      @id @default(uuid())
+  tenantId                        String?
+  tenant                          Tenant?                     @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  email                           String                      @unique
+  passwordHash                    String
+  fullName                        String
+  role                            UserRole
+  organizationRole                OrganizationRole?
+  active                          Boolean                     @default(true)
+  createdFileAssets               FileAsset[]
+  createdDocumentVersions         VendorDocumentVersion[]     @relation("DocumentVersionCreatedBy")
+  reviewedDocumentVersions        VendorDocumentVersion[]     @relation("DocumentVersionReviewedBy")
+  createdProductRevisions         ProductRevision[]           @relation("ProductRevisionCreatedBy")
+  reviewedProductRevisions        ProductRevision[]           @relation("ProductRevisionReviewedBy")
+  createdCommercialVersions       RatePlanCommercialVersion[] @relation("CommercialVersionCreatedBy")
+  activatedCommercialVersions     RatePlanCommercialVersion[] @relation("CommercialVersionActivatedBy")
+  createdCommercialRules          CommercialRule[]            @relation("CommercialRuleCreatedBy")
+  createdCommercialRuleVersions   CommercialRuleVersion[]     @relation("CommercialRuleVersionCreatedBy")
+  activatedCommercialRuleVersions CommercialRuleVersion[]     @relation("CommercialRuleVersionActivatedBy")
+  createdAt                       DateTime                    @default(now())
+  updatedAt                       DateTime                    @updatedAt
+
+  @@index([tenantId, role])
+}
+
+model VendorProfile {
+  id                  String                   @id @default(uuid())
+  tenantId            String                   @unique
+  tenant              Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  legalBusinessName   String
+  operatingCity       String
+  operatingRegion     String
+  gstin               String?
+  category            String?
+  verificationStatus  VendorVerificationStatus @default(PENDING)
+  readinessScore      Int                      @default(0)
+  payoutAccountMasked String?
+  payoutAccountHolder String?
+  payoutBankName      String?
+  payoutBranch        String?
+  payoutIfsc          String?
+  payoutSwift         String?
+  payoutAccountType   String?
+  payoutCurrency      String?
+  documentStatus      Json                     @default("{}")
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+}
+
+model FileAsset {
+  id               String                  @id @default(uuid())
+  tenantId         String?
+  tenant           Tenant?                 @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  storageKey       String                  @unique
+  originalName     String
+  mimeType         String
+  sizeBytes        Int
+  visibility       FileVisibility
+  purpose          FilePurpose
+  entityType       String?
+  entityId         String?
+  createdById      String?
+  createdBy        User?                   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  archivedAt       DateTime?
+  createdAt        DateTime                @default(now())
+  documentVersions VendorDocumentVersion[]
+  productMedia     ProductMedia[]
+
+  @@index([tenantId, visibility])
+  @@index([purpose, entityId])
+  @@index([createdAt])
+}
+
+model VendorDocument {
+  id            String                  @id @default(uuid())
+  tenantId      String
+  tenant        Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type          VendorDocumentType
+  currentStatus DocumentReviewStatus    @default(PENDING)
+  versions      VendorDocumentVersion[]
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@unique([tenantId, type])
+  @@index([tenantId, currentStatus])
+}
+
+model VendorDocumentVersion {
+  id               String               @id @default(uuid())
+  vendorDocumentId String
+  vendorDocument   VendorDocument       @relation(fields: [vendorDocumentId], references: [id], onDelete: Cascade)
+  versionNumber    Int
+  fileAssetId      String
+  fileAsset        FileAsset            @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  status           DocumentReviewStatus @default(PENDING)
+  expiresAt        DateTime?
+  rejectionReason  String?
+  submittedAt      DateTime             @default(now())
+  reviewedAt       DateTime?
+  reviewedById     String?
+  reviewedBy       User?                @relation("DocumentVersionReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  createdById      String
+  createdBy        User                 @relation("DocumentVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt        DateTime             @default(now())
+
+  @@unique([vendorDocumentId, versionNumber])
+  @@index([vendorDocumentId, status])
+}
+
+model Product {
+  id                String            @id @default(uuid())
+  tenantId          String
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productCode       String
+  status            ProductStatus     @default(DRAFT)
+  currentRevisionId String?
+  currentRevision   ProductRevision?  @relation("CurrentProductRevision", fields: [currentRevisionId, id], references: [id, productId], onDelete: NoAction)
+  revisions         ProductRevision[] @relation("ProductRevisions")
+  variants          ProductVariant[]
+  promotions        Promotion[]
+  pricingRules      PricingRule[]
+  bookings          Booking[]
+  commercialRules   CommercialRule[]
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([tenantId, productCode])
+  @@index([tenantId, status])
+}
+
+model ProductRevision {
+  id                  String                @id @default(uuid())
+  productId           String
+  product             Product               @relation("ProductRevisions", fields: [productId], references: [id], onDelete: Cascade)
+  versionNumber       Int
+  status              ProductRevisionStatus @default(DRAFT)
+  productName         String
+  type                ProductType
+  subType             String
+  description         String
+  shortDescription    String?
+  terms               String[]              @default([])
+  faqs                Json                  @default("[]")
+  highlights          String[]              @default([])
+  channels            String[]              @default([])
+  highlightedPriority Int?
+  isHotelLinked       Boolean               @default(false)
+  attachedHotelIds    String[]              @default([])
+  howToRedeem         String[]              @default([])
+  subCategory         String?
+  persuasions         String[]              @default([])
+  labels              String[]              @default([])
+  rank                Int?
+  starRating          Decimal?              @db.Decimal(3, 2)
+  safetyMeasures      String[]              @default([])
+  importantInfo       String[]              @default([])
+  thingsToCarry       String[]              @default([])
+  additionalInfo      String[]              @default([])
+  metaname            String?
+  cityCode            String?
+  lat                 Decimal?              @db.Decimal(10, 7)
+  lon                 Decimal?              @db.Decimal(10, 7)
+  address             String?
+  cityName            String
+  countryName         String
+  stateName           String
+  sourcePayload       Json?
+  rejectionReason     String?
+  submittedAt         DateTime?
+  reviewedAt          DateTime?
+  reviewedById        String?
+  reviewedBy          User?                 @relation("ProductRevisionReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  createdById         String
+  createdBy           User                  @relation("ProductRevisionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  media               ProductMedia[]
+  currentForProducts  Product[]             @relation("CurrentProductRevision")
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@unique([productId, versionNumber])
+  @@unique([id, productId])
+  @@index([productId, status])
+}
+
+model ProductMedia {
+  id             String          @id @default(uuid())
+  revisionId     String
+  revision       ProductRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  kind           MediaKind
+  fileAssetId    String?
+  fileAsset      FileAsset?      @relation(fields: [fileAssetId], references: [id], onDelete: SetNull)
+  externalUrl    String?
+  description    String?
+  seoTitle       String?
+  seoDescription String?
+  rank           Int             @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([revisionId, kind])
+}
+
+model ProductVariant {
+  id               String             @id @default(uuid())
+  productId        String
+  product          Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantCode      String
+  name             String
+  description      String?
+  status           VariantStatus      @default(ACTIVE)
+  durationMinutes  Int?
+  privateShared    String?
+  vehicleType      String?
+  pickupIncluded   Boolean            @default(false)
+  pickupType       String?
+  pickupInput      String?
+  pickupTimings    String?
+  dropoffIncluded  Boolean            @default(false)
+  dropoffTimings   String?
+  mealIncluded     Boolean            @default(false)
+  mealType         String?
+  menu             String[]           @default([])
+  mealVariety      String?
+  pointsOfInterest String[]           @default([])
+  inclusions       String[]           @default([])
+  exclusions       String[]           @default([])
+  suitableFor      String[]           @default([])
+  sourcePayload    Json?
+  version          Int                @default(1)
+  archivedAt       DateTime?
+  ratePlans        RatePlan[]
+  schedules        ScheduleTemplate[]
+  commercialRules  CommercialRule[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@unique([productId, variantCode])
+  @@index([productId, status])
+}
+
+model RatePlan {
+  id                  String                      @id @default(uuid())
+  variantId           String
+  variant             ProductVariant              @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  ratePlanCode        String
+  name                String
+  status              RatePlanStatus              @default(ACTIVE)
+  description         String?
+  validFrom           DateTime
+  validTo             DateTime
+  currency            String                      @default("INR")
+  unitType            String                      @default("per_person")
+  basePrice           Decimal                     @default(0) @db.Decimal(12, 2)
+  freehold            Boolean                     @default(false)
+  minPax              Int                         @default(1)
+  maxPax              Int                         @default(99)
+  affiliates          String[]                    @default([])
+  // Legacy fulfilment/issuance retained temporarily for Phase 8.
+  generatePnr         String?
+  label               String?
+  ticketOnly          Boolean                     @default(false)
+  vendorVoucherFlag   Boolean?
+  offlineVoucher      Boolean                     @default(false)
+  instantConfirmation Boolean                     @default(false)
+  autoRedeem          Boolean                     @default(false)
+  qrType              String?
+  cutOffMinutes       Int                         @default(0)
+  adultRequired       Boolean                     @default(false)
+  minAdultRequired    Int                         @default(0)
+  sourcePayload       Json?
+  travellerRules      TravellerRule[]
+  cancellationRules   CancellationRule[]
+  scheduleMappings    RatePlanSchedule[]
+  bookings            Booking[]
+  commercialVersions  RatePlanCommercialVersion[]
+  commercialRules     CommercialRule[]
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  @@unique([variantId, ratePlanCode])
+  @@index([variantId, status])
+}
+
+model TravellerRule {
+  id          String        @id @default(uuid())
+  ratePlanId  String
+  ratePlan    RatePlan      @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  type        TravellerType
+  displayName String?
+  description String?
+  minAge      Int?
+  maxAge      Int?
+  minCount    Int           @default(0)
+  maxCount    Int           @default(99)
+
+  @@unique([ratePlanId, type])
+}
+
+model RatePlanCommercialVersion {
+  id                        String                     @id @default(uuid())
+  ratePlanId                String
+  ratePlan                  RatePlan                   @relation(fields: [ratePlanId], references: [id], onDelete: Restrict)
+  versionNumber             Int
+  status                    CommercialVersionStatus    @default(DRAFT)
+  effectiveFrom             DateTime
+  effectiveTo               DateTime?
+  supplierModel             SupplierCommercialModel?
+  currency                  String                     @default("INR")
+  pricingUnit               PricingUnit?
+  supplierBaseAmount        Decimal?                   @db.Decimal(18, 4)
+  supplierCommissionPercent Decimal?                   @db.Decimal(9, 4)
+  bookingMode               BookingMode?
+  sourcePayload             Json?
+  createdById               String
+  createdBy                 User                       @relation("CommercialVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  activatedById             String?
+  activatedBy               User?                      @relation("CommercialVersionActivatedBy", fields: [activatedById], references: [id], onDelete: SetNull)
+  travellerPrices           RatePlanTravellerPrice[]
+  bookingSnapshots          BookingEconomicsSnapshot[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+
+  @@unique([ratePlanId, versionNumber])
+  @@index([ratePlanId, status])
+  @@index([effectiveFrom, effectiveTo])
+}
+
+model RatePlanTravellerPrice {
+  id                  String                    @id @default(uuid())
+  commercialVersionId String
+  commercialVersion   RatePlanCommercialVersion @relation(fields: [commercialVersionId], references: [id], onDelete: Cascade)
+  travellerType       TravellerType
+  amount              Decimal                   @db.Decimal(18, 4)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  @@unique([commercialVersionId, travellerType])
+}
+
+model AgentGroup {
+  id        String             @id @default(uuid())
+  code      String             @unique
+  name      String
+  active    Boolean            @default(true)
+  members   AgentGroupMember[]
+  rules     CommercialRule[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+}
+
+model AgentGroupMember {
+  id            String     @id @default(uuid())
+  agentGroupId  String
+  agentGroup    AgentGroup @relation(fields: [agentGroupId], references: [id], onDelete: Cascade)
+  agentTenantId String
+  agentTenant   Tenant     @relation(fields: [agentTenantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+
+  @@unique([agentGroupId, agentTenantId])
+  @@index([agentTenantId])
+}
+
+model CommercialRule {
+  id             String                  @id @default(uuid())
+  code           String
+  name           String
+  kind           CommercialRuleKind
+  scopeType      CommercialScopeType
+  vendorTenantId String?
+  vendorTenant   Tenant?                 @relation("CommercialRuleVendor", fields: [vendorTenantId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product?                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId      String?
+  variant        ProductVariant?         @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  ratePlanId     String?
+  ratePlan       RatePlan?               @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  agentGroupId   String?
+  agentGroup     AgentGroup?             @relation(fields: [agentGroupId], references: [id], onDelete: Cascade)
+  agentTenantId  String?
+  agentTenant    Tenant?                 @relation("CommercialRuleAgent", fields: [agentTenantId], references: [id], onDelete: Cascade)
+  createdById    String
+  createdBy      User                    @relation("CommercialRuleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  archivedAt     DateTime?
+  versions       CommercialRuleVersion[]
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  @@unique([code, scopeType])
+  @@index([scopeType, vendorTenantId, productId, variantId, ratePlanId, agentGroupId, agentTenantId])
+}
+
+model CommercialRuleVersion {
+  id            String                      @id @default(uuid())
+  ruleId        String
+  rule          CommercialRule              @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  status        CommercialRuleVersionStatus @default(DRAFT)
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  priority      Int                         @default(0)
+  stackingMode  CommercialStackingMode      @default(EXCLUSIVE)
+  config        Json                        @default("{}")
+  createdById   String
+  createdBy     User                        @relation("CommercialRuleVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  activatedById String?
+  activatedBy   User?                       @relation("CommercialRuleVersionActivatedBy", fields: [activatedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime                    @default(now())
+  updatedAt     DateTime                    @updatedAt
+
+  @@unique([ruleId, versionNumber])
+  @@index([ruleId, status])
+  @@index([effectiveFrom, effectiveTo])
+}
+
+model CancellationRule {
+  id            String     @id @default(uuid())
+  ratePlanId    String
+  ratePlan      RatePlan   @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  minDaysBefore Int
+  maxDaysBefore Int?
+  chargeValue   Decimal    @db.Decimal(10, 2)
+  chargeType    ChargeType
+
+  @@index([ratePlanId, minDaysBefore])
+}
+
+model ScheduleTemplate {
+  id                         String                        @id @default(uuid())
+  variantId                  String
+  variant                    ProductVariant                @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  scheduleCode               String
+  name                       String
+  status                     ScheduleStatus                @default(DRAFT)
+  operatingModel             OperatingModel?
+  timezone                   String
+  effectiveFrom              DateTime                      @db.Date
+  effectiveTo                DateTime?                     @db.Date
+  operatingDays              String[]                      @default([])
+  capacityUnit               CapacityUnit
+  capacityUnitReviewRequired Boolean                       @default(false)
+  defaultCapacity            Int?
+  version                    Int                           @default(1)
+  archivedAt                 DateTime?
+  sourcePayload              Json?
+  slotTemplates              ScheduleSlotTemplate[]
+  ratePlanMappings           RatePlanSchedule[]
+  sessions                   ServiceSession[]
+  exceptions                 ScheduleException[]
+  resourceRequirements       ScheduleResourceRequirement[]
+  createdAt                  DateTime                      @default(now())
+  updatedAt                  DateTime                      @updatedAt
+
+  @@unique([variantId, scheduleCode])
+  @@index([variantId, status])
+  @@index([variantId, effectiveFrom, effectiveTo])
+}
+
+model ScheduleSlotTemplate {
+  id                 String              @id @default(uuid())
+  scheduleTemplateId String
+  scheduleTemplate   ScheduleTemplate    @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
+  slotCode           String
+  label              String?
+  startTime          String
+  endTime            String?
+  rank               Int                 @default(0)
+  active             Boolean             @default(true)
+  archivedAt         DateTime?
+  exceptions         ScheduleException[]
+  sessions           ServiceSession[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@unique([scheduleTemplateId, slotCode])
+  @@index([scheduleTemplateId, active, rank])
+}
+
+model RatePlanSchedule {
+  id                 String           @id @default(uuid())
+  ratePlanId         String
+  ratePlan           RatePlan         @relation(fields: [ratePlanId], references: [id], onDelete: Restrict)
+  scheduleTemplateId String
+  scheduleTemplate   ScheduleTemplate @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
+  active             Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([ratePlanId, scheduleTemplateId])
+  @@index([scheduleTemplateId, active])
+}
+
+model ScheduleException {
+  id                 String                @id @default(uuid())
+  scheduleTemplateId String
+  scheduleTemplate   ScheduleTemplate      @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
+  serviceDate        DateTime              @db.Date
+  slotTemplateId     String?
+  slotTemplate       ScheduleSlotTemplate? @relation(fields: [slotTemplateId], references: [id], onDelete: Restrict)
+  type               ScheduleExceptionType
+  reason             String
+  exceptionKey       String                @unique
+  archivedAt         DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([scheduleTemplateId, serviceDate, slotTemplateId])
+}
+
+model ServiceSession {
+  id                  String                      @id @default(uuid())
+  scheduleTemplateId  String
+  scheduleTemplate    ScheduleTemplate            @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
+  slotTemplateId      String?
+  slotTemplate        ScheduleSlotTemplate?       @relation(fields: [slotTemplateId], references: [id], onDelete: Restrict)
+  serviceDate         DateTime                    @db.Date
+  sessionKey          String
+  localStartTime      String?
+  localEndTime        String?
+  startsAt            DateTime?
+  endsAt              DateTime?
+  status              SessionStatus               @default(OPEN)
+  version             Int                         @default(1)
+  archivedAt          DateTime?
+  sourcePayload       Json?
+  inventoryState      InventoryState?
+  resourceAllocations SessionResourceAllocation[]
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+
+  @@unique([scheduleTemplateId, serviceDate, sessionKey])
+  @@index([serviceDate, status])
+  @@index([scheduleTemplateId, serviceDate])
+}
+
+model InventoryState {
+  id                String                @id @default(uuid())
+  sessionId         String                @unique
+  session           ServiceSession        @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  totalCapacity     Int
+  blockedCapacity   Int                   @default(0)
+  heldCapacity      Int                   @default(0)
+  confirmedCapacity Int                   @default(0)
+  version           Int                   @default(1)
+  sourcePayload     Json?
+  holds             InventoryHold[]
+  allocations       InventoryAllocation[]
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+}
+
+model InventoryHold {
+  id                  String               @id @default(uuid())
+  inventoryStateId    String
+  inventoryState      InventoryState       @relation(fields: [inventoryStateId], references: [id], onDelete: Restrict)
+  quantity            Int
+  status              InventoryHoldStatus  @default(ACTIVE)
+  referenceKey        String?
+  bookingId           String?
+  expiresAt           DateTime
+  releasedAt          DateTime?
+  convertedAt         DateTime?
+  convertedAllocation InventoryAllocation?
+  reason              String?
+  version             Int                  @default(1)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([inventoryStateId, status])
+  @@index([inventoryStateId, referenceKey])
+  @@index([status, expiresAt])
+}
+
+model InventoryAllocation {
+  id               String                    @id @default(uuid())
+  inventoryStateId String
+  inventoryState   InventoryState            @relation(fields: [inventoryStateId], references: [id], onDelete: Restrict)
+  quantity         Int
+  status           InventoryAllocationStatus @default(CONFIRMED)
+  referenceKey     String?
+  sourceHoldId     String?                   @unique
+  sourceHold       InventoryHold?            @relation(fields: [sourceHoldId], references: [id], onDelete: Restrict)
+  bookingId        String?
+  releasedAt       DateTime?
+  reason           String?
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+
+  @@index([inventoryStateId, status])
+  @@index([inventoryStateId, referenceKey])
+}
+
+model Resource {
+  id                 String                        @id @default(uuid())
+  tenantId           String
+  tenant             Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  resourceCode       String
+  name               String
+  type               ResourceType
+  allocationMode     ResourceAllocationMode
+  capacity           Int?
+  active             Boolean                       @default(true)
+  version            Int                           @default(1)
+  archivedAt         DateTime?
+  sourcePayload      Json?
+  sessionAllocations SessionResourceAllocation[]
+  requirements       ScheduleResourceRequirement[]
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+
+  @@unique([tenantId, resourceCode])
+  @@index([tenantId, active, type])
+}
+
+model ScheduleResourceRequirement {
+  id                 String           @id @default(uuid())
+  scheduleTemplateId String
+  scheduleTemplate   ScheduleTemplate @relation(fields: [scheduleTemplateId], references: [id], onDelete: Restrict)
+  resourceType       ResourceType
+  specificResourceId String?
+  specificResource   Resource?        @relation(fields: [specificResourceId], references: [id], onDelete: Restrict)
+  quantity           Int              @default(1)
+  required           Boolean          @default(true)
+  active             Boolean          @default(true)
+  version            Int              @default(1)
+  archivedAt         DateTime?
+  requirementKey     String           @unique
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([scheduleTemplateId, resourceType])
+}
+
+model SessionResourceAllocation {
+  id         String                   @id @default(uuid())
+  sessionId  String
+  session    ServiceSession           @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  resourceId String
+  resource   Resource                 @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  quantity   Int
+  status     ResourceAllocationStatus @default(ACTIVE)
+  releasedAt DateTime?
+  version    Int                      @default(1)
+  createdAt  DateTime                 @default(now())
+  updatedAt  DateTime                 @updatedAt
+
+  @@unique([sessionId, resourceId])
+  @@index([resourceId, sessionId])
+}
+
+model Promotion {
+  id                    String   @id @default(uuid())
+  productId             String
+  product               Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name                  String
+  discountPercent       Decimal  @db.Decimal(5, 2)
+  startsAt              DateTime
+  endsAt                DateTime
+  maxDiscountedBookings Int?
+  active                Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([productId, active])
+}
+
+model PricingRule {
+  id             String     @id @default(uuid())
+  productId      String
+  product        Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name           String
+  appliesTo      String
+  adjustmentType ChargeType @default(PERCENTAGE)
+  adjustment     Decimal    @db.Decimal(10, 2)
+  startsAt       DateTime
+  endsAt         DateTime
+  active         Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([productId, active])
+  @@index([startsAt, endsAt])
+}
+
+model Booking {
+  id                String                    @id @default(uuid())
+  tenantId          String
+  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  ratePlanId        String?
+  ratePlan          RatePlan?                 @relation(fields: [ratePlanId], references: [id], onDelete: SetNull)
+  bookingCode       String                    @unique
+  channel           String
+  serviceDate       DateTime                  @db.Date
+  pax               Int
+  paxBreakdown      Json                      @default("{}")
+  amount            Decimal                   @db.Decimal(12, 2)
+  status            BookingStatus             @default(PENDING)
+  customerName      String
+  customerEmail     String?
+  version           Int                       @default(1)
+  economicsSnapshot BookingEconomicsSnapshot?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, serviceDate])
+}
+
+model BookingEconomicsSnapshot {
+  id                          String                    @id @default(uuid())
+  bookingId                   String                    @unique
+  booking                     Booking                   @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  ratePlanCommercialVersionId String
+  ratePlanCommercialVersion   RatePlanCommercialVersion @relation(fields: [ratePlanCommercialVersionId], references: [id], onDelete: Restrict)
+  currency                    String
+  pricingUnit                 PricingUnit
+  supplierCommercialModel     SupplierCommercialModel
+  supplierGrossBasis          Decimal                   @db.Decimal(18, 4)
+  supplierCommission          Decimal                   @db.Decimal(18, 4)
+  vendorPayable               Decimal                   @db.Decimal(18, 4)
+  voyaRevenueModel            VoyaRevenueModel?
+  voyaRevenue                 Decimal                   @db.Decimal(18, 4)
+  agentCommercialModel        AgentCommercialModel?
+  agentFacingAmount           Decimal                   @db.Decimal(18, 4)
+  agentCommission             Decimal                   @db.Decimal(18, 4)
+  taxMode                     TaxMode
+  taxAmount                   Decimal                   @db.Decimal(18, 4)
+  taxContext                  Json
+  promotionAmount             Decimal                   @db.Decimal(18, 4)
+  promotionFunder             PromotionFunder?
+  promotionContext            Json
+  focAmount                   Decimal                   @db.Decimal(18, 4)
+  focContext                  Json
+  finalAmount                 Decimal                   @db.Decimal(18, 4)
+  commercialEligibility       Json
+  calculationInputs           Json
+  calculationOutputs          Json
+  ruleTrace                   Json
+  fxContext                   Json?
+  createdAt                   DateTime                  @default(now())
+
+  @@index([ratePlanCommercialVersionId])
+}
+
+model Payout {
+  id        String       @id @default(uuid())
+  tenantId  String
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  amount    Decimal      @db.Decimal(12, 2)
+  status    PayoutStatus
+  dueDate   DateTime     @db.Date
+  reference String?
+  createdAt DateTime     @default(now())
+
+  @@index([tenantId, status])
+}
+
+model AuditLog {
+  id            String    @id @default(uuid())
+  tenantId      String?
+  tenant        Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  actorId       String?
+  actorRole     UserRole?
+  action        String
+  entityType    String
+  entityId      String?
+  reason        String?
+  beforeState   Json?
+  afterState    Json?
+  correlationId String?
+  metadata      Json?
+  payload       Json?
+  createdAt     DateTime  @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([correlationId])
+}
+
+model OutboxEvent {
+  id            String       @id @default(uuid())
+  tenantId      String?
+  tenant        Tenant?      @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  eventType     String
+  aggregateType String
+  aggregateId   String?
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attemptCount  Int          @default(0)
+  availableAt   DateTime     @default(now())
+  processedAt   DateTime?
+  lastError     String?
+  createdAt     DateTime     @default(now())
+
+  @@index([status, availableAt])
+  @@index([tenantId, createdAt])
+  @@index([aggregateType, aggregateId])
+}

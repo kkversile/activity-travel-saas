@@ -1,0 +1,7 @@
+{
+  "name": "voya-activity-saas",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Voya Activity SaaS vendor portal",
+  "engines": { "node": ">=22" }
+}

@@ -1,0 +1,29 @@
+import { OrganizationRole, UserRole } from '@prisma/client';
+import { AuthUser } from './auth.types';
+
+export const PERMISSIONS = [
+  'vendor.profile.view', 'vendor.profile.edit', 'document.view', 'document.upload', 'document.review',
+  'product.view', 'product.edit', 'product.submit', 'product.publish', 'rateplan.view', 'rateplan.edit',
+  'inventory.view', 'inventory.edit', 'schedule.view', 'schedule.edit', 'resource.view', 'resource.edit', 'booking.view', 'booking.confirm', 'booking.cancel', 'payout.view', 'audit.view',
+  'commercial.vendor.view', 'commercial.vendor.edit', 'commercial.internal.view', 'commercial.internal.edit', 'commercial.agent-groups.manage', 'commercial.quote.internal',
+] as const;
+export type Permission = (typeof PERMISSIONS)[number];
+
+const catalogue: Permission[] = ['vendor.profile.view', 'document.view', 'document.upload', 'product.view', 'product.edit', 'product.submit', 'rateplan.view', 'rateplan.edit', 'schedule.view', 'schedule.edit', 'inventory.view', 'resource.view', 'commercial.vendor.view', 'commercial.vendor.edit'];
+const operations: Permission[] = ['vendor.profile.view', 'document.view', 'product.view', 'rateplan.view', 'schedule.view', 'schedule.edit', 'inventory.view', 'inventory.edit', 'resource.view', 'resource.edit', 'booking.view', 'booking.confirm', 'booking.cancel'];
+const finance: Permission[] = ['vendor.profile.view', 'document.view', 'payout.view'];
+const viewer: Permission[] = ['vendor.profile.view', 'product.view', 'rateplan.view', 'schedule.view', 'inventory.view', 'resource.view', 'booking.view'];
+const agent: Permission[] = [];
+
+export function permissionsFor(user: Pick<AuthUser, 'role' | 'organizationRole'>): Set<Permission> {
+  if (user.role === UserRole.ADMIN) return new Set(PERMISSIONS);
+  if (user.role === UserRole.SUB_ADMIN) return new Set(['vendor.profile.view', 'document.view', 'document.review', 'product.view', 'product.publish', 'booking.view', 'payout.view', 'audit.view', 'commercial.internal.view', 'commercial.internal.edit', 'commercial.agent-groups.manage', 'commercial.quote.internal']);
+  if (user.role === UserRole.TRAVEL_AGENT) return new Set(agent);
+  if (user.role !== UserRole.VENDOR) return new Set();
+  const roleMap: Record<OrganizationRole, Permission[]> = { OWNER: PERMISSIONS.filter((p) => !['product.publish', 'document.review', 'commercial.internal.view', 'commercial.internal.edit', 'commercial.agent-groups.manage', 'commercial.quote.internal'].includes(p)), CATALOGUE: catalogue, OPERATIONS: operations, FINANCE: finance, VIEWER: viewer };
+  return new Set(user.organizationRole ? roleMap[user.organizationRole] : []);
+}
+
+export function hasPermission(user: Pick<AuthUser, 'role' | 'organizationRole'>, permission: Permission) {
+  return permissionsFor(user).has(permission);
+}
