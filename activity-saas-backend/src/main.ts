@@ -269,12 +269,15 @@ async function bootstrap() {
   app.use(json({ limit: '2mb' }));
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
 
+  const port = Number(config.get('PORT', 4007));
+  const swaggerServerUrl = config.get<string>('SWAGGER_SERVER_URL') || `http://localhost:${port}`;
+  const swaggerServerDescription = config.get<string>('SWAGGER_SERVER_DESCRIPTION') || 'Configured API';
   const swagger = new DocumentBuilder()
     .setTitle('Voya Vendor API')
     .setDescription('Vendor/supply-side product catalogue, commercial pricing, canonical inventory and booking API. Try it out is enabled, demo IDs are loaded from the local database, and IDs returned by create/list calls are remembered for subsequent requests.')
     .setVersion('0.1.0')
     .addBearerAuth()
-    .addServer(`http://localhost:${config.get('PORT', 4007)}`, 'Local API')
+    .addServer(swaggerServerUrl, swaggerServerDescription)
     .build();
   const swaggerDocument = await hydrateSwaggerDocument(SwaggerModule.createDocument(app, swagger), app);
   SwaggerModule.setup('api/docs', app, swaggerDocument, {
@@ -288,7 +291,6 @@ async function bootstrap() {
     },
   });
 
-  const port = Number(config.get('PORT', 4007));
   await app.listen(port, '0.0.0.0');
 }
 bootstrap();
