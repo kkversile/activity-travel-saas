@@ -14,18 +14,28 @@ import { AdminService } from './admin.service';
 import { BookingDecisionDto, BookingListQueryDto } from '../bookings/booking.dto';
 import { BookingExpiryService } from '../bookings/booking-expiry.service';
 import { BookingsService } from '../bookings/bookings.service';
+import { CancellationService } from '../bookings/cancellation.service';
+import { AdminCancellationListQueryDto, FinancialResolutionDto, OperationalCancellationDto, RefundConfirmDto, RefundFailDto } from '../bookings/cancellation.dto';
 
 @Controller('admin')
 @ApiTags('Administration')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
 export class AdminController {
-  constructor(private readonly service: AdminService, private readonly eligibility: EligibilityService, private readonly bookings: BookingsService, private readonly expiry: BookingExpiryService) {}
+  constructor(private readonly service: AdminService, private readonly eligibility: EligibilityService, private readonly bookings: BookingsService, private readonly expiry: BookingExpiryService, private readonly cancellations: CancellationService) {}
   @Get('bookings') @Permissions('booking.view.admin') bookingsList(@Query() query: BookingListQueryDto) { return this.bookings.adminList(query); }
   @Get('bookings/:id') @Permissions('booking.view.admin') bookingsDetail(@Param('id') id: string) { return this.bookings.adminDetail(id); }
   @Post('bookings/:id/manual-confirm') @Permissions('booking.manual.decide') manualConfirm(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.bookings.manualConfirm(user, id); }
   @Post('bookings/:id/manual-reject') @Permissions('booking.manual.decide') manualReject(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: BookingDecisionDto) { return this.bookings.manualReject(user, id, dto); }
   @Post('bookings/expire-due') @Permissions('booking.expiry.run') expireDue(@CurrentUser() user: AuthUser) { return this.expiry.expireDue(new Date(), user); }
+  @Post('bookings/:id/cancellation/preview') @Permissions('booking.cancel.admin') cancellationPreview(@Param('id') id: string) { return this.cancellations.adminPreview(id); }
+  @Post('bookings/:id/cancellation') @Permissions('booking.cancel.admin') cancel(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: OperationalCancellationDto) { return this.cancellations.operationalCancel(user, id, dto, 'ADMIN'); }
+  @Get('refunds') @Permissions('refund.view') refunds() { return this.cancellations.refunds(); }
+  @Get('cancellations') @Permissions('refund.view') cancellationQueue(@Query() query: AdminCancellationListQueryDto) { return this.cancellations.operationalCancellations(query); }
+  @Post('refunds/:id/confirm') @Permissions('refund.manage') confirmRefund(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RefundConfirmDto) { return this.cancellations.confirmRefund(user, id, dto); }
+  @Post('refunds/:id/fail') @Permissions('refund.manage') failRefund(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RefundFailDto) { return this.cancellations.failRefund(user, id, dto); }
+  @Post('refunds/:id/retry') @Permissions('refund.manage') retryRefund(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.cancellations.retryRefund(user, id); }
+  @Post('cancellations/:id/resolve-financial') @Permissions('financial.cancellation.resolve') resolveFinancial(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: FinancialResolutionDto) { return this.cancellations.resolveFinancial(user, id, dto); }
   @Get('dashboard') @Permissions('audit.view') dashboard() { return this.service.dashboard(); }
   @Get('vendors') @Permissions('vendor.profile.view') vendors() { return this.service.vendors(); }
   @Get('agents') @Permissions('agent.governance.view') agents() { return this.service.agents(); }

@@ -178,6 +178,52 @@ enum BookingRecordType {
   CANONICAL
 }
 
+enum CancellationInitiator {
+  AGENT
+  VENDOR
+  ADMIN
+}
+
+enum CancellationReasonCategory {
+  CUSTOMER_REQUEST
+  VENDOR_OPERATIONAL
+  WEATHER
+  SAFETY
+  FORCE_MAJEURE
+  DUPLICATE
+  OTHER
+}
+
+enum CancellationFinancialState {
+  CANCELLED_PENDING_FINANCIAL
+  CANCELLED_NO_REFUND
+  CANCELLED_PARTIAL_REFUND
+  REFUND_PENDING
+  REFUNDED
+  REFUND_FAILED
+}
+
+enum RefundStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum FinancialEventType {
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  CANCELLATION_FINANCIAL_RESOLVED
+  REFUND_CREATED
+  REFUND_CONFIRMED
+  REFUND_FAILED
+}
+
+enum FinancialEventStatus {
+  POSTED
+  PENDING
+  FAILED
+}
+
 enum BookingQuestionType {
   TEXT
   NUMBER
@@ -1143,6 +1189,9 @@ model Booking {
   events                BookingEvent[]
   inventoryHolds        InventoryHold[]           @relation("BookingHolds")
   inventoryAllocations  InventoryAllocation[]     @relation("BookingAllocations")
+  cancellation          BookingCancellation?
+  refunds               Refund[]
+  financialEvents       FinancialEvent[]
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
 
@@ -1251,6 +1300,89 @@ model BookingEconomicsSnapshot {
   createdAt                   DateTime                  @default(now())
 
   @@index([ratePlanCommercialVersionId])
+}
+
+model BookingCancellation {
+  id                    String                     @id @default(uuid())
+  bookingId             String                     @unique
+  booking               Booking                    @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  initiator             CancellationInitiator
+  initiatedByUserId     String?
+  initiatedByTenantId   String?
+  reasonCategory        CancellationReasonCategory
+  reason                String
+  cancelledAt           DateTime
+  serviceTimezone       String
+  serviceDateLocal      String
+  cancellationDateLocal String
+  daysBeforeService     Int
+  policyFingerprint     String?
+  matchedPolicyRule     Json?
+  bookingAmount         Decimal                    @db.Decimal(18, 4)
+  currency              String
+  cancellationCharge    Decimal                    @db.Decimal(18, 4)
+  refundEntitlement     Decimal                    @db.Decimal(18, 4)
+  financialState        CancellationFinancialState
+  idempotencyKey        String?
+  requestFingerprint    String?
+  calculationSnapshot   Json
+  refund                Refund?
+  financialEvents       FinancialEvent[]
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  @@unique([bookingId, idempotencyKey])
+  @@index([initiator, financialState])
+  @@index([financialState, createdAt])
+}
+
+model Refund {
+  id                String              @id @default(uuid())
+  bookingId         String
+  booking           Booking             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  cancellationId    String              @unique
+  cancellation      BookingCancellation @relation(fields: [cancellationId], references: [id], onDelete: Restrict)
+  amount            Decimal             @db.Decimal(18, 4)
+  currency          String
+  status            RefundStatus        @default(PENDING)
+  externalReference String?
+  failureReason     String?
+  requestedAt       DateTime            @default(now())
+  confirmedAt       DateTime?
+  failedAt          DateTime?
+  version           Int                 @default(1)
+  createdById       String?
+  confirmedById     String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  financialEvents   FinancialEvent[]
+
+  @@index([bookingId, status])
+  @@index([status, createdAt])
+}
+
+model FinancialEvent {
+  id             String               @id @default(uuid())
+  eventKey       String               @unique
+  bookingId      String
+  booking        Booking              @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  cancellationId String?
+  cancellation   BookingCancellation? @relation(fields: [cancellationId], references: [id], onDelete: Restrict)
+  refundId       String?
+  refund         Refund?              @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  type           FinancialEventType
+  status         FinancialEventStatus
+  currency       String
+  amount         Decimal?             @db.Decimal(18, 4)
+  components     Json
+  reason         String?
+  reference      String?
+  actorUserId    String?
+  occurredAt     DateTime
+  createdAt      DateTime             @default(now())
+
+  @@index([bookingId, occurredAt])
+  @@index([type, status, occurredAt])
 }
 
 model Payout {

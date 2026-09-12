@@ -18,7 +18,9 @@
     "backfill:phase6": "tsx scripts/backfill-phase6-bookings.ts",
     "backup:phase6": "tsx scripts/export-phase6-logical-backup.ts",
     "verify:phase6": "tsx scripts/verify-phase6-booking.ts",
-    "verify:phase6-2": "tsx scripts/verify-phase6-2-booking.ts"
+    "verify:phase6-2": "tsx scripts/verify-phase6-2-booking.ts",
+    "verify:phase7": "tsx scripts/verify-phase7-cancellation.ts",
+    "verify:phase7-1": "tsx scripts/verify-phase7-1-financial-integrity.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

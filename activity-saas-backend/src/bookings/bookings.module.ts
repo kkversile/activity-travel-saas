@@ -18,6 +18,7 @@ import { RolesGuard } from '../common/roles.guard';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import { VendorBookingsController } from './vendor-bookings.controller';
+import { CancellationService } from './cancellation.service';
 
-@Module({ imports: [ScheduleModule.forRoot(), PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, EligibilityModule, CommercialModule, InventoryModule], controllers: [BookingsController, AgentBookingsController, VendorBookingsController], providers: [BookingsService, BookingExpiryService, BookingExpiryWorker, BookingSnapshotService, BookingProjectionService, CancellationPolicyService, RolesGuard], exports: [BookingsService, BookingExpiryService] })
+@Module({ imports: [ScheduleModule.forRoot(), PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, EligibilityModule, CommercialModule, InventoryModule], controllers: [BookingsController, AgentBookingsController, VendorBookingsController], providers: [BookingsService, BookingExpiryService, BookingExpiryWorker, BookingSnapshotService, BookingProjectionService, CancellationPolicyService, CancellationService, RolesGuard], exports: [BookingsService, BookingExpiryService, CancellationService] })
 export class BookingsModule {}
