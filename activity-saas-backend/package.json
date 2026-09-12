@@ -20,7 +20,11 @@
     "verify:phase6": "tsx scripts/verify-phase6-booking.ts",
     "verify:phase6-2": "tsx scripts/verify-phase6-2-booking.ts",
     "verify:phase7": "tsx scripts/verify-phase7-cancellation.ts",
-    "verify:phase7-1": "tsx scripts/verify-phase7-1-financial-integrity.ts"
+    "verify:phase7-1": "tsx scripts/verify-phase7-1-financial-integrity.ts",
+    "backfill:phase8": "tsx scripts/backfill-phase8-fulfilment.ts",
+    "verify:phase8": "tsx scripts/verify-phase8-fulfilment.ts",
+    "verify:phase8-1": "tsx scripts/verify-phase8-1-fulfilment-integrity.ts",
+    "verify:phase8-2": "tsx scripts/verify-phase8-2-regression-integrity.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",
@@ -35,6 +39,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "helmet": "^8.1.0",
+    "pdf-lib": "^1.17.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },

@@ -30,9 +30,6 @@ export class CreateRatePlanDto {
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) minPax?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) maxPax?: number;
-  @IsOptional() @IsBoolean() ticketOnly?: boolean;
-  @IsOptional() @IsBoolean() offlineVoucher?: boolean;
-  @IsOptional() @IsBoolean() autoRedeem?: boolean;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) cutOffMinutes?: number;
   @IsOptional() @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) dateLevelCutoffTime?: string;
   @IsOptional() @IsBoolean() adultRequired?: boolean;

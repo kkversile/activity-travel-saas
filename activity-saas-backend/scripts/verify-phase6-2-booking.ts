@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { BookingMode, BookingStatus, PrismaClient } from '@prisma/client';
+import { BookingMode, BookingStatus, EvidenceMatchMode, FulfilmentMode, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { AppModule } from '../src/app.module';
 import { BookingExpiryService } from '../src/bookings/booking-expiry.service';
@@ -28,6 +28,7 @@ const travellers = [{ travellerType: 'ADULT', quantity: 1 }];
 const details = [{ travellerType: 'ADULT', quantity: 1, fullName: 'Phase 6.2 Lead', isLead: true }];
 
 async function main() {
+  process.env.DISABLE_SCHEDULED_WORKERS = 'true';
   const app: INestApplication = await NestFactory.create(AppModule, { logger: false });
   const prisma = app.get(PrismaService) as PrismaService;
   const requestContext = new RequestContextService(); const audit = new AuditService(requestContext); const outbox = new OutboxService(prisma); const resources = new ResourcesService(prisma, audit, outbox); const commercial = new CommercialService(prisma, audit, outbox, new CommercialCalculatorService()); const inventory = new InventoryReservationService(prisma, audit, outbox, resources); const eligibility = new EligibilityService(prisma, commercial, resources, new CutoffService());
@@ -37,6 +38,8 @@ async function main() {
   const originalStates = new Map<string, any>();
   let originalMode: BookingMode | null = null; let originalSla: number | null = null;
   let commercialVersionId = '';
+  let policyRevisionId = '';
+  let originalPolicy: any = null;
   let report: any = null;
   const counts = async () => ({ bookings: await prisma.booking.count(), snapshots: await prisma.bookingSnapshot.count(), economics: await prisma.bookingEconomicsSnapshot.count(), holds: await prisma.inventoryHold.count(), allocations: await prisma.inventoryAllocation.count(), travellers: await prisma.bookingTraveller.count(), events: await prisma.bookingEvent.count() });
   try {
@@ -46,14 +49,15 @@ async function main() {
     const asAuth = (user: any): AuthUser => ({ sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId, organizationRole: user.organizationRole });
     const agent = asAuth(agentUser); const vendor = asAuth(vendorUser); const admin = asAuth(adminUser);
     const plan: any = await prisma.ratePlan.findFirst({ where: { status: 'ACTIVE', channelMappings: { some: { enabled: true, channel: { code: 'VOYA_AGENT', active: true } } }, variant: { product: { currentRevisionId: { not: null } } } }, include: { variant: { include: { product: { include: { currentRevision: true } } } }, channelMappings: { where: { enabled: true, channel: { code: 'VOYA_AGENT' } }, include: { channel: true } }, scheduleMappings: { where: { active: true } } }, orderBy: { updatedAt: 'desc' } });
-    assert(plan, 'an active marketplace rate plan is available');
-    const commercial: any = await prisma.ratePlanCommercialVersion.findFirst({ where: { ratePlanId: plan.id, status: 'ACTIVE' }, orderBy: { versionNumber: 'desc' } });
-    assert(commercial, 'an active commercial version is available'); commercialVersionId = commercial.id; originalMode = commercial.bookingMode; originalSla = commercial.confirmationSlaMinutes;
+    assert(plan, 'an active marketplace rate plan is available'); policyRevisionId = plan.variant.product.currentRevisionId; originalPolicy = await prisma.productFulfilmentPolicy.findUnique({ where: { productRevisionId: policyRevisionId } }); await prisma.productFulfilmentPolicy.upsert({ where: { productRevisionId: policyRevisionId }, update: { mode: FulfilmentMode.AUTO, requiredEvidenceKinds: [], evidenceMatchMode: EvidenceMatchMode.ALL, reviewRequired: false }, create: { productRevisionId: policyRevisionId, mode: FulfilmentMode.AUTO, requiredEvidenceKinds: [], evidenceMatchMode: EvidenceMatchMode.ALL, reviewRequired: false, voucherNotes: [] } });
     const sessions: any[] = await prisma.serviceSession.findMany({ where: { scheduleTemplateId: { in: plan.scheduleMappings.map((mapping: any) => mapping.scheduleTemplateId) }, status: 'OPEN', serviceDate: { gte: new Date(Date.now() + 86400000) }, scheduleTemplate: { capacityUnitReviewRequired: false, capacityUnit: 'PERSON' } }, include: { inventoryState: true, scheduleTemplate: true }, orderBy: [{ serviceDate: 'asc' }, { sessionKey: 'asc' }], take: 80 });
     const usable = sessions.filter((session) => session.inventoryState && session.inventoryState.totalCapacity - session.inventoryState.blockedCapacity - session.inventoryState.heldCapacity - session.inventoryState.confirmedCapacity >= 2);
     assert(usable.length >= 8, `at least eight usable future sessions are available (found ${usable.length})`);
+    const commercial: any = await prisma.ratePlanCommercialVersion.findFirst({ where: { ratePlanId: plan.id, status: 'ACTIVE', effectiveFrom: { lte: usable[0].serviceDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: usable[0].serviceDate } }] }, orderBy: { versionNumber: 'desc' } });
+    assert(commercial, `an effective active commercial version is available for ${usable[0].serviceDate.toISOString()}`); commercialVersionId = commercial.id; originalMode = commercial.bookingMode; originalSla = commercial.confirmationSlaMinutes;
     for (const session of usable) originalStates.set(session.id, { totalCapacity: session.inventoryState.totalCapacity, blockedCapacity: session.inventoryState.blockedCapacity, heldCapacity: session.inventoryState.heldCapacity, confirmedCapacity: session.inventoryState.confirmedCapacity, version: session.inventoryState.version });
     const before = await counts();
+    console.log('Phase 6.2 verifier: baseline counts captured');
     const previewFor = async (mode: BookingMode, session: any, includeSource = false) => { await prisma.ratePlanCommercialVersion.update({ where: { id: commercialVersionId }, data: { bookingMode: mode, confirmationSlaMinutes: mode === BookingMode.INSTANT ? null : (originalSla || 60) } }); const preview: any = await bookings.preview(agent, { ratePlanId: plan.id, sessionId: session.id, travellers, travellerDetails: details, ...(includeSource ? { sourceQuoteFingerprint: 'intentionally-stale-source' } : {}) }); assert(preview.eligible, `${mode} preview is eligible: ${JSON.stringify(preview.gates)}`); return preview; };
     const createFrom = async (mode: BookingMode, session: any, label: string, includeSource = false) => { const preview = await previewFor(mode, session, includeSource); const key = `${prefix}-${label}-${randomUUID()}`; createdKeys.push(key); const result: any = await bookings.create(agent, { ratePlanId: plan.id, sessionId: session.id, travellers, travellerDetails: details, bookingAnswers: {}, customerName: `Phase 6.2 ${label}`, customerEmail: 'phase62@example.com', ...(includeSource ? { sourceQuoteFingerprint: 'intentionally-stale-source', priceChangeAcknowledged: true } : {}), expectedQuoteFingerprint: preview.quoteFingerprint, expectedCancellationPolicyFingerprint: preview.cancellationPolicyFingerprint, expectedContextFingerprint: preview.contextFingerprint, cancellationPolicyAcknowledged: true, priceChangeAcknowledged: includeSource ? true : false }, key); return { result, preview, booking: await prisma.booking.findUniqueOrThrow({ where: { id: result.id } }), key }; };
     const terminal = async (id: string) => prisma.booking.findUniqueOrThrow({ where: { id }, include: { operationalSnapshot: true, economicsSnapshot: true, travellers: true, events: true, inventoryHolds: true, inventoryAllocations: true } });
@@ -101,6 +105,7 @@ async function main() {
     report = { passing: true, prefix, before, during, flow: { instant: 'PASS', vendorConfirmation: 'PASS', vendorRejection: 'PASS', manualConfirmation: 'PASS', manualRejection: 'PASS', expiry: 'PASS', lateVendorReject: 'PASS', lateManualReject: 'PASS', sourceLessCreate: 'PASS', staleSourceQuote: 'PASS', lastCapacityRace: 'PASS', sameKeyFullCreateRace: 'PASS', decisionRaces }, cleanup: 'pending', legacyBookingsUntouched: true };
   } finally {
     await prisma.ratePlanCommercialVersion.update({ where: { id: commercialVersionId }, data: { bookingMode: originalMode, confirmationSlaMinutes: originalSla } }).catch(() => undefined);
+    if (originalPolicy) { await prisma.productFulfilmentPolicy.delete({ where: { id: originalPolicy.id } }).catch(() => undefined); await prisma.productFulfilmentPolicy.create({ data: originalPolicy }).catch(() => undefined); } else if (policyRevisionId) await prisma.productFulfilmentPolicy.deleteMany({ where: { productRevisionId: policyRevisionId } }).catch(() => undefined);
     const fixtures = await prisma.booking.findMany({ where: { idempotencyKey: { startsWith: prefix } }, select: { id: true } }); const ids = fixtures.map((row) => row.id);
     if (ids.length) { await prisma.financialEvent.deleteMany({ where: { bookingId: { in: ids } } }); await prisma.refund.deleteMany({ where: { bookingId: { in: ids } } }); await prisma.bookingCancellation.deleteMany({ where: { bookingId: { in: ids } } }); await prisma.inventoryAllocation.deleteMany({ where: { bookingId: { in: ids } } }); await prisma.bookingEconomicsSnapshot.deleteMany({ where: { bookingId: { in: ids } } }); await prisma.bookingSnapshot.deleteMany({ where: { bookingId: { in: ids } } }); await prisma.inventoryHold.deleteMany({ where: { bookingId: { in: ids } } }); await prisma.booking.deleteMany({ where: { id: { in: ids } } }); }
     for (const [sessionId, state] of originalStates) await prisma.inventoryState.update({ where: { sessionId }, data: state }).catch(() => undefined);

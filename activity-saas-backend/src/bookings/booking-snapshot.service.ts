@@ -3,8 +3,8 @@ import { BookingMode, Prisma } from '@prisma/client';
 
 @Injectable()
 export class BookingSnapshotService {
-  async create(tx: Prisma.TransactionClient, input: { booking: any; plan: any; session: any; agent: any; user: any; policy: any; policyFingerprint: string; questions: any[]; bookingAnswers: Record<string, unknown>; pickupDetails?: Record<string, unknown>; cancellationAcknowledgedAt: Date; quote: any }) {
-    const { booking, plan, session, agent, user, policy, policyFingerprint, questions, bookingAnswers, pickupDetails, cancellationAcknowledgedAt, quote } = input;
+  async create(tx: Prisma.TransactionClient, input: { booking: any; plan: any; session: any; agent: any; user: any; policy: any; policyFingerprint: string; questions: any[]; bookingAnswers: Record<string, unknown>; pickupDetails?: Record<string, unknown>; cancellationAcknowledgedAt: Date; quote: any; fulfilmentPolicy?: any }) {
+    const { booking, plan, session, agent, user, policy, policyFingerprint, questions, bookingAnswers, pickupDetails, cancellationAcknowledgedAt, quote, fulfilmentPolicy } = input;
     const revision = plan.variant.product.currentRevision; const variant = plan.variant; const schedule = session.scheduleTemplate; const channel = plan.channelMappings.find((mapping: any) => mapping.channel.code === 'VOYA_AGENT')?.channel;
     const questionSnapshot = (questions ?? []).map((question: any) => ({ id: question.id, code: question.code, label: question.label, helpText: question.helpText ?? null, type: question.type, required: question.required, options: question.options ?? null, appliesPerTraveller: question.appliesPerTraveller, rank: question.rank }));
     const pickupSnapshot = { configured: { pickupIncluded: variant.pickupIncluded, pickupType: variant.pickupType, pickupInput: variant.pickupInput, pickupTimings: variant.pickupTimings, dropoffIncluded: variant.dropoffIncluded, dropoffTimings: variant.dropoffTimings }, supplied: pickupDetails ?? null } as Prisma.InputJsonValue;
@@ -31,6 +31,7 @@ export class BookingSnapshotService {
       agentSnapshot: { tenantId: agent.id, tenantName: agent.name, userId: user.sub, userName: user.fullName, email: user.email },
       channelSnapshot: channel ? { id: channel.id, code: channel.code, name: channel.name } : { code: 'VOYA_AGENT' },
       confirmationPolicySnapshot: { bookingMode: booking.bookingMode, confirmationSlaMinutes: quote.confirmationSlaMinutes ?? null, confirmationDueAt: booking.confirmationDueAt ?? null },
+       fulfilmentPolicySnapshot: fulfilmentPolicy ? { policyId: fulfilmentPolicy.id, productRevisionId: revision.id, productRevisionVersion: revision.versionNumber, mode: fulfilmentPolicy.mode, requiredEvidenceKinds: fulfilmentPolicy.requiredEvidenceKinds, evidenceMatchMode: fulfilmentPolicy.evidenceMatchMode, reviewRequired: fulfilmentPolicy.reviewRequired, operationsContact: { name: fulfilmentPolicy.operationsContactName ?? null, phone: fulfilmentPolicy.operationsContactPhone ?? null, email: fulfilmentPolicy.operationsContactEmail ?? null }, emergencyContact: { name: fulfilmentPolicy.emergencyContactName ?? null, phone: fulfilmentPolicy.emergencyContactPhone ?? null, email: fulfilmentPolicy.emergencyContactEmail ?? null }, voucherNotes: fulfilmentPolicy.voucherNotes ?? [], howToRedeem: revision.howToRedeem ?? [] } as Prisma.InputJsonValue : Prisma.JsonNull,
     } });
   }
 }

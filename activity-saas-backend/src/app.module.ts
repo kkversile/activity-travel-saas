@@ -22,6 +22,8 @@ import { InventoryModule } from './inventory/inventory.module';
 import { ResourcesModule } from './resources/resources.module';
 import { EligibilityModule } from './eligibility/eligibility.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
+import { FulfilmentModule } from './fulfilment/fulfilment.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 function validateEnvironment(config: Record<string, unknown>) {
   const databaseUrl = String(config.DATABASE_URL ?? '');
@@ -38,6 +40,7 @@ function validateEnvironment(config: Record<string, unknown>) {
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     DashboardModule,
@@ -58,6 +61,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     FilesModule,
     RequestContextModule,
     CommercialModule,
+    FulfilmentModule,
   ],
   controllers: [AppController],
   providers: [CorrelationIdMiddleware],

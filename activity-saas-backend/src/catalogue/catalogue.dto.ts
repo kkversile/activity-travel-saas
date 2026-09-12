@@ -1,7 +1,21 @@
-import { BookingQuestionType, MediaKind, ProductRevisionStatus, ProductType } from '@prisma/client';
+import { BookingQuestionType, EvidenceMatchMode, FulfilmentEvidenceKind, FulfilmentMode, MediaKind, ProductRevisionStatus, ProductType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { OmitType, PartialType } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsDefined, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, Max, Min, MinLength, ValidateNested } from 'class-validator';
+
+export class ProductFulfilmentPolicyDto {
+  @IsOptional() @IsEnum(FulfilmentMode) mode?: FulfilmentMode;
+  @IsOptional() @IsArray() @IsEnum(FulfilmentEvidenceKind, { each: true }) requiredEvidenceKinds?: FulfilmentEvidenceKind[];
+  @IsOptional() @IsEnum(EvidenceMatchMode) evidenceMatchMode?: EvidenceMatchMode;
+  @IsOptional() @IsBoolean() reviewRequired?: boolean;
+  @IsOptional() @IsString() emergencyContactName?: string;
+  @IsOptional() @IsString() emergencyContactPhone?: string;
+  @IsOptional() @IsString() emergencyContactEmail?: string;
+  @IsOptional() @IsString() operationsContactName?: string;
+  @IsOptional() @IsString() operationsContactPhone?: string;
+  @IsOptional() @IsString() operationsContactEmail?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) voucherNotes?: string[];
+}
 
 export class ProductRevisionDto {
   @IsString() productName!: string;
@@ -35,6 +49,7 @@ export class ProductRevisionDto {
   @IsString() countryName!: string;
   @IsString() stateName!: string;
   @IsOptional() @IsObject() sourcePayload?: Record<string, unknown>;
+  @IsOptional() @ValidateNested() @Type(() => ProductFulfilmentPolicyDto) fulfilmentPolicy?: ProductFulfilmentPolicyDto;
 }
 
 export class UpdateProductRevisionDto extends PartialType(ProductRevisionDto) {}

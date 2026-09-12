@@ -1,0 +1,5 @@
+import { VoucherGenerationService } from './voucher-generation.service';
+
+describe('VoucherGenerationService', () => {
+  it('builds a traveller-safe preview payload', () => { const service = new VoucherGenerationService({} as any, {} as any, {} as any, {} as any, {} as any); const payload: any = service.buildPayload({ bookingCode: 'BK-1', serviceDate: new Date(), pax: 1, serviceTimezone: 'UTC', operationalSnapshot: { productSnapshot: { productName: 'Demo' }, variantSnapshot: { name: 'Standard' }, fulfilmentPolicySnapshot: {} }, travellers: [] }, { evidence: [{ kind: 'PNR_REFERENCE', status: 'CURRENT', referenceValue: 'PRIVATE', travellerVisible: false, versionNumber: 1 }, { kind: 'TICKET_FILE', status: 'CURRENT', referenceValue: null, fileAssetId: 'file-1', travellerVisible: true, versionNumber: 1 }] }); expect(payload.voucherVersion).toBe(1); expect(payload.evidence).toEqual([{ kind: 'TICKET_FILE', referenceValue: null, fileAssetId: 'file-1', versionNumber: 1 }]); expect(JSON.stringify(payload)).not.toContain('PRIVATE'); });
+});

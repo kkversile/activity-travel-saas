@@ -1,4 +1,4 @@
-import { PrismaClient, AgentVerificationStatus, BookingMode, BookingStatus, ChargeType, CommercialRuleKind, CommercialRuleVersionStatus, CommercialScopeType, CommercialStackingMode, CommercialVersionStatus, OrganizationRole, PricingUnit, PayoutStatus, ProductRevisionStatus, ProductStatus, ProductType, RatePlanStatus, SupplierCommercialModel, TenantKind, TravellerType, UserRole, VendorVerificationStatus, VariantStatus } from '@prisma/client';
+import { PrismaClient, AgentVerificationStatus, BookingMode, BookingStatus, ChargeType, CommercialRuleKind, CommercialRuleVersionStatus, CommercialScopeType, CommercialStackingMode, CommercialVersionStatus, EvidenceMatchMode, FulfilmentEvidenceKind, FulfilmentMode, OrganizationRole, PricingUnit, PayoutStatus, ProductRevisionStatus, ProductStatus, ProductType, RatePlanStatus, SupplierCommercialModel, TenantKind, TravellerType, UserRole, VendorVerificationStatus, VariantStatus } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
@@ -46,6 +46,12 @@ async function main() {
     }
     products[name] = product;
   }
+  const demoPolicies: Record<string, { mode: FulfilmentMode; requiredEvidenceKinds: FulfilmentEvidenceKind[] }> = {
+    'Sunrise Trek to Top Station': { mode: FulfilmentMode.AUTO, requiredEvidenceKinds: [] },
+    'Athirappilly Excursion from Kochi to Munnar': { mode: FulfilmentMode.PNR_ONLY, requiredEvidenceKinds: [FulfilmentEvidenceKind.PNR_REFERENCE] },
+    'Photoshoot at Tata Tea Museum': { mode: FulfilmentMode.TICKET_QR, requiredEvidenceKinds: [FulfilmentEvidenceKind.TICKET_FILE, FulfilmentEvidenceKind.QR_TOKEN] },
+  };
+  for (const [productName, policy] of Object.entries(demoPolicies)) { const product = products[productName]; if (!product) continue; const revision = await prisma.productRevision.findFirst({ where: { productId: product.id, status: ProductRevisionStatus.PUBLISHED }, orderBy: { versionNumber: 'desc' } }); if (revision) await prisma.productFulfilmentPolicy.upsert({ where: { productRevisionId: revision.id }, update: { ...policy, evidenceMatchMode: EvidenceMatchMode.ANY, reviewRequired: false }, create: { productRevisionId: revision.id, ...policy, evidenceMatchMode: EvidenceMatchMode.ANY, reviewRequired: false } }); }
   const ensureVariant = async (productId: string, variantCode: string, name: string, fields: Record<string, unknown> = {}) => prisma.productVariant.upsert({ where: { productId_variantCode: { productId, variantCode } }, update: {}, create: { productId, variantCode, name, status: VariantStatus.ACTIVE, ...fields } });
   const trek = products['Sunrise Trek to Top Station'];
   const shared = await ensureVariant(trek.id, 'SUNRISE_SHARED_0515', 'Shared SUV · 05:15 pickup', { durationMinutes: 240, privateShared: 'Shared', vehicleType: 'SUV (Innova/Xylo)', pickupIncluded: true, pickupTimings: '05:15 AM', dropoffIncluded: true, dropoffTimings: '10:30 AM', pickupInput: 'Munnar town pickup point', inclusions: ['Trek guide', 'Breakfast', 'Entry support'], exclusions: ['Personal expenses', 'Travel insurance'], suitableFor: ['ADULT', 'CHILD', 'SENIOR'] });

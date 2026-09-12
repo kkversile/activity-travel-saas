@@ -18,4 +18,4 @@ The verifier covers free, penalty, no-refund, historical snapshot-policy protect
 
 ## Regression
 
-Phase 4.1, Phase 4.2, Phase 5, Phase 6, and Phase 6.2 all pass. Backend tests: 39 suites / 189 tests. Backend and frontend production builds pass. The current PostgreSQL logical backup remains under `activity-saas-backend/backups/` and is sensitive database material.
+Phase 4.1, Phase 4.2, Phase 5, Phase 6, Phase 6.2, Phase 7, and Phase 7.1 all pass. Current backend tests: 41 suites / 205 tests. Backend and frontend production builds pass. The current PostgreSQL logical backup remains under `activity-saas-backend/backups/` and is sensitive database material.

@@ -7,9 +7,10 @@ import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { FilePurpose, FileVisibility } from '@prisma/client';
 import { StorageService } from '../storage/storage.service';
+import { validateFulfilmentPolicy } from '../fulfilment/fulfilment.types';
 import { ArchiveVariantDto, CreateProductDto, CreateProductRevisionDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, ProductRevisionDto, RejectProductRevisionDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
 
-const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
+const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, fulfilmentPolicy: true, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
 const variantInclude = { ratePlans: { include: { travellerRules: true, cancellationRules: { orderBy: { minDaysBefore: 'desc' as const } } }, orderBy: { createdAt: 'asc' as const } } };
 
 @Injectable()
@@ -17,8 +18,12 @@ export class CatalogueService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly storage: StorageService) {}
 
   private data(dto: ProductRevisionDto | UpdateProductRevisionDto): Prisma.ProductRevisionUncheckedCreateInput {
-    const { faqs, sourcePayload, ...rest } = dto as ProductRevisionDto;
+    const { faqs, sourcePayload, fulfilmentPolicy: _fulfilmentPolicy, ...rest } = dto as ProductRevisionDto;
     return { ...rest, ...(faqs !== undefined ? { faqs: faqs as Prisma.InputJsonValue } : {}), ...(sourcePayload !== undefined ? { sourcePayload: sourcePayload as Prisma.InputJsonValue } : {}) } as Prisma.ProductRevisionUncheckedCreateInput;
+  }
+
+  private policyData(input: any) {
+    return { mode: input.mode ?? null, requiredEvidenceKinds: input.requiredEvidenceKinds ?? [], evidenceMatchMode: input.evidenceMatchMode ?? 'ALL', reviewRequired: input.reviewRequired ?? false, emergencyContactName: input.emergencyContactName?.trim() || null, emergencyContactPhone: input.emergencyContactPhone?.trim() || null, emergencyContactEmail: input.emergencyContactEmail?.trim() || null, operationsContactName: input.operationsContactName?.trim() || null, operationsContactPhone: input.operationsContactPhone?.trim() || null, operationsContactEmail: input.operationsContactEmail?.trim() || null, voucherNotes: (input.voucherNotes ?? []).map((item: string) => item.trim()).filter(Boolean) };
   }
 
   private async product(user: AuthUser, id: string) {
@@ -47,7 +52,8 @@ export class CatalogueService {
     if (!dto.initialRevision) throw new BadRequestException('initialRevision is required');
     const created = await this.prisma.$transaction(async (tx) => {
       const product = await tx.product.create({ data: { tenantId, productCode: dto.productCode, status: ProductStatus.DRAFT } });
-      await tx.productRevision.create({ data: { ...this.data(dto.initialRevision), productId: product.id, versionNumber: 1, createdById: user.sub } });
+      const revision = await tx.productRevision.create({ data: { ...this.data(dto.initialRevision), productId: product.id, versionNumber: 1, createdById: user.sub } });
+      if (dto.initialRevision.fulfilmentPolicy) await tx.productFulfilmentPolicy.create({ data: { productRevisionId: revision.id, ...this.policyData(dto.initialRevision.fulfilmentPolicy) } });
       await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_CREATED', entityType: 'Product', entityId: product.id, afterState: { productCode: product.productCode, status: product.status } });
       return product;
     }).catch((error) => {
@@ -63,11 +69,11 @@ export class CatalogueService {
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE`);
       const working = await tx.productRevision.findFirst({ where: { productId, status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW] } }, orderBy: { versionNumber: 'desc' } });
       if (working) return working;
-      const published = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.PUBLISHED }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } } } });
-      const latest = await tx.productRevision.findFirst({ where: { productId }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } } } });
+      const published = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.PUBLISHED }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } }, fulfilmentPolicy: true } });
+      const latest = await tx.productRevision.findFirst({ where: { productId }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } }, fulfilmentPolicy: true } });
       let source = published;
       if (dto.sourceRevisionId) {
-        source = await tx.productRevision.findFirst({ where: { id: dto.sourceRevisionId, productId, status: { in: [ProductRevisionStatus.PUBLISHED, ProductRevisionStatus.REJECTED, ProductRevisionStatus.SUPERSEDED] } }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } } } });
+        source = await tx.productRevision.findFirst({ where: { id: dto.sourceRevisionId, productId, status: { in: [ProductRevisionStatus.PUBLISHED, ProductRevisionStatus.REJECTED, ProductRevisionStatus.SUPERSEDED] } }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } }, fulfilmentPolicy: true } });
         if (!source) throw new ConflictException('Source revision must belong to this Product and be immutable history');
       } else if (latest?.status === ProductRevisionStatus.REJECTED && (!published || latest.versionNumber > published.versionNumber)) {
         source = latest;
@@ -76,10 +82,11 @@ export class CatalogueService {
       }
       if (!source) throw new ConflictException('Product has no revision to clone');
       const maxVersion = await tx.productRevision.aggregate({ where: { productId }, _max: { versionNumber: true } });
-      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, versionNumber: _version, status: _status, rejectionReason: _reason, submittedAt: _submitted, reviewedAt: _reviewed, reviewedById: _reviewedBy, createdById: _createdBy, productId: _productId, sourcePayload: _sourcePayload, media: sourceMedia, bookingQuestions: sourceQuestions, ...content } = source;
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, versionNumber: _version, status: _status, rejectionReason: _reason, submittedAt: _submitted, reviewedAt: _reviewed, reviewedById: _reviewedBy, createdById: _createdBy, productId: _productId, sourcePayload: _sourcePayload, media: sourceMedia, bookingQuestions: sourceQuestions, fulfilmentPolicy: sourcePolicy, ...content } = source;
       const revision = await tx.productRevision.create({ data: { ...content, faqs: (source.faqs ?? []) as Prisma.InputJsonValue, ...(source.sourcePayload ? { sourcePayload: source.sourcePayload as Prisma.InputJsonValue } : {}), productId, versionNumber: (maxVersion._max.versionNumber ?? 0) + 1, createdById: user.sub, status: ProductRevisionStatus.DRAFT } });
       if ((sourceMedia ?? []).length) await tx.productMedia.createMany({ data: sourceMedia.map(({ id: _mediaId, revisionId: _revisionId, createdAt: _mediaCreatedAt, updatedAt: _mediaUpdatedAt, archivedAt: _archivedAt, ...media }) => ({ ...media, revisionId: revision.id })) });
       if ((sourceQuestions ?? []).length) await tx.productBookingQuestion.createMany({ data: sourceQuestions.map(({ id: _questionId, productRevisionId: _sourceRevisionId, createdAt: _questionCreatedAt, updatedAt: _questionUpdatedAt, archivedAt: _questionArchivedAt, options, ...question }) => ({ ...question, productRevisionId: revision.id, ...(options == null ? {} : { options: options as Prisma.InputJsonValue }) })) });
+      if (sourcePolicy) await tx.productFulfilmentPolicy.create({ data: { productRevisionId: revision.id, mode: sourcePolicy.mode, requiredEvidenceKinds: sourcePolicy.requiredEvidenceKinds, evidenceMatchMode: sourcePolicy.evidenceMatchMode, reviewRequired: sourcePolicy.reviewRequired, emergencyContactName: sourcePolicy.emergencyContactName, emergencyContactPhone: sourcePolicy.emergencyContactPhone, emergencyContactEmail: sourcePolicy.emergencyContactEmail, operationsContactName: sourcePolicy.operationsContactName, operationsContactPhone: sourcePolicy.operationsContactPhone, operationsContactEmail: sourcePolicy.operationsContactEmail, voucherNotes: sourcePolicy.voucherNotes, migrationMetadata: sourcePolicy.migrationMetadata as Prisma.InputJsonValue | undefined } });
       await this.audit.write(tx, { actor: user, tenantId: product.tenantId, action: 'PRODUCT_REVISION_CREATED', entityType: 'ProductRevision', entityId: revision.id, afterState: { productId, sourceRevisionId: source.id, newRevisionId: revision.id, versionNumber: revision.versionNumber } });
       return revision;
     });
@@ -145,6 +152,12 @@ export class CatalogueService {
     return this.prisma.$transaction(async (tx) => {
       const changed = await tx.productRevision.updateMany({ where: { id, status: ProductRevisionStatus.DRAFT }, data: this.data(dto) as Prisma.ProductRevisionUpdateInput });
       if (changed.count !== 1) throw new ConflictException('Revision changed in another session; reload and retry');
+      if (dto.fulfilmentPolicy) {
+        const policyCheck = validateFulfilmentPolicy(dto.fulfilmentPolicy);
+        if (!policyCheck.valid && dto.fulfilmentPolicy.mode) throw new ConflictException(policyCheck.reason);
+        await tx.productFulfilmentPolicy.upsert({ where: { productRevisionId: id }, create: { productRevisionId: id, ...this.policyData(dto.fulfilmentPolicy) }, update: this.policyData(dto.fulfilmentPolicy) });
+        await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_FULFILMENT_POLICY_UPDATED', entityType: 'ProductFulfilmentPolicy', entityId: id, metadata: { revisionId: id } });
+      }
       const updated = await tx.productRevision.findUniqueOrThrow({ where: { id } });
       await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_REVISION_UPDATED', entityType: 'ProductRevision', entityId: id, beforeState: { status: existing.status }, afterState: { status: updated.status } });
       return updated;

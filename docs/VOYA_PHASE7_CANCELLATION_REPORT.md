@@ -19,7 +19,7 @@ The real PostgreSQL verifier used prefix `phase7-9b020098-bfb4-4024-80c1-ed644e1
 
 Passed scenarios: free snapshot-policy cancellation and historical-policy protection; 50% Decimal penalty; 100% no-refund; Agent idempotency; Vendor cancellation; Admin cancellation; pending withdrawal; refund confirmation; refund failure/retry; finance resolution; and double-cancellation race.
 
-The backend suite is 39 suites / 189 tests passing. Backend and frontend builds pass. Phase 4.1, Phase 4.2, Phase 5, Phase 6 and Phase 6.2 verifiers pass. Prisma migration status is up to date after the Phase 7 migration.
+The current verification baseline is 41 suites / 205 tests passing. Backend and frontend builds pass. Phase 4.1, Phase 4.2, Phase 5, Phase 6, Phase 6.2, Phase 7 and Phase 7.1 verifiers pass. Historical verifier evidence is retained below; the count is updated here to reflect the current repository.
 
 ## Operational boundary
 

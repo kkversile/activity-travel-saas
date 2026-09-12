@@ -7,12 +7,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CutoffService } from './cutoff.service';
 import { normalizeTravellers } from './traveller-normalization';
 import { EligibilityInput, EligibilityGate, EligibilityResult, messageFor } from './eligibility.types';
+import { validateFulfilmentPolicy } from '../fulfilment/fulfilment.types';
 
 export type EligibilityDbClient = PrismaService | Prisma.TransactionClient;
 
 const productInclude = {
   tenant: { include: { vendorProfile: true } },
-  currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' as const } } } },
+  currentRevision: { include: { fulfilmentPolicy: true, media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' as const } } } },
 } as const;
 
 @Injectable()
@@ -46,6 +47,7 @@ export class EligibilityService {
     const product = plan.variant.product; const vendor = product.tenant; const revision = product.currentRevision; const date = session?.serviceDate ? new Date(session.serviceDate) : now;
     if (!vendor?.vendorProfile) add('VENDOR', 'FAIL', 'VENDOR_NOT_VERIFIED'); else if (vendor.kind !== TenantKind.VENDOR || vendor.vendorProfile.verificationStatus === VendorVerificationStatus.SUSPENDED) add('VENDOR', 'FAIL', 'VENDOR_SUSPENDED'); else if (vendor.vendorProfile.verificationStatus !== VendorVerificationStatus.VERIFIED) add('VENDOR', 'FAIL', 'VENDOR_NOT_VERIFIED'); else add('VENDOR', 'PASS', undefined, { tenantId: vendor.id });
     if (product.status !== ProductStatus.LIVE) add('PRODUCT', 'FAIL', 'PRODUCT_NOT_LIVE'); else if (!revision || product.currentRevisionId !== revision.id || revision.status !== ProductRevisionStatus.PUBLISHED) add('PRODUCT', 'FAIL', 'PRODUCT_PUBLISHED_REVISION_MISSING'); else add('PRODUCT', 'PASS', undefined, { revisionId: revision.id });
+    if (!revision || product.currentRevisionId !== revision.id || revision.status !== ProductRevisionStatus.PUBLISHED || !revision.fulfilmentPolicy) add('FULFILMENT_POLICY', 'FAIL', 'FULFILMENT_POLICY_MISSING'); else { const policy = validateFulfilmentPolicy(revision.fulfilmentPolicy); add('FULFILMENT_POLICY', policy.valid ? 'PASS' : 'FAIL', policy.valid ? undefined : policy.reason, { policyId: revision.fulfilmentPolicy.id, mode: revision.fulfilmentPolicy.mode }); }
     if (plan.variant.status !== VariantStatus.ACTIVE || plan.variant.archivedAt) add('VARIANT', 'FAIL', 'VARIANT_NOT_ACTIVE'); else add('VARIANT', 'PASS', undefined, { variantId: plan.variantId });
     if (plan.status !== RatePlanStatus.ACTIVE) add('RATE_PLAN', 'FAIL', 'RATEPLAN_NOT_ACTIVE'); else if (date < new Date(plan.validFrom) || date >= new Date(plan.validTo)) add('RATE_PLAN', 'FAIL', 'RATEPLAN_OUTSIDE_EFFECTIVE_RANGE'); else add('RATE_PLAN', 'PASS', undefined);
     const channelMapping = plan.channelMappings.find((item: any) => item.channel.code === (input.channelCode ?? 'VOYA_AGENT'));

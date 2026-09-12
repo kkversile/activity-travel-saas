@@ -7,12 +7,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InventoryReservationService, ReservationTx } from '../inventory/inventory-reservation.service';
 import { AdminCancellationListQueryDto, AgentCancellationDto, FinancialResolutionDto, OperationalCancellationDto, RefundConfirmDto, RefundFailDto } from './cancellation.dto';
 import { fingerprint } from './booking-fingerprint';
+import { FulfilmentLifecycleService } from '../fulfilment/fulfilment-lifecycle.service';
 
 const bookingInclude: any = { operationalSnapshot: true, economicsSnapshot: true, travellers: { orderBy: { sequence: 'asc' } }, events: { orderBy: { createdAt: 'asc' } }, inventoryHolds: true, inventoryAllocations: true, vendorTenant: { select: { id: true, name: true } }, agentTenant: { select: { id: true, name: true } }, product: { select: { id: true, productCode: true } }, ratePlan: { select: { id: true, ratePlanCode: true, name: true } }, cancellation: { include: { refund: true, financialEvents: true } } };
 
 @Injectable()
 export class CancellationService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly inventory: InventoryReservationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly inventory: InventoryReservationService, private readonly fulfilment: FulfilmentLifecycleService = null as any) {}
 
   async agentPreview(user: AuthUser, bookingId: string) {
     const tenantId = this.requireAgent(user);
@@ -69,6 +70,7 @@ export class CancellationService {
         const financialState = booking.status === BookingStatus.CONFIRMED ? calculation.financialState : CancellationFinancialState.CANCELLED_PENDING_FINANCIAL;
         const cancellation: any = await tx.bookingCancellation.create({ data: { bookingId, initiator: CancellationInitiator.AGENT, initiatedByUserId: user.sub, initiatedByTenantId: agentTenantId, reasonCategory: dto.reasonCategory, reason: dto.reason.trim(), cancelledAt: now, serviceTimezone: calculation.serviceTimezone, serviceDateLocal: calculation.serviceDateLocal, cancellationDateLocal: calculation.cancellationDateLocal, daysBeforeService: calculation.daysBeforeService, policyFingerprint: calculation.policyFingerprint, matchedPolicyRule: calculation.matchedPolicyRule as Prisma.InputJsonValue, bookingAmount: calculation.bookingAmount, currency: calculation.currency, cancellationCharge: calculation.cancellationCharge, refundEntitlement: calculation.refundEntitlement, financialState, idempotencyKey: key, requestFingerprint, calculationSnapshot: { ...calculation, allocationCount } as Prisma.InputJsonValue } });
         const updated = await tx.booking.update({ where: { id: bookingId }, data: { status: BookingStatus.CANCELLED, version: { increment: 1 } } });
+        if (this.fulfilment) await this.fulfilment.voidForCancellationInTransaction(tx, bookingId, user, dto.reason.trim());
         await this.addBookingEvent(tx, updated, booking.status === BookingStatus.CONFIRMED ? 'AGENT_CANCELLED' : 'AGENT_WITHDREW_PENDING', booking.status, BookingStatus.CANCELLED, user, dto.reason.trim());
         await this.addFinancialEvent(tx, { eventKey: `booking:${bookingId}:cancelled`, bookingId, cancellationId: cancellation.id, type: FinancialEventType.BOOKING_CANCELLED, status: FinancialEventStatus.POSTED, currency: calculation.currency, amount: calculation.cancellationCharge, components: { initiator: 'AGENT', originalBookingAmount: calculation.bookingAmount.toString(), cancellationCharge: calculation.cancellationCharge.toString(), refundEntitlement: calculation.refundEntitlement.toString(), policyFingerprint: calculation.policyFingerprint, matchedRule: calculation.matchedPolicyRule, financialState, economicsSnapshotId: (booking.economicsSnapshot as any)?.id ?? null }, reason: dto.reason.trim(), actorUserId: user.sub, occurredAt: now });
         if (financialState === CancellationFinancialState.REFUND_PENDING) await this.createRefund(tx, cancellation, calculation.refundEntitlement, calculation.currency, user.sub, now);
@@ -105,6 +107,7 @@ export class CancellationService {
       const provenance = this.operationalProvenance(booking, now);
       const cancellation: any = await tx.bookingCancellation.create({ data: { bookingId, initiator, initiatedByUserId: user.sub, initiatedByTenantId: tenantId, reasonCategory: dto.reasonCategory, reason: dto.reason.trim(), cancelledAt: now, serviceTimezone: provenance.serviceTimezone, serviceDateLocal: provenance.serviceDateLocal, cancellationDateLocal: provenance.cancellationDateLocal, daysBeforeService: provenance.daysBeforeService, policyFingerprint: null, matchedPolicyRule: Prisma.JsonNull, bookingAmount: booking.amount, currency: booking.currency, cancellationCharge: 0, refundEntitlement: 0, financialState: CancellationFinancialState.CANCELLED_PENDING_FINANCIAL, idempotencyKey: key, requestFingerprint: this.requestFingerprint(bookingId, key ?? 'operational', dto.reasonCategory, dto.reason), calculationSnapshot: { initiator, policy: 'not applied; financial responsibility pending', ...provenance } } });
       const updated = await tx.booking.update({ where: { id: bookingId }, data: { status: BookingStatus.CANCELLED, version: { increment: 1 } } });
+        if (this.fulfilment) await this.fulfilment.voidForCancellationInTransaction(tx, bookingId, user, dto.reason.trim());
       await this.addBookingEvent(tx, updated, initiator === CancellationInitiator.VENDOR ? 'VENDOR_CANCELLED' : 'ADMIN_CANCELLED', booking.status, BookingStatus.CANCELLED, user, dto.reason.trim());
       await this.addFinancialEvent(tx, { eventKey: `booking:${bookingId}:cancelled`, bookingId, cancellationId: cancellation.id, type: FinancialEventType.BOOKING_CANCELLED, status: FinancialEventStatus.PENDING, currency: booking.currency, amount: null, components: { initiator, originalBookingAmount: booking.amount.toString(), currency: booking.currency, reasonCategory: dto.reasonCategory, financialState: CancellationFinancialState.CANCELLED_PENDING_FINANCIAL, economicsSnapshotId: (booking.economicsSnapshot as any)?.id ?? null }, reason: dto.reason.trim(), actorUserId: user.sub, occurredAt: now });
       await this.audit.write(tx, { actor: user, tenantId: tenantId ?? undefined, action: initiator === CancellationInitiator.VENDOR ? 'BOOKING_CANCELLED_VENDOR' : 'BOOKING_CANCELLED_ADMIN', entityType: 'BookingCancellation', entityId: cancellation.id, reason: dto.reason });
@@ -165,6 +168,8 @@ export class CancellationService {
       const now = new Date();
       if (action === 'RETRY') {
         const updated = await tx.refund.update({ where: { id }, data: { status: RefundStatus.PENDING, failureReason: null, failedAt: null, version: { increment: 1 } } });
+        const restored = await tx.bookingCancellation.updateMany({ where: { id: refund.cancellationId, financialState: CancellationFinancialState.REFUND_FAILED }, data: { financialState: CancellationFinancialState.REFUND_PENDING } });
+        if (restored.count !== 1) throw new ConflictException('REFUND_RETRY_STATE_MISMATCH');
         await this.audit.write(tx, { actor: user, tenantId: refund.booking.vendorTenantId, action: 'REFUND_RETRIED', entityType: 'Refund', entityId: id, reason: note });
         await this.outbox.enqueue(tx, { tenantId: refund.booking.vendorTenantId, eventType: 'REFUND_RETRIED', aggregateType: 'Refund', aggregateId: id, payload: { bookingId: refund.bookingId, cancellationId: refund.cancellationId, amount: refund.amount.toString() } });
         return updated;

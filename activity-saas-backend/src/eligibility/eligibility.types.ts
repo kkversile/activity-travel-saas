@@ -65,6 +65,9 @@ export const REASON_MESSAGES: Record<string, string> = {
   INVENTORY_STATE_MISSING: 'The session has no canonical inventory state.',
   INSUFFICIENT_INVENTORY: 'There is not enough available inventory.',
   RESOURCE_NOT_READY: 'Required operational resources are not ready.',
+  FULFILMENT_POLICY_MISSING: 'The published product has no fulfilment policy.',
+  FULFILMENT_POLICY_REVIEW_REQUIRED: 'The product fulfilment policy requires review.',
+  FULFILMENT_POLICY_INVALID: 'The product fulfilment policy is incomplete or invalid.',
 };
 
 export function messageFor(code: string) { return REASON_MESSAGES[code] ?? code.replaceAll('_', ' ').toLowerCase(); }

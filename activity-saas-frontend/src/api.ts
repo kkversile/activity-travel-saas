@@ -49,6 +49,7 @@ export type ProductRevision = {
   lon?: string | number;
   media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; externalUrl?: string | null; fileAssetId?: string | null; description?: string; seoTitle?: string; seoDescription?: string; rank: number }>;
   bookingQuestions?: Array<{ id: string; code: string; label: string; helpText?: string | null; type: 'TEXT' | 'NUMBER' | 'BOOLEAN' | 'SELECT'; required: boolean; options?: unknown; appliesPerTraveller: boolean; rank: number }>;
+  fulfilmentPolicy?: { id?: string; mode?: 'AUTO' | 'AFTER_FULFILMENT' | 'PNR_ONLY' | 'TICKET_QR' | null; requiredEvidenceKinds?: string[]; evidenceMatchMode?: 'ALL' | 'ANY'; reviewRequired?: boolean; operationsContactName?: string | null; operationsContactPhone?: string | null; operationsContactEmail?: string | null; emergencyContactName?: string | null; emergencyContactPhone?: string | null; emergencyContactEmail?: string | null; voucherNotes?: string[] } | null;
 };
 
 export type ProductVariant = { id: string; productId: string; variantCode: string; name: string; description?: string; status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'; version: number; durationMinutes?: number; privateShared?: string; vehicleType?: string; pickupIncluded: boolean; pickupType?: string; pickupInput?: string; pickupTimings?: string; dropoffIncluded: boolean; dropoffTimings?: string; mealIncluded: boolean; mealType?: string; menu?: string[]; mealVariety?: string; pointsOfInterest?: string[]; inclusions: string[]; exclusions: string[]; suitableFor: string[]; ratePlans?: RatePlan[] };
@@ -85,10 +86,7 @@ export type RatePlan = {
   currency: string;
   minPax: number;
   maxPax: number;
-  ticketOnly?: boolean;
-  offlineVoucher?: boolean;
   instantConfirmation: boolean;
-  autoRedeem: boolean;
   cutOffMinutes: number;
   adultRequired: boolean;
   minAdultRequired: number;

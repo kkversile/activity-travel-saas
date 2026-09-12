@@ -244,6 +244,69 @@ enum FilePurpose {
   OTHER
 }
 
+enum FulfilmentMode {
+  AUTO
+  AFTER_FULFILMENT
+  PNR_ONLY
+  TICKET_QR
+}
+
+enum FulfilmentEvidenceKind {
+  PNR_REFERENCE
+  TICKET_FILE
+  QR_TOKEN
+  SUPPLIER_ATTACHMENT
+}
+
+enum EvidenceMatchMode {
+  ALL
+  ANY
+}
+
+enum BookingFulfilmentStatus {
+  AWAITING_CONFIRMATION
+  WAITING_EVIDENCE
+  READY_FOR_VOUCHER
+  VOUCHER_READY
+  VOIDED
+}
+
+enum VoucherGenerationStatus {
+  NOT_REQUESTED
+  PENDING
+  PROCESSING
+  FAILED
+  SUCCEEDED
+}
+
+enum FulfilmentEvidenceStatus {
+  CURRENT
+  SUPERSEDED
+  ARCHIVED
+}
+
+enum VoucherVersionStatus {
+  CURRENT
+  SUPERSEDED
+  VOID
+}
+
+enum VoucherShareChannel {
+  DOWNLOAD
+  EMAIL
+  WHATSAPP
+}
+
+enum VoucherShareStatus {
+  RECORDED
+  QUEUED
+  FAILED
+}
+
+enum RedemptionMethod {
+  MANUAL
+}
+
 enum VendorDocumentType {
   GSTIN
   PAN
@@ -452,23 +515,25 @@ model AgentProfile {
 }
 
 model FileAsset {
-  id               String                  @id @default(uuid())
-  tenantId         String?
-  tenant           Tenant?                 @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  storageKey       String                  @unique
-  originalName     String
-  mimeType         String
-  sizeBytes        Int
-  visibility       FileVisibility
-  purpose          FilePurpose
-  entityType       String?
-  entityId         String?
-  createdById      String?
-  createdBy        User?                   @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  archivedAt       DateTime?
-  createdAt        DateTime                @default(now())
-  documentVersions VendorDocumentVersion[]
-  productMedia     ProductMedia[]
+  id                 String                  @id @default(uuid())
+  tenantId           String?
+  tenant             Tenant?                 @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  storageKey         String                  @unique
+  originalName       String
+  mimeType           String
+  sizeBytes          Int
+  visibility         FileVisibility
+  purpose            FilePurpose
+  entityType         String?
+  entityId           String?
+  createdById        String?
+  createdBy          User?                   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  archivedAt         DateTime?
+  createdAt          DateTime                @default(now())
+  documentVersions   VendorDocumentVersion[]
+  productMedia       ProductMedia[]
+  fulfilmentEvidence FulfilmentEvidence[]
+  voucherVersions    VoucherVersion[]
 
   @@index([tenantId, visibility])
   @@index([purpose, entityId])
@@ -579,6 +644,7 @@ model ProductRevision {
   media               ProductMedia[]
   currentForProducts  Product[]                @relation("CurrentProductRevision")
   bookingQuestions    ProductBookingQuestion[]
+  fulfilmentPolicy    ProductFulfilmentPolicy?
   bookings            Booking[]
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
@@ -586,6 +652,26 @@ model ProductRevision {
   @@unique([productId, versionNumber])
   @@unique([id, productId])
   @@index([productId, status])
+}
+
+model ProductFulfilmentPolicy {
+  id                     String                   @id @default(uuid())
+  productRevisionId      String                   @unique
+  productRevision        ProductRevision          @relation(fields: [productRevisionId], references: [id], onDelete: Cascade)
+  mode                   FulfilmentMode?
+  requiredEvidenceKinds  FulfilmentEvidenceKind[] @default([])
+  evidenceMatchMode      EvidenceMatchMode        @default(ALL)
+  reviewRequired         Boolean                  @default(false)
+  emergencyContactName   String?
+  emergencyContactPhone  String?
+  emergencyContactEmail  String?
+  operationsContactName  String?
+  operationsContactPhone String?
+  operationsContactEmail String?
+  voucherNotes           String[]                 @default([])
+  migrationMetadata      Json?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
 }
 
 model ProductMedia {
@@ -683,15 +769,7 @@ model RatePlan {
   minPax              Int                         @default(1)
   maxPax              Int                         @default(99)
   affiliates          String[]                    @default([])
-  // Legacy fulfilment/issuance retained temporarily for Phase 8.
-  generatePnr         String?
-  label               String?
-  ticketOnly          Boolean                     @default(false)
-  vendorVoucherFlag   Boolean?
-  offlineVoucher      Boolean                     @default(false)
   instantConfirmation Boolean                     @default(false)
-  autoRedeem          Boolean                     @default(false)
-  qrType              String?
   cutOffMinutes       Int                         @default(0)
   dateLevelCutoffTime String?
   adultRequired       Boolean                     @default(false)
@@ -1192,6 +1270,10 @@ model Booking {
   cancellation          BookingCancellation?
   refunds               Refund[]
   financialEvents       FinancialEvent[]
+  fulfilment            BookingFulfilment?
+  redemption            BookingRedemption?
+  vouchers              VoucherVersion[]
+  shareEvents           VoucherShareEvent[]
   createdAt             DateTime                  @default(now())
   updatedAt             DateTime                  @updatedAt
 
@@ -1227,6 +1309,7 @@ model BookingSnapshot {
   agentSnapshot                 Json
   channelSnapshot               Json
   confirmationPolicySnapshot    Json
+  fulfilmentPolicySnapshot      Json?
   createdAt                     DateTime     @default(now())
 }
 
@@ -1248,6 +1331,112 @@ model BookingTraveller {
 
   @@unique([bookingId, sequence])
   @@index([bookingId, travellerType])
+}
+
+model BookingFulfilment {
+  id                       String                  @id @default(uuid())
+  bookingId                String                  @unique
+  booking                  Booking                 @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  mode                     FulfilmentMode
+  status                   BookingFulfilmentStatus @default(AWAITING_CONFIRMATION)
+  generationStatus         VoucherGenerationStatus @default(NOT_REQUESTED)
+  generationAttempts       Int                     @default(0)
+  lastGenerationError      String?
+  generationRequestedAt    DateTime?
+  generationToken          String?
+  generationClaimedAt      DateTime?
+  generationLeaseExpiresAt DateTime?
+  generatedAt              DateTime?
+  version                  Int                     @default(1)
+  evidence                 FulfilmentEvidence[]
+  vouchers                 VoucherVersion[]
+  shares                   VoucherShareEvent[]
+  redemption               BookingRedemption?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+
+  @@index([status, generationStatus, generationLeaseExpiresAt, generationRequestedAt])
+}
+
+model FulfilmentEvidence {
+  id                 String                   @id @default(uuid())
+  fulfilmentId       String
+  fulfilment         BookingFulfilment        @relation(fields: [fulfilmentId], references: [id], onDelete: Cascade)
+  kind               FulfilmentEvidenceKind
+  versionNumber      Int
+  status             FulfilmentEvidenceStatus @default(CURRENT)
+  referenceValue     String?
+  fileAssetId        String?
+  fileAsset          FileAsset?               @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  travellerVisible   Boolean                  @default(false)
+  replacesEvidenceId String?
+  createdById        String
+  createdAt          DateTime                 @default(now())
+  supersededAt       DateTime?
+  archivedAt         DateTime?
+
+  @@unique([fulfilmentId, kind, versionNumber])
+  @@index([fulfilmentId, kind, status])
+}
+
+model VoucherVersion {
+  id                        String               @id @default(uuid())
+  bookingId                 String
+  booking                   Booking              @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  fulfilmentId              String
+  fulfilment                BookingFulfilment    @relation(fields: [fulfilmentId], references: [id], onDelete: Restrict)
+  versionNumber             Int
+  status                    VoucherVersionStatus @default(CURRENT)
+  voucherCode               String               @unique
+  fileAssetId               String
+  fileAsset                 FileAsset            @relation(fields: [fileAssetId], references: [id], onDelete: Restrict)
+  sourceEvidenceFingerprint String
+  contentFingerprint        String
+  generatedAt               DateTime             @default(now())
+  supersededAt              DateTime?
+  voidedAt                  DateTime?
+  voidReason                String?
+  generatedByUserId         String?
+  shares                    VoucherShareEvent[]
+  redemption                BookingRedemption?
+  createdAt                 DateTime             @default(now())
+
+  @@unique([bookingId, versionNumber])
+  @@index([bookingId, status])
+  @@index([fulfilmentId, status])
+}
+
+model VoucherShareEvent {
+  id               String              @id @default(uuid())
+  bookingId        String
+  booking          Booking             @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  fulfilmentId     String
+  fulfilment       BookingFulfilment   @relation(fields: [fulfilmentId], references: [id], onDelete: Restrict)
+  voucherVersionId String
+  voucherVersion   VoucherVersion      @relation(fields: [voucherVersionId], references: [id], onDelete: Restrict)
+  channel          VoucherShareChannel
+  status           VoucherShareStatus  @default(RECORDED)
+  recipientMasked  String?
+  actorUserId      String
+  createdAt        DateTime            @default(now())
+
+  @@index([bookingId, createdAt])
+  @@index([voucherVersionId, channel])
+}
+
+model BookingRedemption {
+  id               String            @id @default(uuid())
+  bookingId        String            @unique
+  booking          Booking           @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  fulfilmentId     String            @unique
+  fulfilment       BookingFulfilment @relation(fields: [fulfilmentId], references: [id], onDelete: Restrict)
+  voucherVersionId String?           @unique
+  voucherVersion   VoucherVersion?   @relation(fields: [voucherVersionId], references: [id], onDelete: Restrict)
+  method           RedemptionMethod
+  redeemedAt       DateTime          @default(now())
+  actorUserId      String
+  notes            String?
+  createdAt        DateTime          @default(now())
 }
 
 model BookingEvent {
