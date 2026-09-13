@@ -8,6 +8,7 @@ import { json } from 'express';
 import { AppModule } from './app.module';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { PrismaService } from './prisma/prisma.service';
+import { createSwaggerDemoUiScript } from './common/swagger-demo-ui';
 
 const swaggerDemoStorageKey = 'voya_swagger_demo_context';
 
@@ -272,16 +273,28 @@ async function bootstrap() {
   const port = Number(config.get('PORT', 4007));
   const swaggerServerUrl = config.get<string>('SWAGGER_SERVER_URL') || `http://localhost:${port}`;
   const swaggerServerDescription = config.get<string>('SWAGGER_SERVER_DESCRIPTION') || 'Configured API';
+  const swaggerDemoEnabled = config.get<string>('SWAGGER_DEMO_ACCOUNTS_ENABLED', 'true') !== 'false';
+  const swaggerDemoPassword = config.get<string>('SWAGGER_DEMO_PASSWORD') || config.get<string>('DEMO_PASSWORD') || '';
+  const swaggerDemoAccounts = swaggerDemoEnabled ? [
+    { key: 'vendor', label: 'Vendor', role: 'VENDOR', email: config.get<string>('SWAGGER_DEMO_VENDOR_EMAIL', 'vendor@voya.demo'), password: swaggerDemoPassword },
+    { key: 'agent', label: 'Travel Agent', role: 'TRAVEL_AGENT', email: config.get<string>('SWAGGER_DEMO_AGENT_EMAIL', 'agent@voya.demo'), password: swaggerDemoPassword },
+    { key: 'admin', label: 'Admin', role: 'ADMIN', email: config.get<string>('SWAGGER_DEMO_ADMIN_EMAIL', 'admin@voya.demo'), password: swaggerDemoPassword },
+    ...(config.get<string>('SWAGGER_DEMO_SUB_ADMIN_EMAIL') ? [{ key: 'sub-admin', label: 'Sub-admin', role: 'SUB_ADMIN', email: config.get<string>('SWAGGER_DEMO_SUB_ADMIN_EMAIL', ''), password: swaggerDemoPassword }] : []),
+  ] : [];
   const swagger = new DocumentBuilder()
     .setTitle('Voya Vendor API')
-    .setDescription('Vendor/supply-side product catalogue, commercial pricing, canonical inventory and booking API. Try it out is enabled, demo IDs are loaded from the local database, and IDs returned by create/list calls are remembered for subsequent requests.')
+    .setDescription('Vendor/supply-side product catalogue, commercial pricing, canonical inventory and booking API. Try it out is enabled, live demo IDs are hydrated from the database, IDs returned by create/list calls are remembered for subsequent requests, and the VOYA demo login panel can prefill or execute authentication for each configured persona.')
     .setVersion('0.1.0')
     .addBearerAuth()
     .addServer(swaggerServerUrl, swaggerServerDescription)
     .build();
   const swaggerDocument = await hydrateSwaggerDocument(SwaggerModule.createDocument(app, swagger), app);
+  app.getHttpAdapter().get('/api/docs/demo-login.js', (_request: unknown, response: any) => {
+    response.type('application/javascript').send(createSwaggerDemoUiScript(swaggerServerUrl, swaggerDemoAccounts));
+  });
   SwaggerModule.setup('api/docs', app, swaggerDocument, {
     customSiteTitle: 'Voya Vendor API Swagger',
+    customJs: '/api/docs/demo-login.js',
     swaggerOptions: {
       persistAuthorization: true,
       displayRequestDuration: true,

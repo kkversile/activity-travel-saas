@@ -24,7 +24,9 @@
     "backfill:phase8": "tsx scripts/backfill-phase8-fulfilment.ts",
     "verify:phase8": "tsx scripts/verify-phase8-fulfilment.ts",
     "verify:phase8-1": "tsx scripts/verify-phase8-1-fulfilment-integrity.ts",
-    "verify:phase8-2": "tsx scripts/verify-phase8-2-regression-integrity.ts"
+    "verify:phase8-2": "tsx scripts/verify-phase8-2-regression-integrity.ts",
+    "backfill:phase9": "tsx scripts/backfill-phase9-settlement.ts",
+    "verify:phase9": "tsx scripts/verify-phase9-settlement.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

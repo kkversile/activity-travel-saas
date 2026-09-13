@@ -24,6 +24,7 @@ import { EligibilityModule } from './eligibility/eligibility.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
 import { FulfilmentModule } from './fulfilment/fulfilment.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { FinanceModule } from './finance/finance.module';
 
 function validateEnvironment(config: Record<string, unknown>) {
   const databaseUrl = String(config.DATABASE_URL ?? '');
@@ -62,6 +63,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     RequestContextModule,
     CommercialModule,
     FulfilmentModule,
+    FinanceModule,
   ],
   controllers: [AppController],
   providers: [CorrelationIdMiddleware],

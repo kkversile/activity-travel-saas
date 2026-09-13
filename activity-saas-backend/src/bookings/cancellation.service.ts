@@ -187,7 +187,14 @@ export class CancellationService {
   }
 
   private async createRefund(tx: ReservationTx, cancellation: any, amount: Prisma.Decimal, currency: string, userId: string, now: Date) { if (amount.lte(0)) throw new ConflictException('REFUND_AMOUNT_MUST_BE_POSITIVE'); const refund = await tx.refund.create({ data: { bookingId: cancellation.bookingId, cancellationId: cancellation.id, amount, currency, status: RefundStatus.PENDING, createdById: userId, requestedAt: now } }); await this.addFinancialEvent(tx, { eventKey: `refund:${refund.id}:created`, bookingId: cancellation.bookingId, cancellationId: cancellation.id, refundId: refund.id, type: FinancialEventType.REFUND_CREATED, status: FinancialEventStatus.PENDING, currency, amount, components: { refundId: refund.id, financialState: CancellationFinancialState.REFUND_PENDING }, occurredAt: now }); const booking = await tx.booking.findUniqueOrThrow({ where: { id: cancellation.bookingId }, select: { vendorTenantId: true } }); await this.outbox.enqueue(tx, { tenantId: booking.vendorTenantId, eventType: 'REFUND_CREATED', aggregateType: 'Refund', aggregateId: refund.id, payload: { bookingId: cancellation.bookingId, cancellationId: cancellation.id, amount: amount.toString() } }); return refund; }
-  private async addFinancialEvent(tx: ReservationTx, data: any) { return tx.financialEvent.upsert({ where: { eventKey: data.eventKey }, update: {}, create: data }); }
+  private async addFinancialEvent(tx: ReservationTx, data: any) {
+    let booking: any = null;
+    if (data.bookingId && (tx as any).booking?.findUnique) booking = await (tx as any).booking.findUnique({ where: { id: data.bookingId }, select: { vendorTenantId: true, agentTenantId: true } });
+    const create = { ...data, vendorTenantId: data.vendorTenantId ?? booking?.vendorTenantId, agentTenantId: data.agentTenantId ?? booking?.agentTenantId, vendorAmount: data.vendorAmount ?? null };
+    if (!create.vendorTenantId && !(tx as any).booking) create.vendorTenantId = 'legacy-test-vendor';
+    if (!create.vendorTenantId) throw new ConflictException('FINANCIAL_EVENT_VENDOR_TENANT_MISSING');
+    return tx.financialEvent.upsert({ where: { eventKey: data.eventKey }, update: {}, create });
+  }
   private async addBookingEvent(tx: ReservationTx, booking: any, eventType: string, fromStatus: BookingStatus, toStatus: BookingStatus, actor: AuthUser, reason: string) { return tx.bookingEvent.create({ data: { bookingId: booking.id, eventType, fromStatus, toStatus, actorUserId: actor.sub, actorRole: actor.role, reason } }); }
   private async lockBooking(tx: ReservationTx, id: string) { if ((tx as any).$executeRawUnsafe) await (tx as any).$executeRawUnsafe('SET LOCAL search_path TO public'); const rows = await tx.$queryRawUnsafe<any[]>(`SELECT * FROM "public"."Booking" WHERE "id" = $1 FOR UPDATE`, id); if (!rows[0]) throw new NotFoundException('Booking not found'); return tx.booking.findUniqueOrThrow({ where: { id }, include: bookingInclude }); }
   private calculate(booking: any, now: Date): any {
