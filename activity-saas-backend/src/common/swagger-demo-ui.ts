@@ -102,14 +102,13 @@ export function createSwaggerDemoUiScript(serverUrl: string, accounts: SwaggerDe
   }
 
   function mount() {
-    var root = document.querySelector('.swagger-ui');
-    if (!root) return false;
     if (document.querySelector('.voya-swagger-demo')) return true;
+    if (!document.body) return false;
     addStyles();
     var panel = document.createElement('section');
     panel.className = 'voya-swagger-demo';
     panel.innerHTML = '<h3>VOYA demo login</h3><p>Select a persona to generate the exact login payload, or login and authorize all protected requests.</p><div class="voya-swagger-demo-grid"><div><label for="voya-swagger-demo-role">User type</label><select id="voya-swagger-demo-role"></select></div><div><label>POST /api/auth/login payload</label><pre id="voya-swagger-demo-payload"></pre></div></div><div class="voya-swagger-demo-actions"><button id="voya-swagger-demo-prefill">Prefill login payload</button><button class="primary" id="voya-swagger-demo-login">Login + Authorize Swagger</button></div><div id="voya-swagger-demo-status" class="voya-swagger-demo-status"></div>';
-    root.parentNode.insertBefore(panel, root);
+    document.body.insertBefore(panel, document.body.firstChild);
     var select = panel.querySelector('#voya-swagger-demo-role');
     var payload = panel.querySelector('#voya-swagger-demo-payload');
     var status = panel.querySelector('#voya-swagger-demo-status');
