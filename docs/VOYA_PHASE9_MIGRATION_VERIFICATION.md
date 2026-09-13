@@ -19,3 +19,7 @@ The PostgreSQL verifier creates controlled fixtures and cleans them up: reconcil
 ## Current evidence
 
 The Phase 9 backfill completed with 13 vendor policies, 59 enriched financial events, 30 confirmed events with vendor amounts, zero batches created, zero fabricated payout relationships, and zero fabricated cancellation liabilities. The verifier passed with 3 legacy payout rows before and after the run.
+
+Phase 9.1 adds the corrective migration `20260921100000_phase9_1_settlement_financial_integrity`, including monetary integrity constraints and settlement query indexes. It was applied successfully and Prisma reports the database up to date. Run `npm run verify:phase9-1` after deployment.
+
+The full Phase 4.1–9.1 matrix passed. The direct Finance Jest suite passed 5 suites / 11 tests, and the full backend suite passed 51 suites / 231 tests. The canonical real-booking proof used a confirmed Booking and its immutable economics snapshot: INR 1,499 base, −INR 1 linked adjustment, INR 1,498 net, with the snapshot unchanged.

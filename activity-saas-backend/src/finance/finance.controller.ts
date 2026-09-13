@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { PermissionsGuard } from '../common/permissions.guard';
 import { AuthUser } from '../common/auth.types';
-import { CancellationResolutionDto, FailPayoutDto, FinanceConfigurationDto, ReconcilePayoutDto, ReleasePayoutDto, SettlementBatchDto, SettlementHoldDto, SettlementPreviewDto, VendorAdjustmentDto, VendorSettlementPolicyDto } from './finance.dto';
+import { CancellationResolutionDto, FailPayoutDto, FinanceConfigurationDto, ReconcilePayoutDto, ReleasePayoutDto, SettlementBatchDto, SettlementHoldDto, SettlementHoldReleaseDto, SettlementPreviewDto, VendorAdjustmentDto, VendorSettlementPolicyDto } from './finance.dto';
 import { FinanceService } from './finance.service';
 
 @Controller()
@@ -17,13 +17,15 @@ export class FinanceController {
 
   @Post('admin/settlements/preview') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.view') preview(@CurrentUser() u: AuthUser, @Body() d: SettlementPreviewDto) { return this.finance.preview(u, d); }
   @Post('admin/settlements') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.manage') createBatch(@CurrentUser() u: AuthUser, @Body() d: SettlementBatchDto) { return this.finance.createBatch(u, d); }
+  @Post('admin/settlements/:id/re-evaluate-payout-readiness') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.manage') reEvaluate(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.finance.reEvaluatePayoutReadiness(u, id); }
   @Get('admin/settlements') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.view') batches(@Query('vendorTenantId') v?: string) { return this.finance.listBatches(v); }
   @Get('admin/settlements/:id') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.view') batch(@Param('id') id: string) { return this.finance.batch(id); }
   @Get('admin/financial-events') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('financial.event.view') events(@Query('vendorTenantId') v?: string) { return this.finance.events(v); }
   @Post('admin/financial-events/vendor-adjustment') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('vendor.adjustment.manage') adjustment(@CurrentUser() u: AuthUser, @Body() d: VendorAdjustmentDto) { return this.finance.adjustment(u, d); }
   @Post('admin/cancellations/:id/vendor-settlement-resolution') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('financial.cancellation.resolve') resolve(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: CancellationResolutionDto) { return this.finance.resolveCancellation(u, id, d); }
   @Post('admin/settlement-holds') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.hold') hold(@CurrentUser() u: AuthUser, @Body() d: SettlementHoldDto) { return this.finance.createHold(u, d); }
-  @Post('admin/settlement-holds/:id/release') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.hold') releaseHold(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: { reason?: string }) { return this.finance.releaseHold(u, id, d.reason); }
+  @Get('admin/settlement-holds') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.view') holds() { return this.finance.holds(); }
+  @Post('admin/settlement-holds/:id/release') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.hold') releaseHold(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: SettlementHoldReleaseDto) { return this.finance.releaseHold(u, id, d.reason); }
   @Get('admin/finance/configuration') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('reconciliation.view') configuration() { return this.finance.configuration(); }
   @Post('admin/finance/configuration') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('finance.config.manage') configure(@CurrentUser() u: AuthUser, @Body() d: FinanceConfigurationDto) { return this.finance.updateConfiguration(u, d); }
   @Get('admin/vendor-settlement-policies') @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN) @Permissions('settlement.policy.manage') policies() { return this.finance.policies(); }
