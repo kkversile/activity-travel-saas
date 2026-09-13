@@ -294,7 +294,7 @@ async function bootstrap() {
   });
   SwaggerModule.setup('api/docs', app, swaggerDocument, {
     customSiteTitle: 'Voya Vendor API Swagger',
-    customJs: '/api/docs/demo-login.js',
+    customJs: '/api/docs/demo-login.js?v=2',
     swaggerOptions: {
       persistAuthorization: true,
       displayRequestDuration: true,
