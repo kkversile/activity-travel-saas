@@ -9,8 +9,12 @@ type Summary = {
   cancellationRate: number;
   listings: number;
   liveListings: number;
-  responseTimeMinutes: number;
+  responseTimeMinutes: number | null;
   readinessScore: number;
+  vendorActionRequiredBookings: number;
+  manualReviewPendingBookings: number;
+  legacyPendingBookings: number;
+  qualityIssueCount: number;
   recentBookings: Booking[];
 };
 
@@ -24,9 +28,9 @@ export default function Dashboard() {
 
   return <>
     <div className="kpi-row">
-      <div className="kpi-card"><span>Bookings Today</span><strong>{data.bookingsToday}</strong><small>{data.pendingBookings} need action</small></div>
+      <div className="kpi-card"><span>Bookings Today</span><strong>{data.bookingsToday}</strong><small>{data.vendorActionRequiredBookings} need your action</small></div>
       <div className="kpi-card"><span>Revenue (MTD)</span><strong>{money(data.revenueMtd)}</strong><small>Confirmed + completed</small></div>
-      <div className="kpi-card"><span>Avg Response Time</span><strong>{data.responseTimeMinutes} min</strong><small className="good">Within 15 min SLA</small></div>
+      <div className="kpi-card"><span>Avg Response Time</span><strong>{data.responseTimeMinutes === null ? 'Not available' : `${data.responseTimeMinutes} min`}</strong><small>Measured from vendor responses</small></div>
       <div className="kpi-card"><span>Cancellation Rate</span><strong>{data.cancellationRate}%</strong><small>Monthly booking ratio</small></div>
     </div>
 
@@ -51,9 +55,10 @@ export default function Dashboard() {
 
     <Panel title="Action Items">
       <div className="task-list">
-        {data.pendingBookings > 0 && <div className="task urgent"><b>{data.pendingBookings} booking requests awaiting confirmation</b><span>Review before the vendor response SLA expires.</span></div>}
-        <div className="task medium"><b>3 listings flagged for content quality</b><span>Use the Listings editor to improve media and descriptions.</span></div>
-        <div className="task medium"><b>GSTIN document review due</b><span>Keep onboarding documents current to avoid payout holds.</span></div>
+        {data.vendorActionRequiredBookings > 0 && <div className="task urgent"><b>{data.vendorActionRequiredBookings} booking requests awaiting your confirmation</b><span>Review before the vendor response SLA expires.</span></div>}
+        {data.manualReviewPendingBookings > 0 && <div className="task medium"><b>{data.manualReviewPendingBookings} booking requests are with platform manual review</b><span>No vendor action is required while the platform reviews them.</span></div>}
+        {data.legacyPendingBookings > 0 && <div className="task medium"><b>{data.legacyPendingBookings} legacy booking records remain pending</b><span>Legacy records are shown separately from canonical vendor actions.</span></div>}
+        {data.qualityIssueCount > 0 && <div className="task medium"><b>{data.qualityIssueCount} open quality issues</b><span>Open Performance to review the evidence and configured thresholds.</span></div>}
       </div>
     </Panel>
   </>;

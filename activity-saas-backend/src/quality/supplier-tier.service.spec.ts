@@ -1,0 +1,5 @@
+import { SupplierTier } from '@prisma/client';
+import { SupplierTierService } from './supplier-quality.service';
+describe('SupplierTierService', () => {
+  it('closes the current assignment before creating history', async () => { const tx = { supplierTierAssignment: { findFirst: jest.fn().mockResolvedValue({ id: 'old', tier: SupplierTier.STANDARD }), update: jest.fn(), create: jest.fn().mockResolvedValue({ id: 'new', tier: SupplierTier.PREFERRED }) } }; const prisma = { $transaction: (fn: (client: any) => Promise<unknown>) => fn(tx) } as any; const service = new SupplierTierService(prisma, { write: jest.fn() } as any, { enqueue: jest.fn() } as any); await service.assign({ sub: 'u', email: 'a', role: 'ADMIN', tenantId: null } as any, 'vendor-a', { tier: SupplierTier.PREFERRED, reason: 'Quarterly review' }); expect(tx.supplierTierAssignment.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'old' }, data: { effectiveTo: expect.any(Date) } })); expect(tx.supplierTierAssignment.create).toHaveBeenCalled(); });
+});

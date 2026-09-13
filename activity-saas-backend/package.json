@@ -27,7 +27,11 @@
     "verify:phase8-2": "tsx scripts/verify-phase8-2-regression-integrity.ts",
     "backfill:phase9": "tsx scripts/backfill-phase9-settlement.ts",
     "verify:phase9": "tsx scripts/verify-phase9-settlement.ts",
-    "verify:phase9-1": "tsx scripts/verify-phase9-settlement.ts"
+    "verify:phase9-1": "tsx scripts/verify-phase9-settlement.ts",
+    "backfill:phase10": "tsx scripts/backfill-phase10-quality.ts",
+    "verify:phase10": "tsx scripts/verify-phase10-supplier-quality.ts",
+    "verify:phase10-1": "tsx scripts/verify-phase10-1-quality.ts",
+    "verify:phase10-2": "tsx scripts/verify-phase10-2-quality-runtime.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

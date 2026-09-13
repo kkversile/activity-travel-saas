@@ -386,6 +386,78 @@ enum ScheduleExceptionType {
   CLOSED
 }
 
+enum SupplierTier {
+  ELITE
+  PREFERRED
+  STANDARD
+  WATCHLIST
+  RESTRICTED
+}
+
+enum SupplierQualityPolicyStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum SupplierQualityDimension {
+  CONFIRMATION_SLA
+  CANCELLATION_RELIABILITY
+  FULFILMENT_QUALITY
+  INVENTORY_RELIABILITY
+  TRAVELLER_OUTCOME
+  CATALOGUE_QUALITY
+}
+
+enum SupplierQualityMetricCode {
+  CONFIRMATION_WITHIN_SLA_RATE
+  VENDOR_RESPONSE_WITHIN_SLA_RATE
+  AVG_VENDOR_RESPONSE_MINUTES
+  CONFIRMATION_OVERDUE_RATE
+  VENDOR_CANCELLATION_RATE
+  SHORT_NOTICE_VENDOR_CANCELLATION_RATE
+  VOUCHER_READY_BEFORE_SERVICE_RATE
+  AVG_FULFILMENT_TURNAROUND_MINUTES
+  LAST_MINUTE_STOP_SELL_RATE
+  LIVE_PRODUCT_IMAGE_COVERAGE_RATE
+  CUSTOMER_RATING
+  NPS
+  COMPLAINT_RATE
+}
+
+enum SupplierMetricDirection {
+  HIGHER_BETTER
+  LOWER_BETTER
+}
+
+enum SupplierMetricMissingDataTreatment {
+  EXCLUDE
+  WARN
+  FAIL
+}
+
+enum SupplierMetricStatus {
+  PASS
+  WARN
+  FAIL
+  INSUFFICIENT_DATA
+  UNAVAILABLE
+  UNASSESSED
+}
+
+enum SupplierQualityIssueSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum SupplierQualityIssueStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
 enum InventoryHoldStatus {
   ACTIVE
   CONVERTED
@@ -513,6 +585,9 @@ model Tenant {
   agentGroupMembers       AgentGroupMember[]
   commercialRulesAsVendor CommercialRule[]                         @relation("CommercialRuleVendor")
   commercialRulesAsAgent  CommercialRule[]                         @relation("CommercialRuleAgent")
+  qualitySnapshots        SupplierQualitySnapshot[]                @relation("SupplierQualitySnapshotVendor")
+  tierAssignments         SupplierTierAssignment[]                 @relation("SupplierTierAssignmentVendor")
+  qualityIssues           SupplierQualityIssue[]                   @relation("SupplierQualityIssueVendor")
   createdAt               DateTime                                 @default(now())
   updatedAt               DateTime                                 @updatedAt
 }
@@ -539,6 +614,11 @@ model User {
   createdCommercialRuleVersions   CommercialRuleVersion[]     @relation("CommercialRuleVersionCreatedBy")
   activatedCommercialRuleVersions CommercialRuleVersion[]     @relation("CommercialRuleVersionActivatedBy")
   reviewedAgentProfiles           AgentProfile[]              @relation("AgentProfileReviewedBy")
+  createdQualityPolicies          SupplierQualityPolicy[]     @relation("SupplierQualityPolicyCreatedBy")
+  activatedQualityPolicies        SupplierQualityPolicy[]     @relation("SupplierQualityPolicyActivatedBy")
+  assignedSupplierTiers           SupplierTierAssignment[]    @relation("SupplierTierAssignmentAssignedBy")
+  acknowledgedQualityIssues       SupplierQualityIssue[]      @relation("SupplierQualityIssueAcknowledgedBy")
+  resolvedQualityIssues           SupplierQualityIssue[]      @relation("SupplierQualityIssueResolvedBy")
   createdAt                       DateTime                    @default(now())
   updatedAt                       DateTime                    @updatedAt
 
@@ -1880,4 +1960,152 @@ model OutboxEvent {
   @@index([status, availableAt])
   @@index([tenantId, createdAt])
   @@index([aggregateType, aggregateId])
+}
+
+model SupplierQualityPolicy {
+  id                     String                      @id @default(uuid())
+  versionNumber          Int                         @unique
+  status                 SupplierQualityPolicyStatus @default(DRAFT)
+  name                   String
+  measurementWindowDays  Int
+  shortNoticeDays        Int
+  lastMinuteStopSellDays Int
+  createdById            String
+  createdBy              User                        @relation("SupplierQualityPolicyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt              DateTime                    @default(now())
+  activatedById          String?
+  activatedBy            User?                       @relation("SupplierQualityPolicyActivatedBy", fields: [activatedById], references: [id], onDelete: SetNull)
+  activatedAt            DateTime?
+  retiredAt              DateTime?
+  lockVersion            Int                         @default(1)
+  metricRules            SupplierQualityMetricRule[]
+  tierRules              SupplierTierRule[]
+  snapshots              SupplierQualitySnapshot[]
+
+  @@index([status])
+  @@index([activatedAt])
+}
+
+model SupplierQualityMetricRule {
+  id                   String                             @id @default(uuid())
+  policyId             String
+  policy               SupplierQualityPolicy              @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  metricCode           SupplierQualityMetricCode
+  dimension            SupplierQualityDimension
+  enabled              Boolean                            @default(true)
+  direction            SupplierMetricDirection
+  weight               Float
+  targetValue          Float
+  warningValue         Float
+  minimumSampleSize    Int                                @default(1)
+  missingDataTreatment SupplierMetricMissingDataTreatment @default(EXCLUDE)
+  passScore            Float                              @default(100)
+  warnScore            Float                              @default(50)
+  failScore            Float                              @default(0)
+  rank                 Int                                @default(0)
+  createdAt            DateTime                           @default(now())
+  updatedAt            DateTime                           @updatedAt
+
+  @@unique([policyId, metricCode])
+  @@index([policyId, enabled, rank])
+}
+
+model SupplierTierRule {
+  id           String                @id @default(uuid())
+  policyId     String
+  policy       SupplierQualityPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  tier         SupplierTier
+  minimumScore Float
+  createdAt    DateTime              @default(now())
+
+  @@unique([policyId, tier])
+  @@index([policyId, minimumScore])
+}
+
+model SupplierQualitySnapshot {
+  id                       String                          @id @default(uuid())
+  vendorTenantId           String
+  vendorTenant             Tenant                          @relation("SupplierQualitySnapshotVendor", fields: [vendorTenantId], references: [id], onDelete: Restrict)
+  policyId                 String?
+  policy                   SupplierQualityPolicy?          @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  windowStart              DateTime
+  windowEnd                DateTime
+  overallScore             Float?
+  recommendedTier          SupplierTier?
+  currentTierAtCalculation SupplierTier?
+  generatedAt              DateTime                        @default(now())
+  metrics                  Json
+  snapshotKey              String                          @unique
+  metricSnapshots          SupplierQualityMetricSnapshot[]
+  issues                   SupplierQualityIssue[]
+  tierAssignments          SupplierTierAssignment[]        @relation("SupplierTierAssignmentSourceSnapshot")
+
+  @@index([vendorTenantId, generatedAt])
+  @@index([vendorTenantId, windowStart, windowEnd])
+}
+
+model SupplierQualityMetricSnapshot {
+  id          String                    @id @default(uuid())
+  snapshotId  String
+  snapshot    SupplierQualitySnapshot   @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  metricCode  SupplierQualityMetricCode
+  dimension   SupplierQualityDimension
+  rawValue    Float?
+  numerator   Int?
+  denominator Int?
+  sampleSize  Int
+  unit        String
+  status      SupplierMetricStatus
+  score       Float?
+  sourceTrace Json
+  createdAt   DateTime                  @default(now())
+
+  @@unique([snapshotId, metricCode])
+  @@index([metricCode, status])
+}
+
+model SupplierTierAssignment {
+  id               String                   @id @default(uuid())
+  vendorTenantId   String
+  vendorTenant     Tenant                   @relation("SupplierTierAssignmentVendor", fields: [vendorTenantId], references: [id], onDelete: Restrict)
+  tier             SupplierTier
+  sourceSnapshotId String?
+  sourceSnapshot   SupplierQualitySnapshot? @relation("SupplierTierAssignmentSourceSnapshot", fields: [sourceSnapshotId], references: [id], onDelete: SetNull)
+  reason           String
+  assignedById     String
+  assignedBy       User                     @relation("SupplierTierAssignmentAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+  assignedAt       DateTime
+  effectiveFrom    DateTime
+  effectiveTo      DateTime?
+  createdAt        DateTime                 @default(now())
+
+  @@index([vendorTenantId, effectiveFrom])
+  @@index([vendorTenantId, effectiveTo])
+}
+
+model SupplierQualityIssue {
+  id               String                       @id @default(uuid())
+  vendorTenantId   String
+  vendorTenant     Tenant                       @relation("SupplierQualityIssueVendor", fields: [vendorTenantId], references: [id], onDelete: Restrict)
+  snapshotId       String
+  snapshot         SupplierQualitySnapshot      @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  metricCode       SupplierQualityMetricCode
+  dimension        SupplierQualityDimension
+  severity         SupplierQualityIssueSeverity
+  status           SupplierQualityIssueStatus   @default(OPEN)
+  title            String
+  details          Json
+  openedAt         DateTime                     @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  acknowledgedBy   User?                        @relation("SupplierQualityIssueAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  resolvedAt       DateTime?
+  resolvedById     String?
+  resolvedBy       User?                        @relation("SupplierQualityIssueResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolutionReason String?
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  @@index([vendorTenantId, status, createdAt])
+  @@index([metricCode, status])
 }
