@@ -104,7 +104,9 @@ export function createSwaggerDemoUiScript(serverUrl: string, accounts: SwaggerDe
   function mount() {
     var root = document.querySelector('.swagger-ui');
     var info = document.querySelector('.swagger-ui .information-container');
-    if (!root || !info || document.querySelector('.voya-swagger-demo')) return !!root;
+    if (!root) return false;
+    if (!info) return false;
+    if (document.querySelector('.voya-swagger-demo')) return true;
     addStyles();
     var panel = document.createElement('section');
     panel.className = 'voya-swagger-demo';
