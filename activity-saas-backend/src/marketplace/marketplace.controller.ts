@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -17,6 +17,7 @@ import { MarketplaceService } from './marketplace.service';
 @Roles(UserRole.TRAVEL_AGENT)
 export class MarketplaceController {
   constructor(private readonly service: MarketplaceService) {}
-  @Post('search') @Permissions('marketplace.search') @ApiBody({ schema: { type: 'object', example: { serviceDate: '2026-09-20', travellers: [{ travellerType: 'ADULT', quantity: 2 }], destination: 'Munnar', sort: 'RELEVANCE', limit: 20 } } }) search(@CurrentUser() user: AuthUser, @Body() dto: MarketplaceSearchDto) { return this.service.search(user, dto); }
+  @Get('currencies') @Permissions('marketplace.search') currencies() { return this.service.currencies(); }
+  @Post('search') @Permissions('marketplace.search') @ApiBody({ schema: { type: 'object', example: { serviceDate: '2026-09-20', searchAttemptId: '11111111-1111-4111-8111-111111111111', travellers: [{ travellerType: 'ADULT', quantity: 2 }], destination: 'Munnar', currency: 'INR', priceMax: 2500, sort: 'RELEVANCE', limit: 20 } } }) search(@CurrentUser() user: AuthUser, @Body() dto: MarketplaceSearchDto) { return this.service.search(user, dto); }
   @Post('products/:productId/view') @Permissions('marketplace.view') @ApiBody({ schema: { type: 'object', example: { serviceDate: '2026-09-20', travellers: [{ travellerType: 'ADULT', quantity: 2 }] } } }) view(@CurrentUser() user: AuthUser, @Param('productId') productId: string, @Body() dto: MarketplaceProductViewDto) { return this.service.productView(user, productId, dto); }
 }

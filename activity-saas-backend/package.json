@@ -31,7 +31,10 @@
     "backfill:phase10": "tsx scripts/backfill-phase10-quality.ts",
     "verify:phase10": "tsx scripts/verify-phase10-supplier-quality.ts",
     "verify:phase10-1": "tsx scripts/verify-phase10-1-quality.ts",
-    "verify:phase10-2": "tsx scripts/verify-phase10-2-quality-runtime.ts"
+    "verify:phase10-2": "tsx scripts/verify-phase10-2-quality-runtime.ts",
+    "verify:phase11": "tsx scripts/verify-phase11-demand.ts",
+    "verify:phase11-1": "tsx scripts/verify-phase11-1-demand-integrity.ts",
+    "verify:phase11-2": "tsx scripts/verify-phase11-2-demand-runtime.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

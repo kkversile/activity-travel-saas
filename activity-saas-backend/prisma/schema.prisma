@@ -458,6 +458,60 @@ enum SupplierQualityIssueStatus {
   DISMISSED
 }
 
+enum DemandIntelligencePolicyStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum DemandOpportunityType {
+  HIGH_DEMAND_LOW_SUPPLY
+  FREQUENT_SOLD_OUT
+  HIGH_CANCELLATIONS
+  PRICE_GAP
+  COVERAGE_GAP
+}
+
+enum DemandOpportunityPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DemandOpportunitySource {
+  SYSTEM
+  MANUAL
+}
+
+enum DemandOpportunityStatus {
+  OPEN
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  DISMISSED
+}
+
+enum DemandTargetStatus {
+  TARGETED
+  VIEWED
+  INTERESTED
+  DECLINED
+  ACTION_TAKEN
+  REMOVED
+}
+
+enum DemandOpportunityResolutionType {
+  CAPACITY_ADDED
+  SLOT_ADDED
+  PRODUCT_ADDED
+  COMMERCIAL_REVIEW
+  QUALITY_REVIEW
+  COVERAGE_EXPANDED
+  NO_ACTION
+  OTHER
+}
+
 enum InventoryHoldStatus {
   ACTIVE
   CONVERTED
@@ -561,66 +615,76 @@ enum PayoutAttemptStatus {
 }
 
 model Tenant {
-  id                      String                                   @id @default(uuid())
-  name                    String
-  slug                    String                                   @unique
-  kind                    TenantKind                               @default(VENDOR)
-  users                   User[]
-  vendorProfile           VendorProfile?
-  agentProfile            AgentProfile?
-  vendorBookings          Booking[]                                @relation("BookingVendor")
-  agentBookings           Booking[]                                @relation("BookingAgent")
-  payouts                 Payout[]
-  financialEvents         FinancialEvent[]
-  settlementPolicies      VendorSettlementPolicy[]                 @relation("SettlementPolicyVendor")
-  settlementHolds         SettlementHold[]
-  settlementBatches       SettlementBatch[]
-  cancellationResolutions CancellationVendorSettlementResolution[]
-  auditLogs               AuditLog[]
-  fileAssets              FileAsset[]
-  vendorDocuments         VendorDocument[]
-  outboxEvents            OutboxEvent[]
-  products                Product[]
-  resources               Resource[]
-  agentGroupMembers       AgentGroupMember[]
-  commercialRulesAsVendor CommercialRule[]                         @relation("CommercialRuleVendor")
-  commercialRulesAsAgent  CommercialRule[]                         @relation("CommercialRuleAgent")
-  qualitySnapshots        SupplierQualitySnapshot[]                @relation("SupplierQualitySnapshotVendor")
-  tierAssignments         SupplierTierAssignment[]                 @relation("SupplierTierAssignmentVendor")
-  qualityIssues           SupplierQualityIssue[]                   @relation("SupplierQualityIssueVendor")
-  createdAt               DateTime                                 @default(now())
-  updatedAt               DateTime                                 @updatedAt
+  id                       String                                   @id @default(uuid())
+  name                     String
+  slug                     String                                   @unique
+  kind                     TenantKind                               @default(VENDOR)
+  users                    User[]
+  vendorProfile            VendorProfile?
+  agentProfile             AgentProfile?
+  vendorBookings           Booking[]                                @relation("BookingVendor")
+  agentBookings            Booking[]                                @relation("BookingAgent")
+  payouts                  Payout[]
+  financialEvents          FinancialEvent[]
+  settlementPolicies       VendorSettlementPolicy[]                 @relation("SettlementPolicyVendor")
+  settlementHolds          SettlementHold[]
+  settlementBatches        SettlementBatch[]
+  cancellationResolutions  CancellationVendorSettlementResolution[]
+  auditLogs                AuditLog[]
+  fileAssets               FileAsset[]
+  vendorDocuments          VendorDocument[]
+  outboxEvents             OutboxEvent[]
+  products                 Product[]
+  resources                Resource[]
+  agentGroupMembers        AgentGroupMember[]
+  commercialRulesAsVendor  CommercialRule[]                         @relation("CommercialRuleVendor")
+  commercialRulesAsAgent   CommercialRule[]                         @relation("CommercialRuleAgent")
+  qualitySnapshots         SupplierQualitySnapshot[]                @relation("SupplierQualitySnapshotVendor")
+  tierAssignments          SupplierTierAssignment[]                 @relation("SupplierTierAssignmentVendor")
+  qualityIssues            SupplierQualityIssue[]                   @relation("SupplierQualityIssueVendor")
+  demandSearchObservations MarketplaceSearchObservation[]           @relation("DemandSearchObservationAgent")
+  demandVendorTargets      DemandOpportunityVendorTarget[]          @relation("DemandTargetVendor")
+  createdAt                DateTime                                 @default(now())
+  updatedAt                DateTime                                 @updatedAt
 }
 
 model User {
-  id                              String                      @id @default(uuid())
+  id                              String                          @id @default(uuid())
   tenantId                        String?
-  tenant                          Tenant?                     @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  email                           String                      @unique
+  tenant                          Tenant?                         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  email                           String                          @unique
   passwordHash                    String
   fullName                        String
   role                            UserRole
   organizationRole                OrganizationRole?
-  active                          Boolean                     @default(true)
+  active                          Boolean                         @default(true)
   createdFileAssets               FileAsset[]
-  createdDocumentVersions         VendorDocumentVersion[]     @relation("DocumentVersionCreatedBy")
-  reviewedDocumentVersions        VendorDocumentVersion[]     @relation("DocumentVersionReviewedBy")
-  createdProductRevisions         ProductRevision[]           @relation("ProductRevisionCreatedBy")
-  reviewedProductRevisions        ProductRevision[]           @relation("ProductRevisionReviewedBy")
-  createdCommercialVersions       RatePlanCommercialVersion[] @relation("CommercialVersionCreatedBy")
-  activatedCommercialVersions     RatePlanCommercialVersion[] @relation("CommercialVersionActivatedBy")
-  agentBookings                   Booking[]                   @relation("BookingAgentUser")
-  createdCommercialRules          CommercialRule[]            @relation("CommercialRuleCreatedBy")
-  createdCommercialRuleVersions   CommercialRuleVersion[]     @relation("CommercialRuleVersionCreatedBy")
-  activatedCommercialRuleVersions CommercialRuleVersion[]     @relation("CommercialRuleVersionActivatedBy")
-  reviewedAgentProfiles           AgentProfile[]              @relation("AgentProfileReviewedBy")
-  createdQualityPolicies          SupplierQualityPolicy[]     @relation("SupplierQualityPolicyCreatedBy")
-  activatedQualityPolicies        SupplierQualityPolicy[]     @relation("SupplierQualityPolicyActivatedBy")
-  assignedSupplierTiers           SupplierTierAssignment[]    @relation("SupplierTierAssignmentAssignedBy")
-  acknowledgedQualityIssues       SupplierQualityIssue[]      @relation("SupplierQualityIssueAcknowledgedBy")
-  resolvedQualityIssues           SupplierQualityIssue[]      @relation("SupplierQualityIssueResolvedBy")
-  createdAt                       DateTime                    @default(now())
-  updatedAt                       DateTime                    @updatedAt
+  createdDocumentVersions         VendorDocumentVersion[]         @relation("DocumentVersionCreatedBy")
+  reviewedDocumentVersions        VendorDocumentVersion[]         @relation("DocumentVersionReviewedBy")
+  createdProductRevisions         ProductRevision[]               @relation("ProductRevisionCreatedBy")
+  reviewedProductRevisions        ProductRevision[]               @relation("ProductRevisionReviewedBy")
+  createdCommercialVersions       RatePlanCommercialVersion[]     @relation("CommercialVersionCreatedBy")
+  activatedCommercialVersions     RatePlanCommercialVersion[]     @relation("CommercialVersionActivatedBy")
+  agentBookings                   Booking[]                       @relation("BookingAgentUser")
+  createdCommercialRules          CommercialRule[]                @relation("CommercialRuleCreatedBy")
+  createdCommercialRuleVersions   CommercialRuleVersion[]         @relation("CommercialRuleVersionCreatedBy")
+  activatedCommercialRuleVersions CommercialRuleVersion[]         @relation("CommercialRuleVersionActivatedBy")
+  reviewedAgentProfiles           AgentProfile[]                  @relation("AgentProfileReviewedBy")
+  createdQualityPolicies          SupplierQualityPolicy[]         @relation("SupplierQualityPolicyCreatedBy")
+  activatedQualityPolicies        SupplierQualityPolicy[]         @relation("SupplierQualityPolicyActivatedBy")
+  assignedSupplierTiers           SupplierTierAssignment[]        @relation("SupplierTierAssignmentAssignedBy")
+  acknowledgedQualityIssues       SupplierQualityIssue[]          @relation("SupplierQualityIssueAcknowledgedBy")
+  resolvedQualityIssues           SupplierQualityIssue[]          @relation("SupplierQualityIssueResolvedBy")
+  createdDemandPolicies           DemandIntelligencePolicy[]      @relation("DemandPolicyCreatedBy")
+  activatedDemandPolicies         DemandIntelligencePolicy[]      @relation("DemandPolicyActivatedBy")
+  generatedDemandRuns             DemandAnalysisRun[]             @relation("DemandRunGeneratedBy")
+  ownedDemandOpportunities        DemandOpportunity[]             @relation("DemandOpportunityOwner")
+  targetedDemandVendors           DemandOpportunityVendorTarget[] @relation("DemandTargetedBy")
+  respondedDemandVendors          DemandOpportunityVendorTarget[] @relation("DemandRespondedBy")
+  removedDemandVendorTargets      DemandOpportunityVendorTarget[] @relation("DemandRemovedBy")
+  demandOpportunityEvents         DemandOpportunityEvent[]        @relation("DemandEventActor")
+  createdAt                       DateTime                        @default(now())
+  updatedAt                       DateTime                        @updatedAt
 
   @@index([tenantId, role])
 }
@@ -2108,4 +2172,215 @@ model SupplierQualityIssue {
 
   @@index([vendorTenantId, status, createdAt])
   @@index([metricCode, status])
+}
+
+model MarketplaceSearchObservation {
+  id                            String       @id @default(uuid())
+  agentTenantId                 String
+  agentTenant                   Tenant       @relation("DemandSearchObservationAgent", fields: [agentTenantId], references: [id], onDelete: Restrict)
+  searchAttemptId               String?
+  observedAt                    DateTime     @default(now())
+  serviceDate                   DateTime     @db.Date
+  destinationNormalized         String?
+  category                      String?
+  subType                       String?
+  durationMin                   Int?
+  durationMax                   Int?
+  priceMin                      Float?
+  priceMax                      Float?
+  currency                      String?
+  bookingMode                   BookingMode?
+  pickupIncluded                Boolean?
+  minimumRating                 Float?
+  privateShared                 String?
+  childSuitable                 Boolean?
+  units                         Int?
+  totalPax                      Int
+  travellerSummary              Json
+  queryPresent                  Boolean
+  queryHash                     String?
+  candidateRatePlanCount        Int
+  candidateSessionCount         Int
+  eligibleOfferCountBeforePrice Int
+  resultProductCount            Int
+  resultOfferCount              Int
+  zeroResult                    Boolean
+  eligibilityFailureCounts      Json
+  soldOutSessionIds             Json
+  priceDiagnostics              Json
+  createdAt                     DateTime     @default(now())
+
+  @@unique([agentTenantId, searchAttemptId])
+  @@index([observedAt])
+  @@index([serviceDate])
+  @@index([destinationNormalized])
+  @@index([category])
+  @@index([subType])
+  @@index([agentTenantId])
+}
+
+model DemandIntelligencePolicy {
+  id                    String                         @id @default(uuid())
+  versionNumber         Int                            @unique
+  status                DemandIntelligencePolicyStatus @default(DRAFT)
+  name                  String
+  measurementWindowDays Int
+  futureHorizonDays     Int
+  cooldownDays          Int
+  lockVersion           Int                            @default(1)
+  createdById           String
+  createdBy             User                           @relation("DemandPolicyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  activatedById         String?
+  activatedBy           User?                          @relation("DemandPolicyActivatedBy", fields: [activatedById], references: [id], onDelete: SetNull)
+  createdAt             DateTime                       @default(now())
+  activatedAt           DateTime?
+  retiredAt             DateTime?
+  rules                 DemandOpportunityRule[]
+  analysisRuns          DemandAnalysisRun[]
+  assessments           DemandOpportunityAssessment[]
+
+  @@index([status])
+}
+
+model DemandOpportunityRule {
+  id                       String                    @id @default(uuid())
+  policyId                 String
+  policy                   DemandIntelligencePolicy  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  type                     DemandOpportunityType
+  enabled                  Boolean                   @default(true)
+  defaultPriority          DemandOpportunityPriority
+  minSearchCount           Int?
+  minUniqueAgentCount      Int?
+  maxAverageResultProducts Float?
+  minZeroResultRate        Float?
+  minSoldOutSessionCount   Int?
+  minSoldOutRate           Float?
+  minConfirmedBookingCount Int?
+  minCancellationRate      Float?
+  minPriceCeilingMissCount Int?
+  minPriceCeilingMissRate  Float?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  @@unique([policyId, type])
+  @@index([type, enabled])
+}
+
+model DemandAnalysisRun {
+  id             String                        @id @default(uuid())
+  policyId       String
+  policy         DemandIntelligencePolicy      @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  windowStart    DateTime
+  windowEnd      DateTime
+  horizonStart   DateTime
+  horizonEnd     DateTime
+  generatedById  String
+  generatedBy    User                          @relation("DemandRunGeneratedBy", fields: [generatedById], references: [id], onDelete: Restrict)
+  candidateCount Int
+  summary        Json
+  generatedAt    DateTime                      @default(now())
+  assessments    DemandOpportunityAssessment[]
+
+  @@index([policyId, generatedAt])
+}
+
+model DemandOpportunity {
+  id                    String                           @id @default(uuid())
+  opportunityKey        String
+  type                  DemandOpportunityType
+  source                DemandOpportunitySource
+  status                DemandOpportunityStatus          @default(OPEN)
+  priority              DemandOpportunityPriority
+  title                 String
+  destinationNormalized String?
+  cityName              String?
+  stateName             String?
+  countryName           String?
+  category              String?
+  subType               String?
+  serviceDateFrom       DateTime?                        @db.Date
+  serviceDateTo         DateTime?                        @db.Date
+  durationMin           Int?
+  durationMax           Int?
+  currency              String?
+  firstDetectedAt       DateTime                         @default(now())
+  lastDetectedAt        DateTime                         @default(now())
+  ownerUserId           String?
+  ownerUser             User?                            @relation("DemandOpportunityOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  version               Int                              @default(1)
+  resolvedAt            DateTime?
+  resolutionType        DemandOpportunityResolutionType?
+  resolutionReason      String?
+  createdAt             DateTime                         @default(now())
+  updatedAt             DateTime                         @updatedAt
+  assessments           DemandOpportunityAssessment[]
+  targets               DemandOpportunityVendorTarget[]
+  events                DemandOpportunityEvent[]
+
+  @@index([opportunityKey, status])
+  @@index([status, priority, lastDetectedAt])
+  @@index([type, status])
+  @@index([destinationNormalized, serviceDateFrom])
+}
+
+model DemandOpportunityAssessment {
+  id                String                   @id @default(uuid())
+  opportunityId     String
+  opportunity       DemandOpportunity        @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  analysisRunId     String
+  analysisRun       DemandAnalysisRun        @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
+  policyId          String
+  policy            DemandIntelligencePolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  windowStart       DateTime
+  windowEnd         DateTime
+  metrics           Json
+  sourceTrace       Json
+  recommendedAction String?
+  generatedAt       DateTime                 @default(now())
+
+  @@index([opportunityId, generatedAt])
+  @@index([analysisRunId])
+}
+
+model DemandOpportunityVendorTarget {
+  id             String             @id @default(uuid())
+  opportunityId  String
+  opportunity    DemandOpportunity  @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  vendorTenantId String
+  vendorTenant   Tenant             @relation("DemandTargetVendor", fields: [vendorTenantId], references: [id], onDelete: Restrict)
+  status         DemandTargetStatus @default(TARGETED)
+  targetedById   String
+  targetedBy     User               @relation("DemandTargetedBy", fields: [targetedById], references: [id], onDelete: Restrict)
+  targetedAt     DateTime           @default(now())
+  version        Int                @default(1)
+  viewedAt       DateTime?
+  respondedById  String?
+  respondedBy    User?              @relation("DemandRespondedBy", fields: [respondedById], references: [id], onDelete: SetNull)
+  respondedAt    DateTime?
+  responseNote   String?
+  removedAt      DateTime?
+  removedById    String?
+  removedBy      User?              @relation("DemandRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
+  removalReason  String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([opportunityId, vendorTenantId])
+  @@index([vendorTenantId, status])
+}
+
+model DemandOpportunityEvent {
+  id            String            @id @default(uuid())
+  opportunityId String
+  opportunity   DemandOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Restrict)
+  eventType     String
+  actorUserId   String?
+  actor         User?             @relation("DemandEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  reason        String?
+  note          String?
+  metadata      Json?
+  createdAt     DateTime          @default(now())
+
+  @@index([opportunityId, createdAt])
+  @@index([eventType, createdAt])
 }
