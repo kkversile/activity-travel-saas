@@ -314,6 +314,7 @@ export class CatalogueService {
   }
 
   async updateRevision(user: AuthUser, id: string, dto: UpdateProductRevisionDto) {
+    console.log('updateRevision payload', JSON.stringify(dto));
     const tenantId = requireTenant(user);
     const existing = await this.prisma.productRevision.findFirst({ where: { id, product: { tenantId } } });
     if (!existing) throw new NotFoundException('Product revision not found');
