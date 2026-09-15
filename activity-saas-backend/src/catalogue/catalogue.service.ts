@@ -179,7 +179,7 @@ export class CatalogueService {
 
   async get(user: AuthUser, id: string) {
     await this.product(user, id);
-    return this.prisma.product.findFirstOrThrow({ where: { id }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } } } }, revisions: { orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } } } }, variants: { where: { status: { not: VariantStatus.ARCHIVED } }, include: variantInclude }, _count: { select: { variants: true, bookings: true } } } });
+    return this.prisma.product.findFirstOrThrow({ where: { id }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, fulfilmentPolicy: true } }, revisions: { orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, fulfilmentPolicy: true } }, variants: { where: { status: { not: VariantStatus.ARCHIVED } }, include: variantInclude }, _count: { select: { variants: true, bookings: true } } } });
   }
 
   async create(user: AuthUser, dto: CreateProductDto) {
@@ -314,7 +314,6 @@ export class CatalogueService {
   }
 
   async updateRevision(user: AuthUser, id: string, dto: UpdateProductRevisionDto) {
-    console.log('updateRevision payload', JSON.stringify(dto));
     const tenantId = requireTenant(user);
     const existing = await this.prisma.productRevision.findFirst({ where: { id, product: { tenantId } } });
     if (!existing) throw new NotFoundException('Product revision not found');
