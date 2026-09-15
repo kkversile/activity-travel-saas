@@ -66,7 +66,7 @@ export class CommercialCalculatorService {
     const agentRule = rules.find((r) => r.rule.kind === 'AGENT_COMMERCIAL');
     let agentMarkup = D(0); let agentCommission = D(0); let agentFacingPreTax = platformCommercialBase; let agentModel: any;
     if (input.agentTenantId && !agentRule) add('AGENT_COMMERCIAL_UNCONFIGURED');
-    if (!input.agentTenantId) add('AGENT_FACING_QUOTE_INCOMPLETE');
+    if (!input.agentTenantId && input.agentFacingRequired !== false) add('AGENT_FACING_QUOTE_INCOMPLETE');
     if (agentRule) {
       const c: any = agentRule.config; agentModel = c.model;
       if (c.model === 'NET_PLUS_MARKUP') { agentMarkup = D(c.markupAmount); agentFacingPreTax = platformCommercialBase.plus(agentMarkup); }

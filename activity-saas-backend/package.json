@@ -34,7 +34,11 @@
     "verify:phase10-2": "tsx scripts/verify-phase10-2-quality-runtime.ts",
     "verify:phase11": "tsx scripts/verify-phase11-demand.ts",
     "verify:phase11-1": "tsx scripts/verify-phase11-1-demand-integrity.ts",
-    "verify:phase11-2": "tsx scripts/verify-phase11-2-demand-runtime.ts"
+    "verify:phase11-2": "tsx scripts/verify-phase11-2-demand-runtime.ts",
+    "audit:phase12": "tsx scripts/audit-phase12-existing-channel.ts",
+    "backfill:phase12": "tsx scripts/backfill-phase12-distribution.ts",
+    "verify:phase12": "tsx scripts/verify-phase12-distribution.ts",
+    "verify:phase12-1": "tsx scripts/verify-phase12-1-distribution-integrity.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

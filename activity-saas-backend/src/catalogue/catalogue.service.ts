@@ -1,5 +1,6 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, ProductRevisionStatus, ProductStatus, UserRole, VariantStatus } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { Prisma, ProductRevisionStatus, ProductStatus, ScheduleStatus, SessionStatus, UserRole, VariantStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
@@ -8,14 +9,17 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FilePurpose, FileVisibility } from '@prisma/client';
 import { StorageService } from '../storage/storage.service';
 import { validateFulfilmentPolicy } from '../fulfilment/fulfilment.types';
-import { ArchiveVariantDto, CreateProductDto, CreateProductRevisionDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, ProductRevisionDto, RejectProductRevisionDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
+import { ArchiveVariantDto, CreateProductDraftDto, CreateProductDto, CreateProductRevisionDto, ProductListingQueryDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, ProductRevisionDto, RejectProductRevisionDto, UpdateProductMediaRankDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
+import { ProductReadinessService } from './product-readiness.service';
+import { CommercialService } from '../commercial/commercial.service';
 
 const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, fulfilmentPolicy: true, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
 const variantInclude = { ratePlans: { include: { travellerRules: true, cancellationRules: { orderBy: { minDaysBefore: 'desc' as const } } }, orderBy: { createdAt: 'asc' as const } } };
+const startOfToday = () => { const value = new Date(); value.setHours(0, 0, 0, 0); return value; };
 
 @Injectable()
 export class CatalogueService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly storage: StorageService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly storage: StorageService, @Optional() private readonly readinessService?: ProductReadinessService, @Optional() private readonly commercial?: CommercialService) {}
 
   private data(dto: ProductRevisionDto | UpdateProductRevisionDto): Prisma.ProductRevisionUncheckedCreateInput {
     const { faqs, sourcePayload, fulfilmentPolicy: _fulfilmentPolicy, ...rest } = dto as ProductRevisionDto;
@@ -42,6 +46,137 @@ export class CatalogueService {
     return this.prisma.product.findMany({ where: { tenantId, ...(query.search ? { productCode: { contains: query.search, mode: 'insensitive' } } : {}), ...(query.revisionStatus ? { revisions: { some: { status: query.revisionStatus } } } : {}) }, include: { currentRevision: true, revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW, ProductRevisionStatus.REJECTED] } }, orderBy: { versionNumber: 'desc' }, take: 1 }, _count: { select: { variants: true, bookings: true } } }, orderBy: { updatedAt: 'desc' } });
   }
 
+  /**
+   * Vendor-facing table projection. This intentionally does not expose the raw
+   * catalogue graph used by the editor; revision precedence and counters are
+   * resolved here so the browser cannot accidentally present a draft as live.
+   */
+  async listing(user: AuthUser, query: ProductListingQueryDto) {
+    const tenantId = requireTenant(user);
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
+    const search = query.search?.trim();
+    const where: any = { tenantId };
+    if (search) {
+      where.OR = [
+        { productCode: { contains: search, mode: 'insensitive' } },
+        { currentRevision: { productName: { contains: search, mode: 'insensitive' } } },
+        { currentRevision: { cityName: { contains: search, mode: 'insensitive' } } },
+        { currentRevision: { stateName: { contains: search, mode: 'insensitive' } } },
+        { currentRevision: { subCategory: { contains: search, mode: 'insensitive' } } },
+        { revisions: { some: { productName: { contains: search, mode: 'insensitive' } } } },
+        { revisions: { some: { cityName: { contains: search, mode: 'insensitive' } } } },
+        { revisions: { some: { stateName: { contains: search, mode: 'insensitive' } } } },
+        { revisions: { some: { subCategory: { contains: search, mode: 'insensitive' } } } },
+      ];
+    }
+    if (query.status === 'LIVE') where.AND = [...(where.AND || []), { status: ProductStatus.LIVE, currentRevision: { status: ProductRevisionStatus.PUBLISHED } }];
+    if (query.status === 'REVIEW') where.AND = [...(where.AND || []), { revisions: { some: { status: ProductRevisionStatus.UNDER_REVIEW } } }];
+    if (query.status === 'DRAFT') where.AND = [...(where.AND || []), { revisions: { some: { status: ProductRevisionStatus.DRAFT } } }];
+
+    const revisionSelect = { id: true, versionNumber: true, status: true, productName: true, type: true, cityName: true, stateName: true, countryName: true, subCategory: true, updatedAt: true };
+    const include: any = {
+      currentRevision: { select: revisionSelect },
+      revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW, ProductRevisionStatus.REJECTED] } }, orderBy: { versionNumber: 'desc' }, select: revisionSelect },
+      variants: {
+        where: { status: { not: VariantStatus.ARCHIVED }, archivedAt: null },
+        select: {
+          id: true, status: true,
+          ratePlans: {
+            where: { status: 'ACTIVE' },
+            select: {
+              id: true, status: true, validFrom: true, validTo: true, cutOffMinutes: true, adultRequired: true, minAdultRequired: true, unitType: true,
+              travellerRules: true, cancellationRules: true,
+              commercialVersions: { where: { status: 'ACTIVE' }, orderBy: { versionNumber: 'desc' }, take: 1, include: { travellerPrices: true } },
+              scheduleMappings: { where: { active: true }, select: { scheduleTemplateId: true } },
+            },
+          },
+          schedules: {
+            where: { status: ScheduleStatus.ACTIVE, archivedAt: null },
+            select: {
+              id: true, effectiveFrom: true, effectiveTo: true,
+              ratePlanMappings: { where: { active: true }, select: { ratePlanId: true } },
+              resourceRequirements: { where: { active: true, archivedAt: null }, include: { specificResource: true } },
+              sessions: {
+                where: { serviceDate: { gte: startOfToday() }, status: SessionStatus.OPEN, archivedAt: null },
+                select: { serviceDate: true, startsAt: true, inventoryState: true, resourceAllocations: { where: { status: 'ACTIVE', releasedAt: null }, include: { resource: true } } },
+                orderBy: { serviceDate: 'asc' }, take: 30,
+              },
+            },
+          },
+        },
+      },
+    };
+    const [total, products, summaryRows] = await Promise.all([
+      this.prisma.product.count({ where }),
+      this.prisma.product.findMany({ where, include, orderBy: { updatedAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      this.prisma.product.findMany({ where, select: { status: true, currentRevision: { select: { status: true } }, revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW] } }, select: { status: true } } } }),
+    ]);
+    const summary = summaryRows.reduce((counts, product: any) => {
+      if (product.status === ProductStatus.LIVE && product.currentRevision?.status === ProductRevisionStatus.PUBLISHED) counts.live += 1;
+      if (product.revisions.some((revision: any) => revision.status === ProductRevisionStatus.UNDER_REVIEW)) counts.review += 1;
+      if (product.revisions.some((revision: any) => revision.status === ProductRevisionStatus.DRAFT)) counts.draft += 1;
+      return counts;
+    }, { live: 0, review: 0, draft: 0 });
+    const items = await Promise.all((products as any[]).map((product) => this.toListingItem(user, product)));
+    return { items, summary, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
+
+  private async toListingItem(user: AuthUser, product: any) {
+    const revisions = product.revisions || [];
+    const published = product.currentRevision?.status === ProductRevisionStatus.PUBLISHED ? product.currentRevision : null;
+    const working = revisions.find((revision: any) => revision.status === ProductRevisionStatus.DRAFT || revision.status === ProductRevisionStatus.UNDER_REVIEW) || null;
+    const rejected = revisions.find((revision: any) => revision.status === ProductRevisionStatus.REJECTED) || null;
+    const display = published || working || rejected || product.currentRevision;
+    const displayStatus = product.status === ProductStatus.ARCHIVED ? 'ARCHIVED' : product.status === ProductStatus.SUSPENDED ? 'SUSPENDED' : published ? 'PUBLISHED' : working?.status === ProductRevisionStatus.UNDER_REVIEW ? 'UNDER_REVIEW' : rejected ? 'NEEDS_CHANGES' : 'DRAFT';
+    const readiness = await this.aggregateBookability(user, product, published);
+    const updatedAt = [product.updatedAt, published?.updatedAt, working?.updatedAt, rejected?.updatedAt].filter(Boolean).map((value: Date) => value.getTime()).reduce((max: number, value: number) => Math.max(max, value), 0);
+    return {
+      id: product.id, productCode: product.productCode, experienceName: display?.productName || 'Untitled product', destination: [display?.cityName, display?.stateName].filter(Boolean).join(', ') || null,
+      optionCount: product.variants?.length || 0, productStatus: product.status, displayStatus, currentRevisionId: product.currentRevisionId || null, workingRevisionId: working?.id || null, workingRevisionStatus: working?.status || null,
+      updatedAt: new Date(updatedAt || Date.now()).toISOString(), bookability: readiness, quality: { score: null, status: 'NOT_SCORED' }, action: displayStatus === 'NEEDS_CHANGES' ? 'FIX' : 'OPEN',
+    };
+  }
+
+  private async aggregateBookability(user: AuthUser, product: any, published: any) {
+    const notEvaluated = (reasonCodes: string[]) => ({ status: 'NOT_EVALUATED', reasonCodes });
+    if (product.status !== ProductStatus.LIVE || !published) return notEvaluated(['PRODUCT_NOT_LIVE']);
+    const now = new Date(); let commercialBlocked = false;
+    for (const variant of product.variants || []) {
+      for (const plan of variant.ratePlans || []) {
+        if (new Date(plan.validFrom) > now || new Date(plan.validTo) <= now) continue;
+        if (!plan.cancellationRules?.length) continue;
+        const version = plan.commercialVersions?.[0];
+        if (!version) continue;
+        // Aggregate bookability still uses the canonical commercial gate. The
+        // service call is bounded to candidate plans and avoids claiming that
+        // an active-but-incomplete draft version can sell.
+        if (this.commercial) {
+          const commercialReadiness = await this.commercial.readiness(user, plan.id, now);
+          if (!commercialReadiness.ready) { commercialBlocked = true; continue; }
+        }
+        const planSchedules = (variant.schedules || []).filter((schedule: any) => schedule.ratePlanMappings?.some((mapping: any) => mapping.ratePlanId === plan.id));
+        for (const schedule of planSchedules) {
+          const effective = new Date(schedule.effectiveFrom) <= now && (!schedule.effectiveTo || new Date(schedule.effectiveTo) > now);
+          if (!effective) continue;
+          for (const session of schedule.sessions || []) {
+            const inventory = session.inventoryState;
+            const available = inventory && inventory.totalCapacity - inventory.blockedCapacity - inventory.heldCapacity - inventory.confirmedCapacity > 0;
+            const cutoffOpen = !session.startsAt || new Date(session.startsAt).getTime() > now.getTime() + (plan.cutOffMinutes || 0) * 60000;
+            const resourcesReady = (schedule.resourceRequirements || []).filter((requirement: any) => requirement.required).every((requirement: any) => {
+              if (requirement.specificResource && (!requirement.specificResource.active || requirement.specificResource.archivedAt)) return false;
+              return (session.resourceAllocations || []).some((allocation: any) => allocation.resource?.active && !allocation.resource?.archivedAt && allocation.resource.type === requirement.resourceType && allocation.quantity >= requirement.quantity);
+            });
+            if (available && cutoffOpen && resourcesReady) return { status: 'BOOKABLE', reasonCodes: [] };
+          }
+        }
+      }
+    }
+    const hasMappedPlan = (product.variants || []).some((variant: any) => (variant.ratePlans || []).some((plan: any) => (variant.schedules || []).some((schedule: any) => schedule.ratePlanMappings?.some((mapping: any) => mapping.ratePlanId === plan.id))));
+    const hasFutureSession = (product.variants || []).some((variant: any) => (variant.schedules || []).some((schedule: any) => (schedule.sessions || []).length));
+    return notEvaluated([...(commercialBlocked ? ['COMMERCIAL_NOT_READY'] : []), ...(hasMappedPlan ? [] : ['RATE_PLAN_NOT_MAPPED']), ...(hasFutureSession ? ['INVENTORY_OR_RESOURCE_NOT_READY'] : ['NO_FUTURE_SESSION'])]);
+  }
+
   async get(user: AuthUser, id: string) {
     await this.product(user, id);
     return this.prisma.product.findFirstOrThrow({ where: { id }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } } } }, revisions: { orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } } } }, variants: { where: { status: { not: VariantStatus.ARCHIVED } }, include: variantInclude }, _count: { select: { variants: true, bookings: true } } } });
@@ -61,6 +196,39 @@ export class CatalogueService {
       throw error;
     });
     return this.get(user, created.id);
+  }
+
+  async createDraft(user: AuthUser, dto: CreateProductDraftDto) {
+    const tenantId = requireTenant(user);
+    const productCode = `PRD-${randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
+    const created = await this.prisma.$transaction(async (tx) => {
+      const product = await tx.product.create({ data: { tenantId, productCode, status: ProductStatus.DRAFT } });
+      const revision = await tx.productRevision.create({ data: {
+        productId: product.id,
+        versionNumber: 1,
+        status: ProductRevisionStatus.DRAFT,
+        productName: dto.productName.trim(),
+        type: dto.type,
+        subType: dto.subType.trim(),
+        subCategory: dto.subCategory?.trim() || null,
+        shortDescription: dto.shortDescription?.trim() || null,
+        description: '',
+        cityName: dto.cityName?.trim() || '',
+        stateName: dto.stateName?.trim() || '',
+        countryName: dto.countryName?.trim() || '',
+        meetingModel: dto.meetingModel,
+        meetingPoint: dto.meetingPoint?.trim() || null,
+        createdById: user.sub,
+      } });
+      await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_DRAFT_CREATED', entityType: 'Product', entityId: product.id, afterState: { productCode: product.productCode, revisionId: revision.id, status: product.status } });
+      return product;
+    });
+    return this.get(user, created.id);
+  }
+
+  async readiness(user: AuthUser, productId: string) {
+    if (!this.readinessService) throw new ConflictException('Product readiness is not configured');
+    return this.readinessService.evaluate(user, productId);
   }
 
   async createRevision(user: AuthUser, productId: string, dto: CreateProductRevisionDto = {}) {
@@ -170,6 +338,10 @@ export class CatalogueService {
       const existing = await tx.productRevision.findFirst({ where: { id, product: { tenantId } } });
       if (!existing) throw new NotFoundException('Product revision not found');
       if (existing.status !== ProductRevisionStatus.DRAFT) throw new ConflictException(`Only DRAFT revisions can be submitted; current status is ${existing.status}`);
+      if (this.readinessService) {
+        const result = await this.readinessService.evaluate(user, existing.productId, tx);
+        if (!result.ready) throw new ConflictException({ code: 'PRODUCT_NOT_READY', message: 'Product is not ready for review', details: result });
+      }
       const changed = await tx.productRevision.updateMany({ where: { id, status: ProductRevisionStatus.DRAFT }, data: { status: ProductRevisionStatus.UNDER_REVIEW, submittedAt: new Date(), rejectionReason: null } });
       if (changed.count !== 1) throw new ConflictException('Revision changed in another session');
       await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_REVISION_SUBMITTED', entityType: 'ProductRevision', entityId: id, beforeState: { status: existing.status }, afterState: { status: ProductRevisionStatus.UNDER_REVIEW } });
@@ -220,4 +392,5 @@ export class CatalogueService {
   async addMedia(user: AuthUser, revisionId: string, dto: ProductMediaDto) { const tenantId = requireTenant(user); const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } } }); if (!revision) throw new NotFoundException('Product revision not found'); this.assertMutableRevision(revision); if ((dto.fileAssetId && dto.externalUrl) || (!dto.fileAssetId && !dto.externalUrl)) throw new ConflictException('Provide exactly one of fileAssetId or externalUrl'); if (dto.fileAssetId) { const asset = await this.prisma.fileAsset.findFirst({ where: { id: dto.fileAssetId, tenantId, purpose: FilePurpose.PRODUCT_MEDIA, visibility: FileVisibility.PUBLIC } }); if (!asset) throw new NotFoundException('Product media file not found'); } return this.prisma.$transaction(async (tx) => { const current = await tx.productRevision.findFirst({ where: { id: revisionId, productId: revision.productId } }); if (!current) throw new NotFoundException('Product revision not found'); this.assertMutableRevision(current); const media = await tx.productMedia.create({ data: { revisionId, ...dto } }); await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_MEDIA_ADDED', entityType: 'ProductMedia', entityId: media.id, afterState: { productId: revision.productId, revisionId, mediaId: media.id, kind: media.kind } }); return media; }); }
   async uploadMedia(user: AuthUser, revisionId: string, file: any, dto: ProductMediaUploadDto) { const tenantId = requireTenant(user); if (!file?.buffer?.length) throw new ConflictException('An image file is required'); if (file.size > 10 * 1024 * 1024) throw new ConflictException('Product images must be 10 MB or smaller'); if (dto.kind !== 'IMAGE') throw new ConflictException('Only image uploads are supported; add video as an external URL'); const detected = file.buffer[0] === 0xff && file.buffer[1] === 0xd8 && file.buffer[2] === 0xff ? { mimeType: 'image/jpeg', extension: '.jpg' } : file.buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? { mimeType: 'image/png', extension: '.png' } : file.buffer.subarray(0, 4).toString() === 'RIFF' && file.buffer.subarray(8, 12).toString() === 'WEBP' ? { mimeType: 'image/webp', extension: '.webp' } : null; if (!detected) throw new ConflictException('Unsupported or invalid image signature; JPEG, PNG, or WebP required'); const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } } }); if (!revision) throw new NotFoundException('Product revision not found'); this.assertMutableRevision(revision); const saved = await this.storage.save(file.buffer, FilePurpose.PRODUCT_MEDIA, detected.extension); try { return await this.prisma.$transaction(async (tx) => { const current = await tx.productRevision.findFirst({ where: { id: revisionId, productId: revision.productId } }); if (!current) throw new NotFoundException('Product revision not found'); this.assertMutableRevision(current); const asset = await tx.fileAsset.create({ data: { tenantId, storageKey: saved.storageKey, originalName: file.originalname || `product-media${detected.extension}`, mimeType: detected.mimeType, sizeBytes: saved.sizeBytes, visibility: FileVisibility.PUBLIC, purpose: FilePurpose.PRODUCT_MEDIA, entityType: 'ProductRevision', entityId: revisionId, createdById: user.sub } }); const media = await tx.productMedia.create({ data: { revisionId, kind: dto.kind, fileAssetId: asset.id, description: dto.description, seoTitle: dto.seoTitle, seoDescription: dto.seoDescription, rank: dto.rank || 1 } }); await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_MEDIA_UPLOADED', entityType: 'ProductMedia', entityId: media.id, afterState: { productId: revision.productId, revisionId, mediaId: media.id, kind: media.kind } }); return media; }); } catch (error) { await this.storage.remove(saved.storageKey); throw error; } }
   async archiveMedia(user: AuthUser, revisionId: string, mediaId: string) { const tenantId = requireTenant(user); const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } } }); if (!revision) throw new NotFoundException('Product revision not found'); this.assertMutableRevision(revision); return this.prisma.$transaction(async (tx) => { const current = await tx.productRevision.findFirst({ where: { id: revisionId, productId: revision.productId } }); if (!current) throw new NotFoundException('Product revision not found'); this.assertMutableRevision(current); const media = await tx.productMedia.findFirst({ where: { id: mediaId, revisionId } }); if (!media) throw new NotFoundException('Media not found'); const updated = await tx.productMedia.update({ where: { id: mediaId }, data: { archivedAt: new Date() } }); await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_MEDIA_ARCHIVED', entityType: 'ProductMedia', entityId: mediaId, beforeState: { productId: revision.productId, revisionId, mediaId, kind: media.kind }, afterState: { productId: revision.productId, revisionId, mediaId, kind: media.kind, archivedAt: updated.archivedAt } }); return updated; }); }
+  async rankMedia(user: AuthUser, revisionId: string, mediaId: string, dto: UpdateProductMediaRankDto) { const tenantId = requireTenant(user); const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } } }); if (!revision) throw new NotFoundException('Product revision not found'); this.assertMutableRevision(revision); return this.prisma.$transaction(async (tx) => { const media = await tx.productMedia.findFirst({ where: { id: mediaId, revisionId, archivedAt: null } }); if (!media) throw new NotFoundException('Media not found'); const updated = await tx.productMedia.update({ where: { id: mediaId }, data: { rank: dto.rank } }); await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_MEDIA_RANKED', entityType: 'ProductMedia', entityId: mediaId, beforeState: { rank: media.rank }, afterState: { rank: updated.rank, revisionId } }); return updated; }); }
 }

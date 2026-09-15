@@ -4,13 +4,15 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { Optional } from '@nestjs/common';
+import { ChannelMappingService } from '../distribution/channel-mapping.service';
 
 const profileSelect = { id: true, tenantId: true, legalBusinessName: true, operatingCity: true, operatingRegion: true, gstin: true, category: true, verificationStatus: true, readinessScore: true, payoutAccountMasked: true, payoutAccountHolder: true, payoutBankName: true, payoutBranch: true, payoutIfsc: true, payoutSwift: true, payoutAccountType: true, payoutCurrency: true } satisfies Prisma.VendorProfileSelect;
 const documentsInclude = { vendorDocuments: { include: { versions: { orderBy: { versionNumber: 'desc' as const }, include: { fileAsset: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true, visibility: true, purpose: true } } } } } } };
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, @Optional() private readonly distributionMappings?: ChannelMappingService) {}
 
   agents() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.TRAVEL_AGENT }, include: { agentProfile: true, users: { select: { id: true, email: true, fullName: true, active: true, organizationRole: true } } }, orderBy: { createdAt: 'desc' } }); }
   async approveAgent(actor: AuthUser, tenantId: string) { return this.setAgentVerification(actor, tenantId, AgentVerificationStatus.APPROVED); }
@@ -29,9 +31,17 @@ export class AdminService {
   }
 
   async setRatePlanChannel(actor: AuthUser, ratePlanId: string, enabled: boolean) {
-    const channel = await this.prisma.distributionChannel.upsert({ where: { code: 'VOYA_AGENT' }, update: { active: true }, create: { code: 'VOYA_AGENT', name: 'Voya Travel Agent Marketplace' } });
-    const plan = await this.prisma.ratePlan.findUnique({ where: { id: ratePlanId }, include: { variant: { include: { product: true } } } }); if (!plan) throw new NotFoundException('Rate plan not found');
-    return this.prisma.$transaction(async (tx) => { const mapping = await tx.ratePlanChannelMapping.upsert({ where: { ratePlanId_channelId: { ratePlanId, channelId: channel.id } }, update: { enabled, version: { increment: 1 } }, create: { ratePlanId, channelId: channel.id, enabled } }); const eventType = enabled ? 'RATEPLAN_CHANNEL_ENABLED' : 'RATEPLAN_CHANNEL_DISABLED'; await this.audit.write(tx, { actor, tenantId: plan.variant.product.tenantId, action: eventType, entityType: 'RatePlanChannelMapping', entityId: mapping.id, afterState: { ratePlanId, channelCode: 'VOYA_AGENT', enabled } }); await this.outbox.enqueue(tx, { tenantId: plan.variant.product.tenantId, eventType, aggregateType: 'RatePlanChannelMapping', aggregateId: mapping.id, payload: { ratePlanId, channelCode: 'VOYA_AGENT', enabled } }); return mapping; });
+    if (!this.distributionMappings) throw new ConflictException('Distribution mapping service is unavailable');
+    const channel = await this.prisma.distributionChannel.upsert({ where: { code: 'VOYA_AGENT' }, update: { active: true, type: 'INTERNAL_MARKETPLACE' }, create: { code: 'VOYA_AGENT', name: 'Voya Travel Agent Marketplace', type: 'INTERNAL_MARKETPLACE' } });
+    const plan = await this.prisma.ratePlan.findUnique({ where: { id: ratePlanId }, include: { variant: { include: { product: true } } } });
+    if (!plan) throw new NotFoundException('Rate plan not found');
+    const productCurrent = await this.prisma.productChannelMapping.findUnique({ where: { channelId_productId: { channelId: channel.id, productId: plan.variant.product.id } }, select: { version: true } });
+    await this.distributionMappings.product(actor, { channelId: channel.id, productId: plan.variant.product.id, externalProductCode: plan.variant.product.productCode, status: 'ACTIVE' as any, ...(productCurrent ? { expectedVersion: productCurrent.version } : {}) });
+    const variantCurrent = await this.prisma.variantChannelMapping.findUnique({ where: { channelId_variantId: { channelId: channel.id, variantId: plan.variant.id } }, select: { version: true } });
+    await this.distributionMappings.variant(actor, { channelId: channel.id, variantId: plan.variant.id, externalVariantCode: plan.variant.variantCode, status: 'ACTIVE' as any, ...(variantCurrent ? { expectedVersion: variantCurrent.version } : {}) });
+    const current = await this.prisma.ratePlanChannelMapping.findUnique({ where: { ratePlanId_channelId: { ratePlanId, channelId: channel.id } } });
+    const mapping = await this.distributionMappings.rate(actor, { channelId: channel.id, ratePlanId, externalRatePlanCode: current?.externalRatePlanCode || plan.ratePlanCode, status: enabled ? 'ACTIVE' as any : 'DISABLED' as any, ...(current ? { expectedVersion: current.version } : {}) });
+    return { ...mapping, enabled: mapping.status === 'ACTIVE' };
   }
   async dashboard() { const [vendors, pendingVendors, products, reviewProducts, bookings, pendingBookings] = await Promise.all([this.prisma.tenant.count({ where: { kind: TenantKind.VENDOR } }), this.prisma.vendorProfile.count({ where: { verificationStatus: VendorVerificationStatus.PENDING } }), this.prisma.product.count({ where: { tenant: { kind: TenantKind.VENDOR } } }), this.prisma.productRevision.count({ where: { product: { tenant: { kind: TenantKind.VENDOR } }, status: ProductRevisionStatus.UNDER_REVIEW } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR } } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR }, status: BookingStatus.PENDING } })]); return { vendors, pendingVendors, products, listings: products, reviewProducts, reviewActivities: reviewProducts, bookings, pendingBookings }; }
   vendors() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { email: true, fullName: true, active: true } }, _count: { select: { products: true, vendorBookings: true, payouts: true } } }, orderBy: { createdAt: 'desc' } }); }

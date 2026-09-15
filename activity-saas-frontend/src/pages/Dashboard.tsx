@@ -46,7 +46,7 @@ export default function Dashboard() {
           <div className="readiness-list">
             <div><span>Profile & docs</span><b className="good">Complete</b></div>
             <div><span>Response SLA</span><b className="good">96%</b></div>
-            <div><span>Live listings</span><b>{data.liveListings}/{data.listings}</b></div>
+            <div><span>Live products</span><b>{data.liveListings}/{data.listings}</b></div>
             <div><span>Payout details</span><b className="good">Verified</b></div>
           </div>
         </div>

@@ -102,6 +102,53 @@ enum UserRole {
   TRAVEL_AGENT
 }
 
+enum DistributionChannelType {
+  INTERNAL_MARKETPLACE
+  DIRECT
+  OTA
+  PARTNER_API
+}
+
+enum ChannelContractStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum DistributionCapability {
+  CATALOG_READ
+  AVAILABILITY_READ
+  PRICING_READ
+  EVENT_READ
+}
+
+enum ChannelMappingStatus {
+  DRAFT
+  ACTIVE
+  DISABLED
+  RETIRED
+}
+
+enum ChannelInventoryExposureMode {
+  EXACT_REMAINING
+  AVAILABLE_ONLY
+}
+
+enum ChannelCredentialStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum DistributionEventType {
+  PRODUCT_CHANGED
+  VARIANT_CHANGED
+  RATE_CHANGED
+  AVAILABILITY_CHANGED
+  BOOKING_CHANGED
+  MAPPING_CHANGED
+}
+
 enum OrganizationRole {
   OWNER
   CATALOGUE
@@ -128,6 +175,12 @@ enum ProductType {
   TRANSFER
   PACKAGE_ADDON
   OTHERS
+}
+
+enum MeetingModel {
+  FIXED_MEETING_POINT
+  PICKUP_AVAILABLE
+  FLEXIBLE_ENTRY
 }
 
 enum RatePlanStatus {
@@ -683,6 +736,14 @@ model User {
   respondedDemandVendors          DemandOpportunityVendorTarget[] @relation("DemandRespondedBy")
   removedDemandVendorTargets      DemandOpportunityVendorTarget[] @relation("DemandRemovedBy")
   demandOpportunityEvents         DemandOpportunityEvent[]        @relation("DemandEventActor")
+  createdChannelContracts         ChannelContract[]               @relation("ChannelContractCreatedBy")
+  activatedChannelContracts       ChannelContract[]               @relation("ChannelContractActivatedBy")
+  retiredChannelContracts         ChannelContract[]               @relation("ChannelContractRetiredBy")
+  createdProductChannelMappings   ProductChannelMapping[]         @relation("ProductChannelMappingCreatedBy")
+  createdVariantChannelMappings   VariantChannelMapping[]         @relation("VariantChannelMappingCreatedBy")
+  createdRatePlanChannelMappings  RatePlanChannelMapping[]        @relation("RatePlanChannelMappingCreatedBy")
+  createdChannelCredentials       ChannelApiCredential[]          @relation("ChannelCredentialCreatedBy")
+  revokedChannelCredentials       ChannelApiCredential[]          @relation("ChannelCredentialRevokedBy")
   createdAt                       DateTime                        @default(now())
   updatedAt                       DateTime                        @updatedAt
 
@@ -792,21 +853,22 @@ model VendorDocumentVersion {
 }
 
 model Product {
-  id                String            @id @default(uuid())
+  id                String                  @id @default(uuid())
   tenantId          String
-  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productCode       String
-  status            ProductStatus     @default(DRAFT)
+  status            ProductStatus           @default(DRAFT)
   currentRevisionId String?
-  currentRevision   ProductRevision?  @relation("CurrentProductRevision", fields: [currentRevisionId, id], references: [id, productId], onDelete: NoAction)
-  revisions         ProductRevision[] @relation("ProductRevisions")
+  currentRevision   ProductRevision?        @relation("CurrentProductRevision", fields: [currentRevisionId, id], references: [id, productId], onDelete: NoAction)
+  revisions         ProductRevision[]       @relation("ProductRevisions")
   variants          ProductVariant[]
   promotions        Promotion[]
   pricingRules      PricingRule[]
   bookings          Booking[]
   commercialRules   CommercialRule[]
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  channelMappings   ProductChannelMapping[]
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
   @@unique([tenantId, productCode])
   @@index([tenantId, status])
@@ -821,6 +883,8 @@ model ProductRevision {
   productName         String
   type                ProductType
   subType             String
+  meetingModel        MeetingModel?
+  meetingPoint        String?
   description         String
   shortDescription    String?
   terms               String[]                 @default([])
@@ -929,39 +993,40 @@ model ProductBookingQuestion {
 }
 
 model ProductVariant {
-  id               String             @id @default(uuid())
+  id               String                  @id @default(uuid())
   productId        String
-  product          Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product          Product                 @relation(fields: [productId], references: [id], onDelete: Cascade)
   variantCode      String
   name             String
   description      String?
-  status           VariantStatus      @default(ACTIVE)
+  status           VariantStatus           @default(ACTIVE)
   durationMinutes  Int?
   privateShared    String?
   vehicleType      String?
-  pickupIncluded   Boolean            @default(false)
+  pickupIncluded   Boolean                 @default(false)
   pickupType       String?
   pickupInput      String?
   pickupTimings    String?
-  dropoffIncluded  Boolean            @default(false)
+  dropoffIncluded  Boolean                 @default(false)
   dropoffTimings   String?
-  mealIncluded     Boolean            @default(false)
+  mealIncluded     Boolean                 @default(false)
   mealType         String?
-  menu             String[]           @default([])
+  menu             String[]                @default([])
   mealVariety      String?
-  pointsOfInterest String[]           @default([])
-  inclusions       String[]           @default([])
-  exclusions       String[]           @default([])
-  suitableFor      String[]           @default([])
+  pointsOfInterest String[]                @default([])
+  inclusions       String[]                @default([])
+  exclusions       String[]                @default([])
+  suitableFor      String[]                @default([])
   sourcePayload    Json?
-  version          Int                @default(1)
+  version          Int                     @default(1)
   archivedAt       DateTime?
   ratePlans        RatePlan[]
   schedules        ScheduleTemplate[]
   commercialRules  CommercialRule[]
+  channelMappings  VariantChannelMapping[]
   bookings         Booking[]
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
 
   @@unique([productId, variantCode])
   @@index([productId, status])
@@ -1005,29 +1070,176 @@ model RatePlan {
 }
 
 model DistributionChannel {
-  id        String                   @id @default(uuid())
-  code      String                   @unique
-  name      String
-  active    Boolean                  @default(true)
-  mappings  RatePlanChannelMapping[]
-  bookings  Booking[]
-  createdAt DateTime                 @default(now())
-  updatedAt DateTime                 @updatedAt
+  id              String                   @id @default(uuid())
+  code            String                   @unique
+  name            String
+  type            DistributionChannelType  @default(PARTNER_API)
+  active          Boolean                  @default(true)
+  version         Int                      @default(1)
+  description     String?
+  mappings        RatePlanChannelMapping[]
+  productMappings ProductChannelMapping[]
+  variantMappings VariantChannelMapping[]
+  contracts       ChannelContract[]
+  credentials     ChannelApiCredential[]
+  events          DistributionEvent[]
+  commercialRules CommercialRule[]         @relation("CommercialRuleChannel")
+  bookings        Booking[]
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
 }
 
 model RatePlanChannelMapping {
-  id         String              @id @default(uuid())
-  ratePlanId String
-  ratePlan   RatePlan            @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
-  channelId  String
-  channel    DistributionChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  enabled    Boolean             @default(true)
-  version    Int                 @default(1)
-  createdAt  DateTime            @default(now())
-  updatedAt  DateTime            @updatedAt
+  id                   String                @id @default(uuid())
+  ratePlanId           String
+  ratePlan             RatePlan              @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  channelId            String
+  channel              DistributionChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  externalRatePlanCode String?
+  status               ChannelMappingStatus  @default(DRAFT)
+  enabled              Boolean               @default(true) // Deprecated compatibility field; status is canonical.
+  version              Int                   @default(1)
+  createdById          String?
+  createdBy            User?                 @relation("RatePlanChannelMappingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  activatedAt          DateTime?
+  disabledAt           DateTime?
+  migrationMetadata    Json?
+  inventoryRule        ChannelInventoryRule?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
   @@unique([ratePlanId, channelId])
+  @@unique([channelId, externalRatePlanCode])
+  @@index([channelId, status])
   @@index([channelId, enabled])
+}
+
+model ChannelContract {
+  id                      String                   @id @default(uuid())
+  channelId               String
+  channel                 DistributionChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  versionNumber           Int
+  status                  ChannelContractStatus    @default(DRAFT)
+  name                    String
+  effectiveFrom           DateTime
+  effectiveTo             DateTime?
+  capabilities            DistributionCapability[]
+  allowedCurrencies       String[]                 @default([])
+  availabilityHorizonDays Int
+  lockVersion             Int                      @default(1)
+  createdById             String
+  createdBy               User                     @relation("ChannelContractCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt               DateTime                 @default(now())
+  activatedById           String?
+  activatedBy             User?                    @relation("ChannelContractActivatedBy", fields: [activatedById], references: [id], onDelete: SetNull)
+  activatedAt             DateTime?
+  retiredById             String?
+  retiredBy               User?                    @relation("ChannelContractRetiredBy", fields: [retiredById], references: [id], onDelete: SetNull)
+  retiredAt               DateTime?
+  metadata                Json                     @default("{}")
+
+  @@unique([channelId, versionNumber])
+  @@index([channelId, status])
+}
+
+model ProductChannelMapping {
+  id                  String               @id @default(uuid())
+  channelId           String
+  channel             DistributionChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  productId           String
+  product             Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  externalProductCode String
+  status              ChannelMappingStatus @default(DRAFT)
+  version             Int                  @default(1)
+  createdById         String
+  createdBy           User                 @relation("ProductChannelMappingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  activatedAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@unique([channelId, productId])
+  @@unique([channelId, externalProductCode])
+  @@index([channelId, status])
+}
+
+model VariantChannelMapping {
+  id                  String               @id @default(uuid())
+  channelId           String
+  channel             DistributionChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  variantId           String
+  variant             ProductVariant       @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  externalVariantCode String
+  status              ChannelMappingStatus @default(DRAFT)
+  version             Int                  @default(1)
+  createdById         String
+  createdBy           User                 @relation("VariantChannelMappingCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  activatedAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@unique([channelId, variantId])
+  @@unique([channelId, externalVariantCode])
+  @@index([channelId, status])
+}
+
+model ChannelInventoryRule {
+  id                       String                       @id @default(uuid())
+  ratePlanChannelMappingId String                       @unique
+  ratePlanChannelMapping   RatePlanChannelMapping       @relation(fields: [ratePlanChannelMappingId], references: [id], onDelete: Cascade)
+  exposureMode             ChannelInventoryExposureMode
+  capacityBuffer           Int                          @default(0)
+  maxPublishedCapacity     Int?
+  maxUnitsPerQuote         Int?
+  version                  Int                          @default(1)
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+}
+
+model ChannelApiCredential {
+  id          String                   @id @default(uuid())
+  channelId   String
+  channel     DistributionChannel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  name        String
+  keyPrefix   String
+  keyHash     String
+  scopes      DistributionCapability[]
+  status      ChannelCredentialStatus  @default(ACTIVE)
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  version     Int                      @default(1)
+  createdById String
+  createdBy   User                     @relation("ChannelCredentialCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime                 @default(now())
+  revokedById String?
+  revokedBy   User?                    @relation("ChannelCredentialRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  revokedAt   DateTime?
+
+  @@unique([keyPrefix])
+  @@index([channelId, status])
+}
+
+model DistributionEvent {
+  id                   String                @id @default(uuid())
+  channelId            String
+  channel              DistributionChannel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sourceOutboxEventId  String
+  type                 DistributionEventType
+  resourceType         String
+  resourceId           String
+  externalResourceCode String?
+  payload              Json
+  occurredAt           DateTime
+  createdAt            DateTime              @default(now())
+
+  @@unique([channelId, sourceOutboxEventId, type, resourceType, resourceId])
+  @@index([channelId, createdAt, id])
+}
+
+model DistributionProjectionCursor {
+  consumerKey   String    @id
+  lastCreatedAt DateTime?
+  lastEventId   String?
+  updatedAt     DateTime  @updatedAt
 }
 
 model TravellerRule {
@@ -1111,32 +1323,35 @@ model AgentGroupMember {
 }
 
 model CommercialRule {
-  id             String                  @id @default(uuid())
-  code           String
-  name           String
-  kind           CommercialRuleKind
-  scopeType      CommercialScopeType
-  vendorTenantId String?
-  vendorTenant   Tenant?                 @relation("CommercialRuleVendor", fields: [vendorTenantId], references: [id], onDelete: Cascade)
-  productId      String?
-  product        Product?                @relation(fields: [productId], references: [id], onDelete: Cascade)
-  variantId      String?
-  variant        ProductVariant?         @relation(fields: [variantId], references: [id], onDelete: Cascade)
-  ratePlanId     String?
-  ratePlan       RatePlan?               @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
-  agentGroupId   String?
-  agentGroup     AgentGroup?             @relation(fields: [agentGroupId], references: [id], onDelete: Cascade)
-  agentTenantId  String?
-  agentTenant    Tenant?                 @relation("CommercialRuleAgent", fields: [agentTenantId], references: [id], onDelete: Cascade)
-  createdById    String
-  createdBy      User                    @relation("CommercialRuleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  archivedAt     DateTime?
-  versions       CommercialRuleVersion[]
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
+  id                    String                  @id @default(uuid())
+  code                  String
+  name                  String
+  kind                  CommercialRuleKind
+  scopeType             CommercialScopeType
+  vendorTenantId        String?
+  vendorTenant          Tenant?                 @relation("CommercialRuleVendor", fields: [vendorTenantId], references: [id], onDelete: Cascade)
+  productId             String?
+  product               Product?                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId             String?
+  variant               ProductVariant?         @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  ratePlanId            String?
+  ratePlan              RatePlan?               @relation(fields: [ratePlanId], references: [id], onDelete: Cascade)
+  agentGroupId          String?
+  agentGroup            AgentGroup?             @relation(fields: [agentGroupId], references: [id], onDelete: Cascade)
+  agentTenantId         String?
+  agentTenant           Tenant?                 @relation("CommercialRuleAgent", fields: [agentTenantId], references: [id], onDelete: Cascade)
+  distributionChannelId String?
+  distributionChannel   DistributionChannel?    @relation("CommercialRuleChannel", fields: [distributionChannelId], references: [id], onDelete: Cascade)
+  createdById           String
+  createdBy             User                    @relation("CommercialRuleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  archivedAt            DateTime?
+  versions              CommercialRuleVersion[]
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
 
   @@unique([code, scopeType])
   @@index([scopeType, vendorTenantId, productId, variantId, ratePlanId, agentGroupId, agentTenantId])
+  @@index([distributionChannelId, scopeType])
 }
 
 model CommercialRuleVersion {

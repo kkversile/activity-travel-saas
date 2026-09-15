@@ -7,6 +7,8 @@ describe('Phase 1 permission matrix', () => {
   it('allows owner catalogue and operations work but keeps governance platform-only', () => {
     expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'product.edit')).toBe(true);
     expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'booking.confirm')).toBe(true);
+    expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'commercial.vendor.view')).toBe(true);
+    expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'commercial.vendor.edit')).toBe(true);
     expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'product.publish')).toBe(false);
   });
   it('separates organization capabilities', () => {

@@ -30,9 +30,10 @@ export class EligibilityService {
 
     const plan: any = await db.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { travellerRules: true, scheduleMappings: { where: { active: true } }, channelMappings: { include: { channel: true } }, variant: { include: { product: { include: productInclude } } } } } as any);
     const session: any = await db.serviceSession.findUnique({ where: { id: input.sessionId }, include: { inventoryState: true, scheduleTemplate: { include: { variant: { include: { product: { include: productInclude } } } } } } } as any);
-    const agent: any = await db.tenant.findUnique({ where: { id: input.agentTenantId }, include: { agentProfile: true } });
+    const agent: any = input.skipAgentGovernance || !input.agentTenantId ? null : await db.tenant.findUnique({ where: { id: input.agentTenantId }, include: { agentProfile: true } });
 
-    if (!agent) add('AGENT_GOVERNANCE', 'FAIL', 'AGENT_PROFILE_MISSING');
+    if (input.skipAgentGovernance) notEvaluated('AGENT_GOVERNANCE');
+    else if (!agent) add('AGENT_GOVERNANCE', 'FAIL', 'AGENT_PROFILE_MISSING');
     else if (agent.kind !== TenantKind.TRAVEL_AGENT) add('AGENT_GOVERNANCE', 'FAIL', 'AGENT_NOT_APPROVED', { tenantKind: agent.kind });
     else if (!agent.agentProfile) add('AGENT_GOVERNANCE', 'FAIL', 'AGENT_PROFILE_MISSING');
     else if (agent.agentProfile.verificationStatus === 'SUSPENDED') add('AGENT_GOVERNANCE', 'FAIL', 'AGENT_SUSPENDED');
@@ -50,8 +51,8 @@ export class EligibilityService {
     if (!revision || product.currentRevisionId !== revision.id || revision.status !== ProductRevisionStatus.PUBLISHED || !revision.fulfilmentPolicy) add('FULFILMENT_POLICY', 'FAIL', 'FULFILMENT_POLICY_MISSING'); else { const policy = validateFulfilmentPolicy(revision.fulfilmentPolicy); add('FULFILMENT_POLICY', policy.valid ? 'PASS' : 'FAIL', policy.valid ? undefined : policy.reason, { policyId: revision.fulfilmentPolicy.id, mode: revision.fulfilmentPolicy.mode }); }
     if (plan.variant.status !== VariantStatus.ACTIVE || plan.variant.archivedAt) add('VARIANT', 'FAIL', 'VARIANT_NOT_ACTIVE'); else add('VARIANT', 'PASS', undefined, { variantId: plan.variantId });
     if (plan.status !== RatePlanStatus.ACTIVE) add('RATE_PLAN', 'FAIL', 'RATEPLAN_NOT_ACTIVE'); else if (date < new Date(plan.validFrom) || date >= new Date(plan.validTo)) add('RATE_PLAN', 'FAIL', 'RATEPLAN_OUTSIDE_EFFECTIVE_RANGE'); else add('RATE_PLAN', 'PASS', undefined);
-    const channelMapping = plan.channelMappings.find((item: any) => item.channel.code === (input.channelCode ?? 'VOYA_AGENT'));
-    if (!channelMapping) add('CHANNEL', 'FAIL', 'MARKETPLACE_CHANNEL_NOT_CONFIGURED'); else if (!channelMapping.enabled || !channelMapping.channel.active) add('CHANNEL', 'FAIL', 'MARKETPLACE_CHANNEL_DISABLED'); else add('CHANNEL', 'PASS', undefined, { channelCode: channelMapping.channel.code });
+    if (input.skipChannelGovernance) notEvaluated('CHANNEL');
+    else { const channelMapping = plan.channelMappings.find((item: any) => item.channel.code === (input.channelCode ?? 'VOYA_AGENT')); if (!channelMapping) add('CHANNEL', 'FAIL', 'MARKETPLACE_CHANNEL_NOT_CONFIGURED'); else if ((channelMapping.status && channelMapping.status !== 'ACTIVE') || !channelMapping.enabled || !channelMapping.channel.active) add('CHANNEL', 'FAIL', 'MARKETPLACE_CHANNEL_DISABLED'); else add('CHANNEL', 'PASS', undefined, { channelCode: channelMapping.channel.code }); }
     const mapped = session && plan.scheduleMappings?.some((item: any) => item.scheduleTemplateId === session.scheduleTemplateId && item.active);
     if (!session || !mapped || session.scheduleTemplate.variantId !== plan.variantId) add('SCHEDULE', 'FAIL', 'RATEPLAN_SCHEDULE_NOT_ELIGIBLE'); else if (session.scheduleTemplate.status !== 'ACTIVE' || session.scheduleTemplate.archivedAt) add('SCHEDULE', 'FAIL', 'SCHEDULE_NOT_ACTIVE'); else if (date < new Date(session.scheduleTemplate.effectiveFrom) || (session.scheduleTemplate.effectiveTo && date >= new Date(session.scheduleTemplate.effectiveTo))) add('SCHEDULE', 'FAIL', 'SCHEDULE_OUTSIDE_EFFECTIVE_RANGE'); else if (session.scheduleTemplate.capacityUnitReviewRequired) add('SCHEDULE', 'FAIL', 'CAPACITY_UNIT_REVIEW_REQUIRED'); else add('SCHEDULE', 'PASS', undefined, { scheduleId: session.scheduleTemplateId });
     if (!session) add('SESSION', 'FAIL', 'SESSION_NOT_FOUND'); else if (session.archivedAt || session.status === SessionStatus.ARCHIVED) add('SESSION', 'FAIL', 'SESSION_ARCHIVED'); else if (session.status === SessionStatus.BLACKOUT) add('SESSION', 'FAIL', 'SESSION_BLACKOUT'); else if (session.status !== SessionStatus.OPEN) add('SESSION', 'FAIL', 'SESSION_CLOSED'); else add('SESSION', 'PASS', undefined, { sessionId: session.id });
@@ -76,10 +77,10 @@ export class EligibilityService {
     let commercial: any = null;
     if (session && capacityConsumption != null && travellerPass) {
       try {
-        commercial = await this.commercial.evaluateInternal({ ratePlanId: plan.id, serviceDate: date, units: input.units ?? 1, travellers: travellers.normalizedTravellers, agentTenantId: input.agentTenantId, channel: input.channelCode ?? 'VOYA_AGENT' }, db);
+        commercial = await this.commercial.evaluateInternal({ ratePlanId: plan.id, serviceDate: date, units: input.units ?? 1, travellers: travellers.normalizedTravellers, agentTenantId: input.agentTenantId, channel: input.channelCode ?? 'VOYA_AGENT', agentFacingRequired: !input.skipAgentGovernance }, db);
         bookingMode = commercial.bookingMode;
         const amount = Number(commercial.finalAmount); let code: string | undefined;
-        if (!Number.isFinite(amount)) code = 'PRICE_NOT_CALCULABLE'; else if (!commercial.ready || commercial.commercialEligibility !== 'ALLOWED') code = commercial.reasonCodes?.find((item: string) => ['AGENT_COMMERCIAL_DENIED', 'AGENT_ELIGIBILITY_UNCONFIGURED', 'AGENT_COMMERCIAL_UNCONFIGURED', 'VOYA_REVENUE_RULE_MISSING', 'TAX_CONFIGURATION_MISSING'].includes(item)) ?? 'COMMERCIAL_NOT_READY';
+        if (!Number.isFinite(amount)) code = 'PRICE_NOT_CALCULABLE'; else if (!commercial.ready || (commercial.commercialEligibility !== 'ALLOWED' && !(input.skipAgentGovernance && commercial.commercialEligibility === 'NOT_APPLICABLE'))) code = commercial.reasonCodes?.find((item: string) => ['AGENT_COMMERCIAL_DENIED', 'AGENT_ELIGIBILITY_UNCONFIGURED', 'AGENT_COMMERCIAL_UNCONFIGURED', 'VOYA_REVENUE_RULE_MISSING', 'TAX_CONFIGURATION_MISSING'].includes(item)) ?? 'COMMERCIAL_NOT_READY';
         add('COMMERCIAL', code ? 'FAIL' : 'PASS', code, { reasonCodes: commercial.reasonCodes, commercialVersionId: commercial.ratePlanCommercialVersionId });
       } catch (error: any) { add('COMMERCIAL', 'FAIL', error?.response?.code ?? 'COMMERCIAL_NOT_READY'); }
     } else notEvaluated('COMMERCIAL');

@@ -2,12 +2,14 @@ import { BookingMode, CapacityUnit, TravellerType } from '@prisma/client';
 
 export type TravellerRequest = { travellerType: TravellerType; quantity: number };
 export type EligibilityInput = {
-  agentTenantId: string;
+  agentTenantId?: string;
   ratePlanId: string;
   sessionId: string;
   travellers: TravellerRequest[];
   units?: number;
   channelCode?: string;
+  skipAgentGovernance?: boolean;
+  skipChannelGovernance?: boolean;
   now?: Date;
 };
 export type GateStatus = 'PASS' | 'FAIL' | 'NOT_EVALUATED';
@@ -68,6 +70,23 @@ export const REASON_MESSAGES: Record<string, string> = {
   FULFILMENT_POLICY_MISSING: 'The published product has no fulfilment policy.',
   FULFILMENT_POLICY_REVIEW_REQUIRED: 'The product fulfilment policy requires review.',
   FULFILMENT_POLICY_INVALID: 'The product fulfilment policy is incomplete or invalid.',
+  CHANNEL_NOT_FOUND: 'The distribution channel does not exist.',
+  CHANNEL_INACTIVE: 'The distribution channel is inactive.',
+  CHANNEL_CONTRACT_MISSING: 'The distribution channel has no active contract.',
+  CHANNEL_CONTRACT_NOT_ACTIVE: 'The distribution channel contract is not effective.',
+  CHANNEL_PRODUCT_NOT_MAPPED: 'The product is not mapped to this distribution channel.',
+  CHANNEL_PRODUCT_MAPPING_DISABLED: 'The product mapping is not active for this distribution channel.',
+  CHANNEL_VARIANT_NOT_MAPPED: 'The variant is not mapped to this distribution channel.',
+  CHANNEL_VARIANT_MAPPING_DISABLED: 'The variant mapping is not active for this distribution channel.',
+  CHANNEL_RATE_PLAN_NOT_MAPPED: 'The rate plan is not mapped to this distribution channel.',
+  CHANNEL_RATE_PLAN_MAPPING_DISABLED: 'The rate plan mapping is not active for this distribution channel.',
+  CHANNEL_MAPPING_HIERARCHY_MISMATCH: 'The requested product, variant, rate plan and mappings are not one hierarchy.',
+  CHANNEL_PRODUCT_STATE_NOT_DISTRIBUTABLE: 'The product is not distributable through this channel.',
+  CHANNEL_VARIANT_STATE_NOT_DISTRIBUTABLE: 'The variant is not distributable through this channel.',
+  CHANNEL_RATE_PLAN_STATE_NOT_DISTRIBUTABLE: 'The rate plan is not distributable through this channel.',
+  CHANNEL_RATE_PLAN_OUTSIDE_EFFECTIVE_RANGE: 'The rate plan is outside its effective range.',
+  CHANNEL_INVENTORY_NOT_EXPOSED: 'No channel inventory exposure rule is configured.',
+  CHANNEL_MAX_UNITS_EXCEEDED: 'The requested units exceed the channel quote limit.',
 };
 
 export function messageFor(code: string) { return REASON_MESSAGES[code] ?? code.replaceAll('_', ' ').toLowerCase(); }

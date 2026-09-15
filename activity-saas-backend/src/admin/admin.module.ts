@@ -5,6 +5,7 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { EligibilityModule } from '../eligibility/eligibility.module';
 import { BookingsModule } from '../bookings/bookings.module';
+import { DistributionModule } from '../distribution/distribution.module';
 
-@Module({ imports: [PrismaModule, AuthModule, EligibilityModule, BookingsModule], controllers: [AdminController], providers: [AdminService] })
+@Module({ imports: [PrismaModule, AuthModule, EligibilityModule, BookingsModule, DistributionModule], controllers: [AdminController], providers: [AdminService] })
 export class AdminModule {}

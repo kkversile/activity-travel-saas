@@ -1,4 +1,4 @@
-import { BookingQuestionType, EvidenceMatchMode, FulfilmentEvidenceKind, FulfilmentMode, MediaKind, ProductRevisionStatus, ProductType } from '@prisma/client';
+import { BookingQuestionType, EvidenceMatchMode, FulfilmentEvidenceKind, FulfilmentMode, MeetingModel, MediaKind, ProductRevisionStatus, ProductType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { OmitType, PartialType } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsDefined, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, Max, Min, MinLength, ValidateNested } from 'class-validator';
@@ -21,12 +21,13 @@ export class ProductRevisionDto {
   @IsString() productName!: string;
   @IsEnum(ProductType) type!: ProductType;
   @IsString() subType!: string;
+  @IsOptional() @IsEnum(MeetingModel) meetingModel?: MeetingModel;
+  @IsOptional() @IsString() meetingPoint?: string;
   @IsString() description!: string;
   @IsOptional() @IsString() shortDescription?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) terms?: string[];
   @IsOptional() @IsArray() faqs?: Array<{ question: string; answer: string }>;
   @IsOptional() @IsArray() @IsString({ each: true }) highlights?: string[];
-  @IsOptional() @IsArray() @IsString({ each: true }) channels?: string[];
   @IsOptional() @Type(() => Number) @IsInt() highlightedPriority?: number;
   @IsOptional() @IsBoolean() isHotelLinked?: boolean;
   @IsOptional() @IsArray() @IsString({ each: true }) attachedHotelIds?: string[];
@@ -59,6 +60,19 @@ export class CreateProductDto {
   @IsDefined() @ValidateNested() @Type(() => ProductRevisionDto) initialRevision!: ProductRevisionDto;
 }
 
+export class CreateProductDraftDto {
+  @IsString() @MinLength(2) productName!: string;
+  @IsEnum(ProductType) type!: ProductType;
+  @IsString() @MinLength(2) subType!: string;
+  @IsOptional() @IsString() subCategory?: string;
+  @IsOptional() @IsString() shortDescription?: string;
+  @IsOptional() @IsString() cityName?: string;
+  @IsOptional() @IsString() stateName?: string;
+  @IsOptional() @IsString() countryName?: string;
+  @IsOptional() @IsEnum(MeetingModel) meetingModel?: MeetingModel;
+  @IsOptional() @IsString() meetingPoint?: string;
+}
+
 export class CreateProductRevisionDto {
   @IsOptional() @IsString() sourceRevisionId?: string;
 }
@@ -81,6 +95,15 @@ export class ProductQueryDto {
   @IsOptional() @IsString() search?: string;
 }
 
+export type ListingStatusFilter = 'LIVE' | 'REVIEW' | 'DRAFT';
+
+export class ProductListingQueryDto {
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @IsEnum(['LIVE', 'REVIEW', 'DRAFT'] as const) status?: ListingStatusFilter;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 25;
+}
+
 export class ProductMediaDto {
   @IsEnum(MediaKind) kind!: MediaKind;
   @IsOptional() @IsUrl() externalUrl?: string;
@@ -97,6 +120,10 @@ export class ProductMediaUploadDto {
   @IsOptional() @IsString() seoTitle?: string;
   @IsOptional() @IsString() seoDescription?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) rank?: number;
+}
+
+export class UpdateProductMediaRankDto {
+  @Type(() => Number) @IsInt() @Min(1) rank!: number;
 }
 
 export class VariantDto {

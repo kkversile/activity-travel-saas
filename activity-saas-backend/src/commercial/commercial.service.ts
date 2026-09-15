@@ -19,9 +19,9 @@ export class CommercialService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly calculator: CommercialCalculatorService) {}
 
   private tenantId(user: AuthUser) { return requireTenant(user); }
-  private async ownedRatePlan(user: AuthUser, id: string) {
+  private async ownedRatePlan(user: AuthUser, id: string, client: any = this.prisma) {
     const tenantId = this.tenantId(user);
-    const plan = await this.prisma.ratePlan.findFirst({ where: { id, variant: { product: { tenantId } } }, include: { variant: { include: { product: true } }, travellerRules: true } });
+    const plan = await client.ratePlan.findFirst({ where: { id, variant: { product: { tenantId } } }, include: { variant: { include: { product: true } }, travellerRules: true } });
     if (!plan) throw new NotFoundException('Rate plan not found');
     return plan;
   }
@@ -50,18 +50,18 @@ export class CommercialService {
     return reasons;
   }
 
-  async readiness(user: AuthUser, id: string, serviceDate = new Date(), agentTenantId?: string) {
-    const plan = await this.ownedRatePlan(user, id);
+  async readiness(user: AuthUser, id: string, serviceDate = new Date(), agentTenantId?: string, client: any = this.prisma) {
+    const plan = await this.ownedRatePlan(user, id, client);
     const [activeVersions, draft] = await Promise.all([
-      this.prisma.ratePlanCommercialVersion.findMany({ where: { ratePlanId: id, status: CommercialVersionStatus.ACTIVE, ...dateWindow(serviceDate) }, include: versionSelect, orderBy: { versionNumber: 'desc' } }),
-      this.prisma.ratePlanCommercialVersion.findFirst({ where: { ratePlanId: id, status: CommercialVersionStatus.DRAFT }, include: versionSelect, orderBy: { versionNumber: 'desc' } }),
+      client.ratePlanCommercialVersion.findMany({ where: { ratePlanId: id, status: CommercialVersionStatus.ACTIVE, ...dateWindow(serviceDate) }, include: versionSelect, orderBy: { versionNumber: 'desc' } }),
+      client.ratePlanCommercialVersion.findFirst({ where: { ratePlanId: id, status: CommercialVersionStatus.DRAFT }, include: versionSelect, orderBy: { versionNumber: 'desc' } }),
     ]);
     const reasonCodes: string[] = [];
     let active: any = null;
     try { active = selectEffectiveVersion(activeVersions as any, serviceDate); } catch { reasonCodes.push('AMBIGUOUS_RULE'); }
     let resolvedRules: Array<{ rule: any; config: any }> = [];
     if (active || !reasonCodes.includes('AMBIGUOUS_RULE')) {
-      try { resolvedRules = await this.resolveRules({ ratePlanId: id, serviceDate: serviceDate.toISOString(), units: 1, travellers: [], agentTenantId } as any); }
+        try { resolvedRules = await this.resolveRules({ ratePlanId: id, serviceDate: serviceDate.toISOString(), units: 1, travellers: [], agentTenantId } as any, client); }
       catch (error: any) { if (error?.response?.code === 'AMBIGUOUS_RULE' || error?.message?.includes('exclusive')) reasonCodes.push('AMBIGUOUS_RULE'); else throw error; }
     }
     for (const code of this.structuralReadinessReasons(plan, active, resolvedRules)) if (!reasonCodes.includes(code)) reasonCodes.push(code);
@@ -147,6 +147,7 @@ export class CommercialService {
 
   private async resolveRules(input: QuoteDto, client: PrismaService | Prisma.TransactionClient = this.prisma) {
     const date = new Date(input.serviceDate);
+    const channelId = input.channel ? (await client.distributionChannel.findUnique({ where: { code: input.channel }, select: { id: true } }))?.id : undefined;
     const candidates: any[] = await client.commercialRule.findMany({ where: { archivedAt: null, versions: { some: { status: CommercialRuleVersionStatus.ACTIVE, ...dateWindow(date) } } }, include: { versions: { where: { status: CommercialRuleVersionStatus.ACTIVE, ...dateWindow(date) }, orderBy: { versionNumber: 'desc' } }, agentGroup: { include: { members: true } } } });
     const plan = await client.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { variant: { include: { product: true } } } });
     if (!plan) throw new NotFoundException('Rate plan not found');
@@ -154,13 +155,15 @@ export class CommercialService {
     const ids: Record<string, string | undefined> = { VENDOR: plan.variant.product.tenantId, PRODUCT: plan.variant.productId, VARIANT: plan.variantId, RATE_PLAN: plan.id, AGENT: input.agentTenantId };
     const specificity: Record<string, number> = { GLOBAL: 0, VENDOR: 1, PRODUCT: 2, VARIANT: 3, RATE_PLAN: 4, AGENT_GROUP: 5, AGENT: 6 };
     const scopeField: Record<string, string> = { VENDOR: 'vendorTenantId', PRODUCT: 'productId', VARIANT: 'variantId', RATE_PLAN: 'ratePlanId' };
-    const matching = candidates.filter((r) => r.scopeType === 'GLOBAL' || (r.scopeType === 'AGENT_GROUP' ? groupIds.includes(r.agentGroupId) : r.scopeType === 'AGENT' ? r.agentTenantId === input.agentTenantId : r[scopeField[r.scopeType]] === ids[r.scopeType]));
+    const matching = candidates.filter((r) => (r.distributionChannelId == null || r.distributionChannelId === channelId) && (r.scopeType === 'GLOBAL' || (r.scopeType === 'AGENT_GROUP' ? groupIds.includes(r.agentGroupId) : r.scopeType === 'AGENT' ? r.agentTenantId === input.agentTenantId : r[scopeField[r.scopeType]] === ids[r.scopeType])));
     const selected: any[] = [];
     for (const kind of Object.values(CommercialRuleKind)) {
       const sameKind = matching.filter((r) => r.kind === kind).map((r) => ({ r, v: r.versions[0] })).filter((x) => x.v);
       if (!sameKind.length) continue;
       const maxSpecificity = Math.max(...sameKind.map((x) => specificity[x.r.scopeType]));
-      const scoped = sameKind.filter((x) => specificity[x.r.scopeType] === maxSpecificity);
+      const scopedByBusinessScope = sameKind.filter((x) => specificity[x.r.scopeType] === maxSpecificity);
+      const channelQualified = scopedByBusinessScope.some((x) => channelId && x.r.distributionChannelId === channelId);
+      const scoped = scopedByBusinessScope.filter((x) => channelQualified ? x.r.distributionChannelId === channelId : x.r.distributionChannelId == null);
       const maxPriority = Math.max(...scoped.map((x) => x.v.priority));
       const top = scoped.filter((x) => x.v.priority === maxPriority);
       if (top.length > 1 && top.some((x) => x.v.stackingMode === CommercialStackingMode.EXCLUSIVE)) throw new ConflictException({ code: 'AMBIGUOUS_RULE', message: `Multiple exclusive ${kind} rules have the same specificity and priority` });
@@ -174,7 +177,7 @@ export class CommercialService {
    * uses vendor-user ownership checks and returns the full internal result
    * only to other backend services.
    */
-  async evaluateInternal(input: { ratePlanId: string; serviceDate: Date; units: number; travellers: Array<{ travellerType: string; quantity: number }>; agentTenantId?: string; channel?: string }, client: PrismaService | Prisma.TransactionClient = this.prisma) {
+  async evaluateInternal(input: { ratePlanId: string; serviceDate: Date; units: number; travellers: Array<{ travellerType: string; quantity: number }>; agentTenantId?: string; channel?: string; agentFacingRequired?: boolean }, client: PrismaService | Prisma.TransactionClient = this.prisma) {
     const plan = await client.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { variant: { include: { product: true } } } });
     if (!plan) throw new NotFoundException('Rate plan not found');
     const versions = await client.ratePlanCommercialVersion.findMany({ where: { ratePlanId: plan.id, status: CommercialVersionStatus.ACTIVE, ...dateWindow(input.serviceDate) }, include: versionSelect });
@@ -256,7 +259,7 @@ export class CommercialService {
     await this.validateScope(dto);
     const scopeFields: any = { vendorTenantId: dto.vendorTenantId, productId: dto.productId, variantId: dto.variantId, ratePlanId: dto.ratePlanId, agentGroupId: dto.agentGroupId, agentTenantId: dto.agentTenantId };
     return this.prisma.$transaction(async (tx) => {
-      const rule = await tx.commercialRule.create({ data: { code: dto.code, name: dto.name, kind: dto.kind, scopeType: dto.scopeType, ...scopeFields, createdById: user.sub } });
+      const rule = await tx.commercialRule.create({ data: { code: dto.code, name: dto.name, kind: dto.kind, scopeType: dto.scopeType, ...scopeFields, distributionChannelId: dto.distributionChannelId, createdById: user.sub } });
       await this.audit.write(tx, { actor: user, action: 'COMMERCIAL_RULE_CREATED', entityType: 'CommercialRule', entityId: rule.id, afterState: { code: rule.code, kind: rule.kind, scopeType: rule.scopeType } });
       await this.outbox.enqueue(tx, { eventType: 'COMMERCIAL_RULE_CREATED', aggregateType: 'CommercialRule', aggregateId: rule.id, payload: { code: rule.code, kind: rule.kind, scopeType: rule.scopeType } });
       return rule;

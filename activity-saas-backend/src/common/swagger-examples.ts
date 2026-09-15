@@ -50,7 +50,6 @@ export const swaggerExamples = {
         lat: 10.0889,
         lon: 77.0595,
         starRating: 4.8,
-        channels: ['B2B', 'B2C'],
         labels: ['Demo', 'Nature'],
         rank: 1,
       },
