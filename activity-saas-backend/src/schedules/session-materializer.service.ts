@@ -37,6 +37,6 @@ export class SessionMaterializerService {
       }
       await tx.scheduleTemplate.updateMany({ where: { id: scheduleTemplateId, version: dto.expectedVersion }, data: { version: { increment: 1 } } });
       return { scheduleTemplateId, from: dateKey(from), to: dateKey(to), sessions: sessionIds.length, sessionIds };
-    }, { maxWait: 10000, timeout: 30000 });
+    }, { maxWait: 10000, timeout: 180000 });
   }
 }
