@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { OperatingModel, SessionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { addDays, dateKey, dayName, isoDate, validateTimezone, zonedTimeToUtc } from './schedule-utils';
+import { addDays, dateKey, isoDate, operatingDayMatches, validateTimezone, zonedTimeToUtc } from './schedule-utils';
 import { MaterializeSessionsDto } from './schedules.dto';
 
 @Injectable()
@@ -17,7 +17,7 @@ export class SessionMaterializerService {
       if (schedule.status !== 'ACTIVE') throw new ConflictException('Only ACTIVE schedules can be materialized'); if (!schedule.operatingModel) throw new ConflictException('Schedule operating model is missing'); validateTimezone(schedule.timezone);
       const exceptionMap = new Map(schedule.exceptions.map((exception) => [`${dateKey(exception.serviceDate)}|${exception.slotTemplateId ?? '*'}`, exception])); const sessionIds: string[] = [];
       for (let cursor = from; cursor <= to; cursor = addDays(cursor, 1)) {
-        if (cursor < schedule.effectiveFrom || (schedule.effectiveTo && cursor > schedule.effectiveTo) || (schedule.operatingDays.length && !schedule.operatingDays.includes(dayName(cursor)))) continue;
+        if (cursor < schedule.effectiveFrom || (schedule.effectiveTo && cursor > schedule.effectiveTo) || !operatingDayMatches(schedule.operatingDays, cursor)) continue;
         const timed = schedule.operatingModel === OperatingModel.FIXED_SLOT || schedule.operatingModel === OperatingModel.MULTIPLE_SLOTS; const slots = timed ? schedule.slotTemplates : [null];
         for (const slot of slots) {
           const exception = exceptionMap.get(`${dateKey(cursor)}|${slot?.id ?? '*'}`) ?? exceptionMap.get(`${dateKey(cursor)}|*`); const localStartTime = slot?.startTime ?? null; let localEndTime = slot?.endTime ?? null;

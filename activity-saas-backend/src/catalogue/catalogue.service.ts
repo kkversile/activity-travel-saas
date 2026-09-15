@@ -318,16 +318,18 @@ export class CatalogueService {
     const existing = await this.prisma.productRevision.findFirst({ where: { id, product: { tenantId } } });
     if (!existing) throw new NotFoundException('Product revision not found');
     return this.prisma.$transaction(async (tx) => {
-      const changed = await tx.productRevision.updateMany({ where: { id, status: ProductRevisionStatus.DRAFT }, data: this.data(dto) as Prisma.ProductRevisionUpdateInput });
-      if (changed.count !== 1) throw new ConflictException('Revision changed in another session; reload and retry');
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "public"."ProductRevision" WHERE "id" = ${id} FOR UPDATE`);
+      const current = await tx.productRevision.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Product revision not found');
+      this.assertMutableRevision(current);
+      const updated = await tx.productRevision.update({ where: { id }, data: this.data(dto) as Prisma.ProductRevisionUpdateInput });
       if (dto.fulfilmentPolicy) {
         const policyCheck = validateFulfilmentPolicy(dto.fulfilmentPolicy);
         if (!policyCheck.valid && dto.fulfilmentPolicy.mode) throw new ConflictException(policyCheck.reason);
         await tx.productFulfilmentPolicy.upsert({ where: { productRevisionId: id }, create: { productRevisionId: id, ...this.policyData(dto.fulfilmentPolicy) }, update: this.policyData(dto.fulfilmentPolicy) });
         await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_FULFILMENT_POLICY_UPDATED', entityType: 'ProductFulfilmentPolicy', entityId: id, metadata: { revisionId: id } });
       }
-      const updated = await tx.productRevision.findUniqueOrThrow({ where: { id } });
-      await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_REVISION_UPDATED', entityType: 'ProductRevision', entityId: id, beforeState: { status: existing.status }, afterState: { status: updated.status } });
+      await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_REVISION_UPDATED', entityType: 'ProductRevision', entityId: id, beforeState: { status: current.status }, afterState: { status: updated.status } });
       return updated;
     });
   }

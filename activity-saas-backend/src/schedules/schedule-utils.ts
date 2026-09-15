@@ -31,6 +31,13 @@ export function dayName(value: Date) {
   return ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'][value.getUTCDay()];
 }
 
+export function operatingDayMatches(operatingDays: string[], value: Date) {
+  if (!operatingDays.length) return true;
+  const configured = new Set(operatingDays.map((day) => day.trim().toUpperCase()));
+  const fullName = dayName(value);
+  return configured.has(fullName) || configured.has(fullName.slice(0, 3));
+}
+
 export function zonedTimeToUtc(date: Date, time: string, timezone: string) {
   assertTime(time, 'local time');
   const [hour, minute] = time.split(':').map(Number);
