@@ -53,7 +53,9 @@ export class ProductRevisionDto {
   @IsOptional() @ValidateNested() @Type(() => ProductFulfilmentPolicyDto) fulfilmentPolicy?: ProductFulfilmentPolicyDto;
 }
 
-export class UpdateProductRevisionDto extends PartialType(ProductRevisionDto) {}
+export class UpdateProductRevisionDto extends PartialType(ProductRevisionDto) {
+  @IsOptional() @ValidateNested() @Type(() => ProductFulfilmentPolicyDto) fulfilmentPolicy?: ProductFulfilmentPolicyDto;
+}
 
 export class CreateProductDto {
   @IsString() productCode!: string;
