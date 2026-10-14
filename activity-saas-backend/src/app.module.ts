@@ -28,6 +28,7 @@ import { FinanceModule } from './finance/finance.module';
 import { QualityModule } from './quality/quality.module';
 import { DemandModule } from './demand/demand.module';
 import { DistributionModule } from './distribution/distribution.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 
 function validateEnvironment(config: Record<string, unknown>) {
   const databaseUrl = String(config.DATABASE_URL ?? '');
@@ -70,6 +71,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     QualityModule,
     DemandModule,
     DistributionModule,
+    OnboardingModule,
   ],
   controllers: [AppController],
   providers: [CorrelationIdMiddleware],

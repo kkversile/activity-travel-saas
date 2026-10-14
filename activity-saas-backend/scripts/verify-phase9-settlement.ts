@@ -45,7 +45,7 @@ async function main() {
   let report: any;
   try {
     const adminUser = await prisma.user.findFirstOrThrow({
-      where: { role: UserRole.ADMIN },
+      where: { role: UserRole.SUPER_ADMIN },
     });
     const vendorUser = await prisma.user.findUniqueOrThrow({
       where: { email: "vendor@voya.demo" },

@@ -1,7 +1,7 @@
 import { CommercialRuleKind, CommercialStackingMode } from '@prisma/client';
 import { CommercialService } from './commercial.service';
 
-const user: any = { sub: 'admin-1', tenantId: 't1', role: 'ADMIN' };
+const user: any = { sub: 'admin-1', tenantId: 't1', role: 'SUPER_ADMIN' };
 const taxConfig = { mode: 'NONE', rate: '0', taxableBase: 'AGENT_PRE_TAX', accountableParty: 'NONE', roundingPolicy: 'HALF_UP' };
 const promotion = (id: string, stackingMode: CommercialStackingMode = CommercialStackingMode.STACKABLE) => ({ id, kind: CommercialRuleKind.PROMOTION, scopeType: 'GLOBAL', versions: [{ id: `${id}-v1`, priority: 10, stackingMode, effectiveFrom: new Date('2026-09-01'), effectiveTo: null }], config: { discountType: 'FIXED', value: '10', funder: 'VOYA', applicationStage: 'POST_TAX' } });
 

@@ -6,6 +6,7 @@ import { MarketplaceController } from './marketplace.controller';
 import { MarketplaceRankingService } from './marketplace-ranking.service';
 import { MarketplaceService } from './marketplace.service';
 import { DemandModule } from '../demand/demand.module';
+import { DistributionModule } from '../distribution/distribution.module';
 
-@Module({ imports: [PrismaModule, AuthModule, EligibilityModule, DemandModule], controllers: [MarketplaceController], providers: [MarketplaceService, MarketplaceRankingService] })
+@Module({ imports: [PrismaModule, AuthModule, EligibilityModule, DemandModule, DistributionModule], controllers: [MarketplaceController], providers: [MarketplaceService, MarketplaceRankingService] })
 export class MarketplaceModule {}

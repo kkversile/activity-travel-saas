@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { FilePurpose, FileVisibility, ProductRevisionStatus, ProductStatus, RatePlanStatus, TenantKind, VariantStatus } from '@prisma/client';
 import { AuthUser } from '../common/auth.types';
 import { EligibilityService } from '../eligibility/eligibility.service';
@@ -6,12 +6,14 @@ import { MarketplaceProductViewDto, MarketplaceSearchDto } from '../eligibility/
 import { PrismaService } from '../prisma/prisma.service';
 import { MarketplaceRankingService } from './marketplace-ranking.service';
 import { DemandObservationService } from '../demand/demand-observation.service';
+import { ChannelEligibilityService } from '../distribution/channel-eligibility.service';
+import { channelPublishedCapacity } from '../distribution/distribution-math';
 
 type SearchOptions = { productId?: string };
 
 @Injectable()
 export class MarketplaceService {
-  constructor(private readonly prisma: PrismaService, private readonly eligibility: EligibilityService, private readonly ranking: MarketplaceRankingService, private readonly observations: DemandObservationService = null as any) {}
+  constructor(private readonly prisma: PrismaService, private readonly eligibility: EligibilityService, private readonly ranking: MarketplaceRankingService, private readonly observations: DemandObservationService = null as any, @Optional() private readonly channelEligibility?: ChannelEligibilityService) {}
 
   private validatePriceCurrency(dto: MarketplaceSearchDto) {
     if ((dto.priceMin != null || dto.priceMax != null) && !dto.currency) throw new BadRequestException('MARKETPLACE_PRICE_CURRENCY_REQUIRED');
@@ -52,8 +54,8 @@ export class MarketplaceService {
     if ('durationMin' in s && (s.durationMin != null || s.durationMax != null)) variantWhere.durationMinutes = { ...(s.durationMin != null ? { gte: s.durationMin } : {}), ...(s.durationMax != null ? { lte: s.durationMax } : {}) };
     if ('privateShared' in s && s.privateShared) variantWhere.privateShared = { equals: s.privateShared, mode: 'insensitive' };
     if ('pickupIncluded' in s && s.pickupIncluded !== undefined) variantWhere.pickupIncluded = s.pickupIncluded;
-    const where = { status: RatePlanStatus.ACTIVE, validFrom: { lte: serviceDate }, validTo: { gt: serviceDate }, channelMappings: { some: { enabled: true, channel: { code: 'VOYA_AGENT', active: true } } }, variant: { ...variantWhere, product: { ...(options.productId ? { id: options.productId } : {}), status: ProductStatus.LIVE, currentRevision: revisionWhere, tenant: { kind: TenantKind.VENDOR, vendorProfile: { verificationStatus: 'VERIFIED' } } } }, scheduleMappings: { some: { active: true, scheduleTemplate: { status: 'ACTIVE', effectiveFrom: { lte: serviceDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: serviceDate } }], sessions: { some: { serviceDate, status: 'OPEN', archivedAt: null } } } } } };
-    const include = { travellerRules: true, variant: { include: { product: { include: { currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } } } } } } } }, scheduleMappings: { where: { active: true }, include: { scheduleTemplate: { include: { sessions: { where: { serviceDate, status: 'OPEN', archivedAt: null } } } } } } };
+    const where = { status: RatePlanStatus.ACTIVE, validFrom: { lte: serviceDate }, validTo: { gt: serviceDate }, channelMappings: { some: { status: 'ACTIVE', enabled: true, channel: { code: 'VOYA_AGENT', active: true } } }, variant: { ...variantWhere, product: { ...(options.productId ? { id: options.productId } : {}), status: ProductStatus.LIVE, currentRevision: revisionWhere, tenant: { kind: TenantKind.VENDOR, vendorProfile: { verificationStatus: 'VERIFIED' } } } }, scheduleMappings: { some: { active: true, scheduleTemplate: { status: 'ACTIVE', effectiveFrom: { lte: serviceDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: serviceDate } }], sessions: { some: { serviceDate, status: 'OPEN', archivedAt: null } } } } } };
+    const include = { travellerRules: true, channelMappings: { where: { status: 'ACTIVE', enabled: true, channel: { code: 'VOYA_AGENT', active: true } }, include: { channel: true, inventoryRule: true } }, variant: { include: { product: { include: { currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } } } } } } } }, scheduleMappings: { where: { active: true }, include: { scheduleTemplate: { include: { sessions: { where: { serviceDate, status: 'OPEN', archivedAt: null } } } } } } };
     const plans: any[] = []; const pageSize = 100; let cursor: string | undefined;
     do {
       const page: any[] = await this.prisma.ratePlan.findMany({ where, include, orderBy: { id: 'asc' }, take: pageSize, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) } as any);
@@ -72,11 +74,29 @@ export class MarketplaceService {
       for (const mapping of plan.scheduleMappings) for (const session of mapping.scheduleTemplate.sessions) {
         const result = await this.eligibility.evaluate({ agentTenantId, ratePlanId: plan.id, sessionId: session.id, travellers: s.travellers as any, units: s.units, channelCode: 'VOYA_AGENT' });
         if (!result.eligible) { for (const gate of (result.gates ?? []).filter((entry) => entry.status === 'FAIL')) { countFailure(gate.code); if (gate.code === 'INSUFFICIENT_INVENTORY') soldOutSessionIds.add(session.id); } continue; }
+        let exposedInventory = result.inventory;
+        if (this.channelEligibility) {
+          const channelResult = await this.channelEligibility.evaluate({ channelCode: 'VOYA_AGENT', productId: plan.variant.product.id, variantId: plan.variant.id, ratePlanId: plan.id, currency: (result.commercial as any)?.currency, units: s.units });
+          if (!channelResult.eligible) {
+            for (const gate of (channelResult.gates ?? []).filter((entry: any) => entry.status === 'FAIL')) countFailure(gate.code);
+            continue;
+          }
+          const channelMapping = plan.channelMappings?.[0];
+          const inventoryRule = channelMapping?.inventoryRule;
+          const available = Number((result.inventory as any)?.availableCapacity ?? 0);
+          const publishedAvailable = channelPublishedCapacity(available, inventoryRule?.capacityBuffer ?? 0, inventoryRule?.maxPublishedCapacity ?? undefined);
+          if (publishedAvailable <= 0) {
+            countFailure('INSUFFICIENT_INVENTORY');
+            soldOutSessionIds.add(session.id);
+            continue;
+          }
+          exposedInventory = { ...(result.inventory ?? {}), availableCapacity: publishedAvailable, channelExposureMode: inventoryRule?.exposureMode };
+        }
         const revision = plan.variant.product.currentRevision; const finalAmount = Number((result.commercial as any)?.finalAmount);
         if ('bookingMode' in s && s.bookingMode && result.bookingMode !== s.bookingMode) continue;
         if ('minRating' in s && s.minRating != null && Number(revision.starRating ?? 0) < s.minRating) continue;
         const media = revision.media.map((item: any) => this.safeMedia(item)).filter(Boolean);
-        const item: any = { product: { id: plan.variant.product.id, productCode: plan.variant.product.productCode, name: revision.productName, shortDescription: revision.shortDescription, destination: { city: revision.cityName, state: revision.stateName, country: revision.countryName }, starRating: revision.starRating?.toString() ?? null, coverMedia: media[0] ?? null }, variant: this.safeVariant(plan.variant), offer: { ratePlanId: plan.id, ratePlanCode: plan.ratePlanCode, name: plan.name, sessionId: session.id, serviceDate: session.serviceDate, localStartTime: session.localStartTime, localEndTime: session.localEndTime, timezone: mapping.scheduleTemplate.timezone, startsAt: session.startsAt, bookingMode: result.bookingMode, quoteFingerprint: (result.commercial as any)?.quoteFingerprint ?? null, price: result.commercial ? { currency: (result.commercial as any).currency, finalAmount: (result.commercial as any).finalAmount, tax: (result.commercial as any).tax, promotion: (result.commercial as any).promotion } : null, availability: result.inventory, evaluatedAt: result.evaluatedAt } };
+        const item: any = { product: { id: plan.variant.product.id, productCode: plan.variant.product.productCode, name: revision.productName, shortDescription: revision.shortDescription, destination: { city: revision.cityName, state: revision.stateName, country: revision.countryName }, starRating: revision.starRating?.toString() ?? null, coverMedia: media[0] ?? null }, variant: this.safeVariant(plan.variant), offer: { ratePlanId: plan.id, ratePlanCode: plan.ratePlanCode, name: plan.name, sessionId: session.id, serviceDate: session.serviceDate, localStartTime: session.localStartTime, localEndTime: session.localEndTime, timezone: mapping.scheduleTemplate.timezone, startsAt: session.startsAt, bookingMode: result.bookingMode, quoteFingerprint: (result.commercial as any)?.quoteFingerprint ?? null, price: result.commercial ? { currency: (result.commercial as any).currency, finalAmount: (result.commercial as any).finalAmount, tax: (result.commercial as any).tax, promotion: (result.commercial as any).promotion } : null, availability: exposedInventory, evaluatedAt: result.evaluatedAt } };
         const offerCurrency = String((result.commercial as any)?.currency ?? '').toUpperCase();
         if (Number.isFinite(finalAmount) && offerCurrency) { const values = priceValues.get(offerCurrency) ?? []; values.push(finalAmount); priceValues.set(offerCurrency, values); }
         eligibleBeforePrice.push(item);

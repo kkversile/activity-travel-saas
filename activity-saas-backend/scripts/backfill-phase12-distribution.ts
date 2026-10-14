@@ -11,7 +11,7 @@ async function outbox(tx: any, eventType: string, aggregateType: string, aggrega
 }
 
 async function main() {
-  const actor = await prisma.user.findFirst({ where: { role: 'ADMIN', active: true }, select: { id: true, role: true } });
+  const actor = await prisma.user.findFirst({ where: { role: 'SUPER_ADMIN', active: true }, select: { id: true, role: true } });
   if (!actor) throw new Error('An active ADMIN user is required for Phase 12 backfill');
 
   const result = await prisma.$transaction(async (tx) => {

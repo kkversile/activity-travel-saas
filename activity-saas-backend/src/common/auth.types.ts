@@ -8,4 +8,8 @@ export interface AuthUser {
   tenantId: string | null;
   organizationRole?: OrganizationRole | null;
   active?: boolean;
+  isImpersonating?: boolean;
+  impersonationSessionId?: string;
+  impersonatorId?: string;
+  impersonatorEmail?: string;
 }

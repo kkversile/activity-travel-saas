@@ -19,6 +19,86 @@ function optimisticRequired(current: unknown, expectedVersion: number | undefine
 @Injectable()
 export class ChannelMappingService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService) {}
+
+  /**
+   * Activate the complete VOYA_AGENT hierarchy for a published product.
+   * This is intentionally idempotent and atomic so an Admin cannot leave a
+   * product half-visible after activating only some of its mappings.
+   */
+  async activateAgentHierarchy(user: AuthUser, productId: string) {
+    return this.prisma.$transaction(async (tx: any) => {
+      const channel = await tx.distributionChannel.findUnique({ where: { code: 'VOYA_AGENT' } });
+      if (!channel) throw new NotFoundException('VOYA_AGENT channel not found');
+      if (!channel.active) throw new ConflictException({ code: 'CHANNEL_INACTIVE', message: 'VOYA_AGENT channel is inactive' });
+
+      const product = await tx.product.findUnique({
+        where: { id: productId },
+        include: {
+          currentRevision: { select: { status: true } },
+          variants: {
+            where: { status: 'ACTIVE', archivedAt: null },
+            include: { ratePlans: { where: { status: 'ACTIVE' } } },
+          },
+        },
+      });
+      if (!product) throw new NotFoundException('Product not found');
+      if (product.status !== 'LIVE' || product.currentRevision?.status !== 'PUBLISHED') {
+        throw new ConflictException({ code: 'PRODUCT_NOT_PUBLISHED', message: 'Publish the product before enabling it for Agents' });
+      }
+      if (!product.variants.length) throw new ConflictException({ code: 'CHANNEL_VARIANT_NOT_MAPPED', message: 'Product has no active variants to distribute' });
+      if (!product.variants.some((variant: any) => variant.ratePlans.length)) throw new ConflictException({ code: 'CHANNEL_RATE_PLAN_NOT_MAPPED', message: 'Product has no active rate plans to distribute' });
+
+      const now = new Date();
+      const activated = { product: null as any, variants: [] as any[], ratePlans: [] as any[], inventoryRules: [] as any[] };
+      const ensureActive = async (current: any, create: () => Promise<any>, update: () => Promise<any>, label: string) => {
+        if (!current) return create();
+        if (current.status === ChannelMappingStatus.RETIRED) throw new ConflictException({ code: 'CHANNEL_MAPPING_RETIRED', message: `${label} mapping is retired and cannot be reactivated` });
+        if (current.status !== ChannelMappingStatus.ACTIVE) return update();
+        return current;
+      };
+
+      const currentProductMapping = await tx.productChannelMapping.findUnique({ where: { channelId_productId: { channelId: channel.id, productId } } });
+      if (currentProductMapping?.activatedAt && currentProductMapping.externalProductCode !== product.productCode) throw new ConflictException({ code: 'CHANNEL_EXTERNAL_IDENTIFIER_IMMUTABLE', message: 'External product identifier is permanently immutable after activation' });
+      activated.product = await ensureActive(
+        currentProductMapping,
+        () => tx.productChannelMapping.create({ data: { channelId: channel.id, productId, externalProductCode: product.productCode, status: ChannelMappingStatus.ACTIVE, activatedAt: now, createdById: user.sub } }),
+        () => tx.productChannelMapping.update({ where: { id: currentProductMapping.id }, data: { status: ChannelMappingStatus.ACTIVE, activatedAt: currentProductMapping.activatedAt ?? now } }),
+        'Product',
+      );
+
+      for (const variant of product.variants) {
+        const currentVariantMapping = await tx.variantChannelMapping.findUnique({ where: { channelId_variantId: { channelId: channel.id, variantId: variant.id } } });
+        if (currentVariantMapping?.activatedAt && currentVariantMapping.externalVariantCode !== variant.variantCode) throw new ConflictException({ code: 'CHANNEL_EXTERNAL_IDENTIFIER_IMMUTABLE', message: 'External variant identifier is permanently immutable after activation' });
+        const mapping = await ensureActive(
+          currentVariantMapping,
+          () => tx.variantChannelMapping.create({ data: { channelId: channel.id, variantId: variant.id, externalVariantCode: variant.variantCode, status: ChannelMappingStatus.ACTIVE, activatedAt: now, createdById: user.sub } }),
+          () => tx.variantChannelMapping.update({ where: { id: currentVariantMapping.id }, data: { status: ChannelMappingStatus.ACTIVE, activatedAt: currentVariantMapping.activatedAt ?? now } }),
+          'Variant',
+        );
+        activated.variants.push(mapping);
+
+        for (const plan of variant.ratePlans) {
+          const currentRateMapping = await tx.ratePlanChannelMapping.findUnique({ where: { ratePlanId_channelId: { ratePlanId: plan.id, channelId: channel.id } } });
+          if (currentRateMapping?.activatedAt && currentRateMapping.externalRatePlanCode !== plan.ratePlanCode) throw new ConflictException({ code: 'CHANNEL_EXTERNAL_IDENTIFIER_IMMUTABLE', message: 'External rate-plan identifier is permanently immutable after activation' });
+          const rateMapping = await ensureActive(
+            currentRateMapping,
+            () => tx.ratePlanChannelMapping.create({ data: { channelId: channel.id, ratePlanId: plan.id, externalRatePlanCode: plan.ratePlanCode, status: ChannelMappingStatus.ACTIVE, enabled: true, activatedAt: now, createdById: user.sub } }),
+            () => tx.ratePlanChannelMapping.update({ where: { id: currentRateMapping.id }, data: { status: ChannelMappingStatus.ACTIVE, enabled: true, activatedAt: currentRateMapping.activatedAt ?? now, disabledAt: null } }),
+            'Rate plan',
+          );
+          activated.ratePlans.push(rateMapping);
+          const currentRule = await tx.channelInventoryRule.findUnique({ where: { ratePlanChannelMappingId: rateMapping.id } });
+          const rule = currentRule ?? await tx.channelInventoryRule.create({ data: { ratePlanChannelMappingId: rateMapping.id, exposureMode: ChannelInventoryExposureMode.AVAILABLE_ONLY, capacityBuffer: 0 } });
+          activated.inventoryRules.push(rule);
+        }
+      }
+
+      await this.audit.write(tx, { actor: user, tenantId: product.tenantId, action: 'AGENT_DISTRIBUTION_HIERARCHY_ACTIVATED', entityType: 'Product', entityId: product.id, afterState: { channelCode: channel.code, productMappingId: activated.product.id, variantMappingCount: activated.variants.length, ratePlanMappingCount: activated.ratePlans.length, inventoryRuleCount: activated.inventoryRules.length } });
+      await this.outbox.enqueue(tx, { tenantId: product.tenantId, eventType: 'DISTRIBUTION_MAPPING_CHANGED', aggregateType: 'Product', aggregateId: product.id, payload: { channelCode: channel.code, action: 'ACTIVATE_HIERARCHY', variantMappingCount: activated.variants.length, ratePlanMappingCount: activated.ratePlans.length } });
+      return { channel: { id: channel.id, code: channel.code }, productId: product.id, mappings: activated };
+    });
+  }
+
   list(channelId?: string) { return this.prisma.productChannelMapping.findMany({ where: channelId ? { channelId } : undefined, include: { product: { select: { id: true, productCode: true, status: true } }, channel: true }, orderBy: { updatedAt: 'desc' } }); }
   inventoryList(channelId?: string) { return this.prisma.channelInventoryRule.findMany({ where: channelId ? { ratePlanChannelMapping: { channelId } } : undefined, include: { ratePlanChannelMapping: { include: { channel: true, ratePlan: { include: { variant: { include: { product: { select: { id: true, productCode: true } } } } } } } } }, orderBy: { updatedAt: 'desc' } }); }
   async product(user: AuthUser, dto: MappingDto) {

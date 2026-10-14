@@ -215,7 +215,7 @@ export class CommercialService {
   }
 
   async quote(user: AuthUser, dto: QuoteDto) {
-    const plan = user.role === 'ADMIN' || user.role === 'SUB_ADMIN' ? await this.prisma.ratePlan.findUnique({ where: { id: dto.ratePlanId }, include: { variant: { include: { product: true } } } }) : await this.ownedRatePlan(user, dto.ratePlanId);
+    const plan = user.role === 'SUPER_ADMIN' || user.role === 'ADMIN' ? await this.prisma.ratePlan.findUnique({ where: { id: dto.ratePlanId }, include: { variant: { include: { product: true } } } }) : await this.ownedRatePlan(user, dto.ratePlanId);
     if (!plan) throw new NotFoundException('Rate plan not found');
     const versions = await this.prisma.ratePlanCommercialVersion.findMany({ where: { ratePlanId: plan.id, status: CommercialVersionStatus.ACTIVE, ...dateWindow(new Date(dto.serviceDate)) }, include: versionSelect });
     let version: any = null; let ambiguousVersion = false;

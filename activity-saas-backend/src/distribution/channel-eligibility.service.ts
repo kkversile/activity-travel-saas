@@ -8,19 +8,20 @@ import { DistributionEligibilityResult } from './distribution.types';
 @Injectable()
 export class ChannelEligibilityService {
   constructor(private readonly prisma: PrismaService) {}
-  async evaluate(input: { channelId?: string; channelCode?: string; productId: string; variantId: string; ratePlanId: string; currency?: string; units?: number }): Promise<DistributionEligibilityResult> {
+  async evaluate(input: { channelId?: string; channelCode?: string; productId: string; variantId: string; ratePlanId: string; currency?: string; units?: number }, options: { client?: any } = {}): Promise<DistributionEligibilityResult> {
+    const db = options.client ?? this.prisma;
     const gates: any[] = []; const reasons: string[] = [];
     const add = (gate: string, status: 'PASS' | 'FAIL' | 'NOT_EVALUATED', code?: string, details?: Record<string, unknown>) => { gates.push({ gate, status, code, message: code ? messageFor(code) : 'Gate passed.', details }); if (code) reasons.push(code); };
-    const channel = input.channelId ? await this.prisma.distributionChannel.findUnique({ where: { id: input.channelId } }) : await this.prisma.distributionChannel.findUnique({ where: { code: input.channelCode! } });
+    const channel = input.channelId ? await db.distributionChannel.findUnique({ where: { id: input.channelId } }) : await db.distributionChannel.findUnique({ where: { code: input.channelCode! } });
     if (!channel) { add('CHANNEL', 'FAIL', 'CHANNEL_NOT_FOUND'); return { eligible: false, gates, reasonCodes: reasons }; }
     if (!channel.active) add('CHANNEL', 'FAIL', 'CHANNEL_INACTIVE', { channelId: channel.id }); else add('CHANNEL', 'PASS', undefined, { channelId: channel.id, code: channel.code });
-    const now = new Date(); const contract = await this.prisma.channelContract.findFirst({ where: { channelId: channel.id, status: ChannelContractStatus.ACTIVE }, orderBy: { versionNumber: 'desc' } });
+    const now = new Date(); const contract = await db.channelContract.findFirst({ where: { channelId: channel.id, status: ChannelContractStatus.ACTIVE }, orderBy: { versionNumber: 'desc' } });
     if (!contract) add('CONTRACT', 'FAIL', 'CHANNEL_CONTRACT_MISSING'); else if (contract.effectiveFrom > now || (contract.effectiveTo && contract.effectiveTo <= now)) add('CONTRACT', 'FAIL', 'CHANNEL_CONTRACT_NOT_ACTIVE', { contractId: contract.id }); else add('CONTRACT', 'PASS', undefined, { contractId: contract.id, version: contract.versionNumber });
     const [productMapping, variantMapping, rateMapping, plan] = await Promise.all([
-      this.prisma.productChannelMapping.findUnique({ where: { channelId_productId: { channelId: channel.id, productId: input.productId } } }),
-      this.prisma.variantChannelMapping.findUnique({ where: { channelId_variantId: { channelId: channel.id, variantId: input.variantId } } }),
-      this.prisma.ratePlanChannelMapping.findUnique({ where: { ratePlanId_channelId: { ratePlanId: input.ratePlanId, channelId: channel.id } }, include: { inventoryRule: true } }),
-      this.prisma.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { variant: { include: { product: { include: { tenant: { include: { vendorProfile: true } }, currentRevision: { include: { fulfilmentPolicy: true } } } } } } } }),
+      db.productChannelMapping.findUnique({ where: { channelId_productId: { channelId: channel.id, productId: input.productId } } }),
+      db.variantChannelMapping.findUnique({ where: { channelId_variantId: { channelId: channel.id, variantId: input.variantId } } }),
+      db.ratePlanChannelMapping.findUnique({ where: { ratePlanId_channelId: { ratePlanId: input.ratePlanId, channelId: channel.id } }, include: { inventoryRule: true } }),
+      db.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { variant: { include: { product: { include: { tenant: { include: { vendorProfile: true } }, currentRevision: { include: { fulfilmentPolicy: true } } } } } } } }),
     ]);
     if (!productMapping) add('PRODUCT_MAPPING', 'FAIL', 'CHANNEL_PRODUCT_NOT_MAPPED'); else if (productMapping.status !== ChannelMappingStatus.ACTIVE) add('PRODUCT_MAPPING', 'FAIL', 'CHANNEL_PRODUCT_MAPPING_DISABLED', { status: productMapping.status }); else add('PRODUCT_MAPPING', 'PASS', undefined, { externalProductCode: productMapping.externalProductCode });
     if (!variantMapping) add('VARIANT_MAPPING', 'FAIL', 'CHANNEL_VARIANT_NOT_MAPPED'); else if (variantMapping.status !== ChannelMappingStatus.ACTIVE) add('VARIANT_MAPPING', 'FAIL', 'CHANNEL_VARIANT_MAPPING_DISABLED', { status: variantMapping.status }); else add('VARIANT_MAPPING', 'PASS', undefined, { externalVariantCode: variantMapping.externalVariantCode });

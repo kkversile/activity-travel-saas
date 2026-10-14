@@ -1,7 +1,7 @@
 import { DocumentReviewStatus, UserRole, VendorVerificationStatus } from '@prisma/client';
 import { AdminService } from './admin.service';
 
-const actor = { sub: 'admin-1', email: 'admin@voya.test', role: UserRole.ADMIN, tenantId: null } as any;
+const actor = { sub: 'admin-1', email: 'admin@voya.test', role: UserRole.SUPER_ADMIN, tenantId: null } as any;
 
 describe('AdminService governance', () => {
   it('rejects unsupported vendor verification transitions', async () => {

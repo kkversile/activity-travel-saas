@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ProductRevisionStatus, ProductType, ScheduleStatus, SessionStatus, VariantStatus } from '@prisma/client';
 import { CommercialService } from '../commercial/commercial.service';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
 import { PrismaService } from '../prisma/prisma.service';
+import { ChannelDistributionReadinessService, ProductDistributionReadiness } from '../distribution/channel-distribution-readiness.service';
 
 export type ReadinessSection = { ready: boolean; reasonCodes: string[]; details?: Record<string, unknown> };
 export type ProductReadiness = {
@@ -17,8 +18,11 @@ export type ProductReadiness = {
     rates: ReadinessSection;
     availability: ReadinessSection;
     mediaFulfilment: ReadinessSection;
+    distribution: ReadinessSection;
   };
   reasonCodes: string[];
+  distributionReady: boolean;
+  distributionReasonCodes: string[];
   evaluatedAt: string;
 };
 
@@ -30,7 +34,7 @@ const startOfToday = () => {
 
 @Injectable()
 export class ProductReadinessService {
-  constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService) {}
+  constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService) {}
 
   async evaluate(user: AuthUser, productId: string, client: any = this.prisma): Promise<ProductReadiness> {
     const tenantId = requireTenant(user);
@@ -113,6 +117,13 @@ export class ProductReadinessService {
     if (!revision?.media?.some((media: any) => media.kind === 'IMAGE')) mediaReasons.push('COVER_IMAGE_MISSING');
     if (!revision?.fulfilmentPolicy?.mode) mediaReasons.push('FULFILMENT_POLICY_MISSING');
 
+    const distribution: ProductDistributionReadiness = this.distributionReadiness
+      ? await this.distributionReadiness.evaluate(productId, client)
+      : {
+        channelCode: 'VOYA_AGENT', ready: false, status: 'PENDING', reasonCodes: ['CHANNEL_PRODUCT_NOT_MAPPED'],
+        details: { channelId: null, productMapping: 'MISSING', activeVariantCount: variants.length, mappedVariantCount: 0, activeRatePlanCount: activePlans.length, mappedRatePlanCount: 0, inventoryRuleCount: 0 },
+      };
+
     const sections = {
       basicInfo: section(basicReasons),
       experience: section(experienceReasons),
@@ -120,8 +131,11 @@ export class ProductReadinessService {
       rates: section([...new Set(ratesReasons)], { activeRatePlanCount: activePlans.length, readyRatePlanCount: readyOffers.length }),
       availability: section([...new Set(availabilityReasons)], { activeScheduleCount: activeSchedules.length }),
       mediaFulfilment: section(mediaReasons),
+      distribution: section(distribution.reasonCodes, distribution.details),
     };
-    const reasonCodes = [...new Set(Object.values(sections).flatMap((item) => item.reasonCodes))];
-    return { productId, revisionId: revision?.id || null, ready: reasonCodes.length === 0, sections, reasonCodes, evaluatedAt: new Date().toISOString() };
+    // Distribution is intentionally excluded from `ready`: vendors may submit
+    // and Admin may publish before the separate Agent-channel activation step.
+    const reasonCodes = [...new Set(Object.entries(sections).filter(([key]) => key !== 'distribution').flatMap(([, item]) => item.reasonCodes))];
+    return { productId, revisionId: revision?.id || null, ready: reasonCodes.length === 0, sections, reasonCodes, distributionReady: distribution.ready, distributionReasonCodes: distribution.reasonCodes, evaluatedAt: new Date().toISOString() };
   }
 }

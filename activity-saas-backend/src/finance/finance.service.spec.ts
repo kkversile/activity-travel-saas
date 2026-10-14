@@ -2,7 +2,7 @@ import { FinancialEventStatus, FinancialEventType, PaymentCollectionMode, Settle
 import { Prisma } from '@prisma/client';
 import { FinanceService } from './finance.service';
 
-const admin: any = { sub: 'admin-1', email: 'admin@example.com', role: UserRole.ADMIN, tenantId: null };
+const admin: any = { sub: 'admin-1', email: 'admin@example.com', role: UserRole.SUPER_ADMIN, tenantId: null };
 const policy: any = { id: 'policy-1', vendorTenantId: 'vendor-1', cycleMode: 'MANUAL', eligibilityTrigger: 'BOOKING_CONFIRMED', settlementDelayDays: 0, weeklyDay: null, active: true, reviewRequired: false, version: 1 };
 const booking = (id: string, amount = '10000', confirmedAt = new Date(Date.now() - 10 * 86400000)) => ({ id, amount: new Prisma.Decimal(amount), currency: 'INR', status: 'CONFIRMED', confirmedAt, economicsSnapshot: { vendorPayable: new Prisma.Decimal(amount) }, cancellation: null, events: [], redemption: null });
 const event = (id: string, type: FinancialEventType, amount: string, b?: any, currency = 'INR') => ({ id, eventKey: id, vendorTenantId: 'vendor-1', type, status: FinancialEventStatus.POSTED, currency, amount: new Prisma.Decimal(amount), vendorAmount: new Prisma.Decimal(amount), booking: b || null, bookingId: b?.id || null, settlementAllocations: [], components: {}, occurredAt: new Date(Date.now() - 10 * 86400000) });

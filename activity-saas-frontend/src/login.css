@@ -8,3 +8,14 @@
 .login-role-buttons .btn {
   padding: 10px 12px;
 }
+
+.login-switch {
+  display: block;
+  margin: 4px 0 16px;
+}
+
+.login-demo-note {
+  display: block;
+  margin: 10px 0;
+  color: #8d6b31;
+}

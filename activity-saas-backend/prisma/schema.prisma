@@ -96,10 +96,21 @@ enum PromotionFunder {
 }
 
 enum UserRole {
+  SUPER_ADMIN
   ADMIN
-  SUB_ADMIN
   VENDOR
   TRAVEL_AGENT
+}
+
+enum EmailAuthChallengePurpose {
+  ACTIVATE_VENDOR
+  RESET_VENDOR_PASSWORD
+}
+
+enum ImpersonationSessionStatus {
+  ACTIVE
+  ENDED
+  EXPIRED
 }
 
 enum DistributionChannelType {
@@ -161,6 +172,28 @@ enum VendorVerificationStatus {
   PENDING
   VERIFIED
   SUSPENDED
+}
+
+enum VendorOnboardingStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+}
+
+enum VendorGstStatus {
+  REGISTERED
+  NOT_REGISTERED
+  PENDING_REVIEW
+  REJECTED
+}
+
+enum VendorBankVerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
 }
 
 enum AgentVerificationStatus {
@@ -296,6 +329,7 @@ enum FileVisibility {
 enum FilePurpose {
   PRODUCT_MEDIA
   VENDOR_DOCUMENT
+  ONBOARDING_SIGNATURE
   BOOKING_VOUCHER
   FULFILMENT_DOCUMENT
   OTHER
@@ -674,6 +708,7 @@ model Tenant {
   kind                     TenantKind                               @default(VENDOR)
   users                    User[]
   vendorProfile            VendorProfile?
+  vendorOnboarding         VendorOnboardingApplication?
   agentProfile             AgentProfile?
   vendorBookings           Booking[]                                @relation("BookingVendor")
   agentBookings            Booking[]                                @relation("BookingAgent")
@@ -714,6 +749,8 @@ model User {
   createdFileAssets               FileAsset[]
   createdDocumentVersions         VendorDocumentVersion[]         @relation("DocumentVersionCreatedBy")
   reviewedDocumentVersions        VendorDocumentVersion[]         @relation("DocumentVersionReviewedBy")
+  submittedVendorOnboardings      VendorOnboardingApplication[]   @relation("VendorOnboardingSubmittedBy")
+  reviewedVendorOnboardings       VendorOnboardingApplication[]   @relation("VendorOnboardingReviewedBy")
   createdProductRevisions         ProductRevision[]               @relation("ProductRevisionCreatedBy")
   reviewedProductRevisions        ProductRevision[]               @relation("ProductRevisionReviewedBy")
   createdCommercialVersions       RatePlanCommercialVersion[]     @relation("CommercialVersionCreatedBy")
@@ -748,6 +785,39 @@ model User {
   updatedAt                       DateTime                        @updatedAt
 
   @@index([tenantId, role])
+}
+
+model EmailAuthChallenge {
+  id                    String                    @id @default(uuid())
+  email                 String
+  purpose               EmailAuthChallengePurpose
+  codeHash              String
+  verificationTokenHash String?
+  expiresAt             DateTime
+  attempts              Int                       @default(0)
+  verifiedAt            DateTime?
+  consumedAt            DateTime?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+
+  @@index([email, purpose, createdAt])
+  @@index([verificationTokenHash, consumedAt])
+}
+
+model ImpersonationSession {
+  id              String                     @id @default(uuid())
+  originalAdminId String
+  targetUserId    String
+  status          ImpersonationSessionStatus @default(ACTIVE)
+  reason          String?
+  expiresAt       DateTime
+  endedAt         DateTime?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+
+  @@index([originalAdminId, createdAt])
+  @@index([targetUserId, status])
+  @@index([status, expiresAt])
 }
 
 model VendorProfile {
@@ -788,6 +858,59 @@ model AgentProfile {
   updatedAt          DateTime                @updatedAt
 
   @@index([verificationStatus])
+}
+
+model VendorOnboardingApplication {
+  id                       String                       @id @default(uuid())
+  tenantId                 String                       @unique
+  tenant                   Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  status                   VendorOnboardingStatus       @default(DRAFT)
+  currentStep              Int                          @default(1)
+  firstName                String?
+  lastName                 String?
+  contactNumber            String?
+  phoneVerifiedAt          DateTime?
+  otpHash                  String?
+  otpExpiresAt             DateTime?
+  otpRequestedAt           DateTime?
+  otpAttempts              Int                          @default(0)
+  businessDisplayName      String?
+  legalBusinessName        String?
+  panNumber                String?
+  gstStatus                VendorGstStatus?
+  gstin                    String?
+  gstDeclarationAccepted   Boolean                      @default(false)
+  addressLine              String?
+  city                     String?
+  state                    String?
+  pinCode                  String?
+  latitude                 Decimal?                     @db.Decimal(10, 7)
+  longitude                Decimal?                     @db.Decimal(10, 7)
+  accountHolderName        String?
+  bankName                 String?
+  bankAccountCiphertext    String?
+  bankAccountMasked        String?
+  ifscCode                 String?
+  accountType              String?
+  bankOwnershipConfirmed   Boolean                      @default(false)
+  bankVerificationStatus   VendorBankVerificationStatus @default(PENDING)
+  agreementVersion         String?
+  agreementAcceptedAt      DateTime?
+  authorizedBusinessName   String?
+  authorizedRepresentative String?
+  signatureData            String?
+  startedAt                DateTime?
+  submittedAt              DateTime?
+  submittedById            String?
+  submittedBy              User?                        @relation("VendorOnboardingSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  reviewedAt               DateTime?
+  reviewedById             String?
+  reviewedBy               User?                        @relation("VendorOnboardingReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewReason             String?
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+
+  @@index([status, updatedAt])
 }
 
 model FileAsset {

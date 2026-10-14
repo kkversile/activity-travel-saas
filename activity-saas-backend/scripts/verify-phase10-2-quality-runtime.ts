@@ -16,8 +16,8 @@ const check = (condition: unknown, message: string) => { if (!condition) throw n
 const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 async function main() {
-  const actorRow = await prisma.user.findFirst({ where: { role: { in: [UserRole.ADMIN, UserRole.SUB_ADMIN] } }, select: { id: true, email: true, fullName: true, role: true, tenantId: true } });
-  check(actorRow, 'An ADMIN or SUB_ADMIN user is required for the controlled verifier');
+  const actorRow = await prisma.user.findFirst({ where: { role: { in: [UserRole.SUPER_ADMIN, UserRole.ADMIN] } }, select: { id: true, email: true, fullName: true, role: true, tenantId: true } });
+  check(actorRow, 'A SUPER_ADMIN or ADMIN user is required for the controlled verifier');
   const actor = { sub: actorRow!.id, email: actorRow!.email, fullName: actorRow!.fullName, role: actorRow!.role, tenantId: actorRow!.tenantId } as any;
   const vendor = await prisma.tenant.create({ data: { name: `Phase 10.2 Runtime Vendor ${id('v')}`, slug: id('phase-10-2-vendor').toLowerCase(), kind: TenantKind.VENDOR } });
   const otherVendor = await prisma.tenant.create({ data: { name: `Phase 10.2 Other Vendor ${id('v')}`, slug: id('phase-10-2-other').toLowerCase(), kind: TenantKind.VENDOR } });

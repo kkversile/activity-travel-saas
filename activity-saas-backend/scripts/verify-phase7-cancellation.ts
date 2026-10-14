@@ -130,7 +130,7 @@ async function main() {
       where: { email: "vendor@voya.demo" },
     });
     const adminUser = await prisma.user.findUniqueOrThrow({
-      where: { email: "admin@voya.demo" },
+      where: { email: "superadmin@voya.demo" },
     });
     const asAuth = (user: any): AuthUser => ({
       sub: user.id,

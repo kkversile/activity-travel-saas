@@ -36,7 +36,7 @@ export class AgentVoucherController {
   @Post(':bookingId/voucher/share') @Permissions('voucher.share') share(@CurrentUser() user: AuthUser, @Param('bookingId') id: string, @Body() dto: VoucherShareDto) { return this.service.share(user, id, dto); }
 }
 
-@Controller('admin/fulfilment') @ApiTags('Admin Fulfilment') @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard) @Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+@Controller('admin/fulfilment') @ApiTags('Admin Fulfilment') @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard) @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class AdminFulfilmentController {
   constructor(private readonly service: FulfilmentService) {}
   @Get() @Permissions('fulfilment.view.admin') list(@Query() query: FulfilmentQueryDto) { return this.service.adminList(query); }

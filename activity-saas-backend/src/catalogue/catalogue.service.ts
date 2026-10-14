@@ -12,6 +12,7 @@ import { validateFulfilmentPolicy } from '../fulfilment/fulfilment.types';
 import { ArchiveVariantDto, CreateProductDraftDto, CreateProductDto, CreateProductRevisionDto, ProductListingQueryDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, ProductRevisionDto, RejectProductRevisionDto, UpdateProductMediaRankDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
 import { ProductReadinessService } from './product-readiness.service';
 import { CommercialService } from '../commercial/commercial.service';
+import { ChannelDistributionReadinessService } from '../distribution/channel-distribution-readiness.service';
 
 const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, fulfilmentPolicy: true, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
 const variantInclude = { ratePlans: { include: { travellerRules: true, cancellationRules: { orderBy: { minDaysBefore: 'desc' as const } } }, orderBy: { createdAt: 'asc' as const } } };
@@ -19,7 +20,7 @@ const startOfToday = () => { const value = new Date(); value.setHours(0, 0, 0, 0
 
 @Injectable()
 export class CatalogueService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly storage: StorageService, @Optional() private readonly readinessService?: ProductReadinessService, @Optional() private readonly commercial?: CommercialService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly storage: StorageService, @Optional() private readonly readinessService?: ProductReadinessService, @Optional() private readonly commercial?: CommercialService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService) {}
 
   private data(dto: ProductRevisionDto | UpdateProductRevisionDto): Prisma.ProductRevisionUncheckedCreateInput {
     const { faqs, sourcePayload, fulfilmentPolicy: _fulfilmentPolicy, ...rest } = dto as ProductRevisionDto;
@@ -130,11 +131,14 @@ export class CatalogueService {
     const display = published || working || rejected || product.currentRevision;
     const displayStatus = product.status === ProductStatus.ARCHIVED ? 'ARCHIVED' : product.status === ProductStatus.SUSPENDED ? 'SUSPENDED' : published ? 'PUBLISHED' : working?.status === ProductRevisionStatus.UNDER_REVIEW ? 'UNDER_REVIEW' : rejected ? 'NEEDS_CHANGES' : 'DRAFT';
     const readiness = await this.aggregateBookability(user, product, published);
+    const distribution = this.distributionReadiness
+      ? await this.distributionReadiness.evaluate(product.id)
+      : { channelCode: 'VOYA_AGENT', ready: false, status: 'PENDING', reasonCodes: ['CHANNEL_PRODUCT_NOT_MAPPED'] };
     const updatedAt = [product.updatedAt, published?.updatedAt, working?.updatedAt, rejected?.updatedAt].filter(Boolean).map((value: Date) => value.getTime()).reduce((max: number, value: number) => Math.max(max, value), 0);
     return {
       id: product.id, productCode: product.productCode, experienceName: display?.productName || 'Untitled product', destination: [display?.cityName, display?.stateName].filter(Boolean).join(', ') || null,
       optionCount: product.variants?.length || 0, productStatus: product.status, displayStatus, currentRevisionId: product.currentRevisionId || null, workingRevisionId: working?.id || null, workingRevisionStatus: working?.status || null,
-      updatedAt: new Date(updatedAt || Date.now()).toISOString(), bookability: readiness, quality: { score: null, status: 'NOT_SCORED' }, action: displayStatus === 'NEEDS_CHANGES' ? 'FIX' : 'OPEN',
+      updatedAt: new Date(updatedAt || Date.now()).toISOString(), bookability: readiness, distribution, quality: { score: null, status: 'NOT_SCORED' }, action: displayStatus === 'NEEDS_CHANGES' ? 'FIX' : 'OPEN',
     };
   }
 
@@ -353,7 +357,7 @@ export class CatalogueService {
   }
 
   async review(user: AuthUser, id: string, decision: 'publish' | 'reject', dto?: RejectProductRevisionDto) {
-    if (user.role !== UserRole.ADMIN && user.role !== UserRole.SUB_ADMIN) throw new ConflictException('Only platform reviewers can review product revisions');
+    if (user.role !== UserRole.SUPER_ADMIN && user.role !== UserRole.ADMIN) throw new ConflictException('Only platform reviewers can review product revisions');
     if (decision === 'reject' && (!dto?.reason?.trim() || dto.reason.trim().length < 5)) throw new ConflictException('A rejection reason of at least 5 characters is required');
     return this.prisma.$transaction(async (tx) => {
       const candidate = await tx.productRevision.findFirst({ where: { id, product: { tenant: { kind: 'VENDOR' } } }, include: { product: true } });

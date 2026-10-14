@@ -27,7 +27,7 @@ export class VendorQualityController {
 @Controller('admin/quality')
 @ApiTags('Supplier Quality Administration')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
-@Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class AdminQualityController {
   constructor(private readonly prisma: PrismaService, private readonly performance: SupplierPerformanceService, private readonly snapshots: SupplierQualitySnapshotService, private readonly policies: SupplierQualityPolicyService, private readonly issues: SupplierQualityIssueService, private readonly tiers: SupplierTierService) {}
 

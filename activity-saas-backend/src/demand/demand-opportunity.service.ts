@@ -394,7 +394,7 @@ export class DemandOpportunityService {
           });
           if (
             !owner?.active ||
-            !([UserRole.ADMIN, UserRole.SUB_ADMIN] as string[]).includes(
+            !([UserRole.SUPER_ADMIN, UserRole.ADMIN] as string[]).includes(
               owner.role,
             ) ||
             owner.tenantId
@@ -600,7 +600,7 @@ export class DemandOpportunityService {
     return this.prisma.user.findMany({
       where: {
         active: true,
-        role: { in: [UserRole.ADMIN, UserRole.SUB_ADMIN] },
+        role: { in: [UserRole.SUPER_ADMIN, UserRole.ADMIN] },
         tenantId: null,
       },
       select: { id: true, fullName: true, email: true, role: true },

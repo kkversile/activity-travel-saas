@@ -32,6 +32,7 @@ export class DistributionService {
   activateContract(user: AuthUser, id: string) { return this.contracts.activate(user, id); }
   retireContract(user: AuthUser, id: string) { return this.contracts.retire(user, id); }
   productMapping(user: AuthUser, dto: any) { return this.mappings.product(user, dto); }
+  activateAgentHierarchy(user: AuthUser, productId: string) { return this.mappings.activateAgentHierarchy(user, productId); }
   variantMapping(user: AuthUser, dto: any) { return this.mappings.variant(user, dto); }
   rateMapping(user: AuthUser, dto: any) { return this.mappings.rate(user, dto); }
   inventoryRule(user: AuthUser, dto: any) { return this.mappings.inventory(user, dto); }

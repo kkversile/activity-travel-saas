@@ -19,7 +19,7 @@ import { DistributionService } from '../src/distribution/distribution.service';
 import { AuthUser } from '../src/common/auth.types';
 
 const prisma = new PrismaClient();
-const admin: AuthUser = { sub: '', email: 'phase12-verifier@voya.demo', fullName: 'Phase 12 Verifier', role: UserRole.ADMIN, tenantId: null, organizationRole: null, active: true };
+const admin: AuthUser = { sub: '', email: 'phase12-verifier@voya.demo', fullName: 'Phase 12 Verifier', role: UserRole.SUPER_ADMIN, tenantId: null, organizationRole: null, active: true };
 const startedAt = new Date();
 const assert = (condition: unknown, message: string) => { if (!condition) throw new Error(`Phase 12 assertion failed: ${message}`); };
 
@@ -36,7 +36,7 @@ async function main() {
   const agentChannel = await prisma.distributionChannel.findUniqueOrThrow({ where: { code: 'VOYA_AGENT' } }); const agentMapping = await prisma.ratePlanChannelMapping.findFirstOrThrow({ where: { channelId: agentChannel.id, status: ChannelMappingStatus.ACTIVE }, include: { ratePlan: { include: { variant: true } } } });
   const product = await prisma.product.findFirstOrThrow({ where: { id: agentMapping.ratePlan.variant.productId }, include: { variants: { where: { status: 'ACTIVE', archivedAt: null }, include: { ratePlans: { where: { status: 'ACTIVE' } } } } } }); const variant = product.variants.find((item) => item.id === agentMapping.ratePlan.variantId) || product.variants[0]; const ratePlan = variant.ratePlans[0] || agentMapping.ratePlan;
   const session = await prisma.serviceSession.findFirstOrThrow({ where: { serviceDate: { gt: new Date() }, scheduleTemplate: { variantId: variant.id, capacityUnitReviewRequired: false, ratePlanMappings: { some: { ratePlanId: ratePlan.id, active: true } } }, archivedAt: null }, include: { inventoryState: true, scheduleTemplate: true }, orderBy: { serviceDate: 'asc' } });
-  admin.sub = (await prisma.user.findFirstOrThrow({ where: { role: UserRole.ADMIN, active: true }, select: { id: true } })).id;
+  admin.sub = (await prisma.user.findFirstOrThrow({ where: { role: UserRole.SUPER_ADMIN, active: true }, select: { id: true } })).id;
   try {
     const channel = await distribution.createChannel(admin, { code: channelCode, name: `Phase 12 Partner ${suffix}`, type: 'PARTNER_API', description: 'Isolated Phase 12 verifier channel', active: true }); channelId = channel.id; ids.push(channel.id);
     const draftA = await contracts.create(admin, channelId, { name: 'Contract A', effectiveFrom: '2020-01-01T00:00:00.000Z', capabilities: ['CATALOG_READ', 'AVAILABILITY_READ', 'PRICING_READ', 'EVENT_READ'], allowedCurrencies: ['INR'], availabilityHorizonDays: 365 }); ids.push(draftA.id);

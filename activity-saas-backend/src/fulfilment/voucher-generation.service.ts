@@ -42,7 +42,7 @@ export class VoucherGenerationService {
       if (fulfilment.generationStatus === VoucherGenerationStatus.PENDING) return fulfilment;
       if (![VoucherGenerationStatus.FAILED, VoucherGenerationStatus.SUCCEEDED].includes(fulfilment.generationStatus)) throw new ConflictException('VOUCHER_RETRY_NOT_AVAILABLE');
       const updated = await tx.bookingFulfilment.update({ where: { id: fulfilmentId }, data: { status: BookingFulfilmentStatus.READY_FOR_VOUCHER, generationStatus: VoucherGenerationStatus.PENDING, generationRequestedAt: new Date(), generationToken: null, generationClaimedAt: null, generationLeaseExpiresAt: null, lastGenerationError: null, version: { increment: 1 } } });
-      await this.audit.write(tx, { actor: actor ?? { sub: 'system', email: 'system', role: 'ADMIN' }, tenantId: fulfilment.booking.vendorTenantId, action: 'VOUCHER_GENERATION_RETRY_REQUESTED', entityType: 'BookingFulfilment', entityId: fulfilmentId, metadata: { bookingId: fulfilment.bookingId, fulfilmentId } });
+      await this.audit.write(tx, { actor: actor ?? { sub: 'system', email: 'system', role: 'SUPER_ADMIN' }, tenantId: fulfilment.booking.vendorTenantId, action: 'VOUCHER_GENERATION_RETRY_REQUESTED', entityType: 'BookingFulfilment', entityId: fulfilmentId, metadata: { bookingId: fulfilment.bookingId, fulfilmentId } });
       await this.outbox.enqueue(tx, { tenantId: fulfilment.booking.vendorTenantId, eventType: 'VOUCHER_GENERATION_REQUESTED', aggregateType: 'BookingFulfilment', aggregateId: fulfilmentId, payload: { bookingId: fulfilment.bookingId, reason: 'explicit retry' } });
       return updated;
     }, { timeout: 30000, maxWait: 30000 });

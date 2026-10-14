@@ -24,7 +24,7 @@ const check = (value: unknown, message: string) => {
 
 async function main() {
   const actorRow = await prisma.user.findFirst({
-    where: { role: { in: [UserRole.ADMIN, UserRole.SUB_ADMIN] } },
+    where: { role: { in: [UserRole.SUPER_ADMIN, UserRole.ADMIN] } },
     select: { id: true, email: true, fullName: true, role: true, tenantId: true },
   });
   check(actorRow, 'An Admin is required');

@@ -24,7 +24,7 @@ describe('Phase 1 permission matrix', () => {
     expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.FINANCE), 'payout.view')).toBe(true);
     expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.FINANCE), 'booking.confirm')).toBe(false);
     expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.VIEWER), 'product.view')).toBe(true);
-    expect(hasPermission(user(UserRole.ADMIN), 'product.publish')).toBe(true);
+    expect(hasPermission(user(UserRole.SUPER_ADMIN), 'product.publish')).toBe(true);
   });
 
   it('does not inherit vendor permissions for travel agents', () => {
@@ -48,5 +48,16 @@ describe('Phase 1 permission matrix', () => {
     expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'eligibility.inspect')).toBe(false);
     expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'marketplace.channel.manage')).toBe(false);
     expect(hasPermission(user(UserRole.VENDOR, OrganizationRole.OWNER), 'commercial.internal.view')).toBe(false);
+  });
+
+  it('keeps Agent VIEWER read-only', () => {
+    const viewer = user(UserRole.TRAVEL_AGENT, OrganizationRole.VIEWER);
+    expect(hasPermission(viewer, 'marketplace.search')).toBe(true);
+    expect(hasPermission(viewer, 'marketplace.view')).toBe(true);
+    expect(hasPermission(viewer, 'booking.view.own')).toBe(true);
+    expect(hasPermission(viewer, 'booking.create')).toBe(false);
+    expect(hasPermission(viewer, 'booking.cancel.agent')).toBe(false);
+    expect(hasPermission(viewer, 'voucher.share')).toBe(false);
+    expect(hasPermission(user(UserRole.TRAVEL_AGENT, OrganizationRole.OWNER), 'booking.create')).toBe(true);
   });
 });

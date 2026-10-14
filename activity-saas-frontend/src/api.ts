@@ -7,7 +7,14 @@ export type User = {
   tenantId: string | null;
   organizationRole?: 'OWNER' | 'CATALOGUE' | 'OPERATIONS' | 'FINANCE' | 'VIEWER' | null;
   active?: boolean;
+  isImpersonating?: boolean;
+  impersonationSessionId?: string;
+  impersonatorId?: string;
+  impersonatorEmail?: string;
 };
+
+export type PlatformAdmin = { id: string; email: string; fullName: string; role: 'SUPER_ADMIN' | 'ADMIN'; active: boolean; createdAt: string; updatedAt: string };
+export type ImpersonationTarget = { id: string; email: string; fullName: string; role: 'ADMIN' | 'VENDOR' | 'TRAVEL_AGENT'; tenantId: string | null; organizationRole?: User['organizationRole']; active: boolean; createdAt: string };
 
 export type VendorProfile = {
   id: string;
@@ -19,6 +26,17 @@ export type VendorProfile = {
   tenant?: { name: string; slug: string };
   gstin?: string; category?: string; payoutAccountMasked?: string;
   vendorDocuments?: Array<{ id: string; type: string; currentStatus: string; versions: Array<{ id: string; versionNumber: number; status: string; rejectionReason?: string | null; fileAsset: { id: string; originalName: string; mimeType: string; sizeBytes: number; visibility: string } }> }>;
+};
+
+export type VendorOnboardingDocument = { id: string; type: 'GSTIN' | 'PAN' | 'BANK_PROOF' | 'TRADE_LICENSE'; currentStatus: string; latestVersion: { id: string; versionNumber: number; status: string; rejectionReason?: string | null; fileAsset: { id: string; originalName: string; mimeType: string; sizeBytes: number; visibility: string } } | null };
+export type VendorOnboardingApplication = {
+  id: string; status: 'DRAFT' | 'SUBMITTED' | 'UNDER_REVIEW' | 'CHANGES_REQUESTED' | 'APPROVED' | 'REJECTED'; currentStep: number;
+  firstName?: string | null; lastName?: string | null; contactNumber?: string | null; phoneVerifiedAt?: string | null;
+  businessDisplayName?: string | null; legalBusinessName?: string | null; panNumber?: string | null; gstStatus?: 'REGISTERED' | 'NOT_REGISTERED' | 'PENDING_REVIEW' | 'REJECTED' | null; gstin?: string | null; gstDeclarationAccepted: boolean;
+  addressLine?: string | null; city?: string | null; state?: string | null; pinCode?: string | null; latitude?: string | number | null; longitude?: string | number | null;
+  accountHolderName?: string | null; bankName?: string | null; bankAccountMasked?: string | null; ifscCode?: string | null; accountType?: string | null; bankOwnershipConfirmed: boolean; bankVerificationStatus: string;
+  agreementVersion?: string | null; agreementAcceptedAt?: string | null; authorizedBusinessName?: string | null; authorizedRepresentative?: string | null; startedAt?: string | null; submittedAt?: string | null; reviewedAt?: string | null; reviewReason?: string | null; updatedAt: string;
+  hasSignature: boolean; documents: VendorOnboardingDocument[];
 };
 
 export type ProductRevision = {
@@ -56,10 +74,11 @@ export type ProductRevision = {
 
 export type ProductVariant = { id: string; productId: string; variantCode: string; name: string; description?: string; status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'; version: number; durationMinutes?: number; privateShared?: string; vehicleType?: string; pickupIncluded: boolean; pickupType?: string; pickupInput?: string; pickupTimings?: string; dropoffIncluded: boolean; dropoffTimings?: string; mealIncluded: boolean; mealType?: string; menu?: string[]; mealVariety?: string; pointsOfInterest?: string[]; inclusions: string[]; exclusions: string[]; suitableFor: string[]; ratePlans?: RatePlan[] };
 export type Product = { id: string; tenantId: string; productCode: string; status: 'DRAFT' | 'LIVE' | 'SUSPENDED' | 'ARCHIVED'; currentRevisionId?: string | null; currentRevision?: ProductRevision | null; revisions?: ProductRevision[]; variants?: ProductVariant[]; _count?: { variants: number; bookings: number } };
-export type ProductListingItem = { id: string; productCode: string; experienceName: string; destination: string | null; optionCount: number; productStatus: Product['status']; displayStatus: 'PUBLISHED' | 'UNDER_REVIEW' | 'DRAFT' | 'NEEDS_CHANGES' | 'SUSPENDED' | 'ARCHIVED'; currentRevisionId: string | null; workingRevisionId: string | null; workingRevisionStatus: ProductRevision['status'] | null; updatedAt: string; bookability: { status: 'BOOKABLE' | 'NOT_BOOKABLE' | 'LOW_INVENTORY' | 'NOT_EVALUATED'; reasonCodes: string[] }; quality: { score: number | null; status: 'SCORED' | 'NOT_SCORED' }; action: 'OPEN' | 'FIX' };
+export type ProductDistribution = { channelCode: 'VOYA_AGENT' | string; ready: boolean; status: 'READY' | 'PENDING'; reasonCodes: string[]; details?: Record<string, unknown> };
+export type ProductListingItem = { id: string; productCode: string; experienceName: string; destination: string | null; optionCount: number; productStatus: Product['status']; displayStatus: 'PUBLISHED' | 'UNDER_REVIEW' | 'DRAFT' | 'NEEDS_CHANGES' | 'SUSPENDED' | 'ARCHIVED'; currentRevisionId: string | null; workingRevisionId: string | null; workingRevisionStatus: ProductRevision['status'] | null; updatedAt: string; bookability: { status: 'BOOKABLE' | 'NOT_BOOKABLE' | 'LOW_INVENTORY' | 'NOT_EVALUATED'; reasonCodes: string[] }; distribution?: ProductDistribution; quality: { score: number | null; status: 'SCORED' | 'NOT_SCORED' }; action: 'OPEN' | 'FIX' };
 export type ProductListingResponse = { items: ProductListingItem[]; summary: { live: number; review: number; draft: number }; pagination: { page: number; limit: number; total: number; totalPages: number } };
 export type ProductReadinessSection = { ready: boolean; reasonCodes: string[]; details?: Record<string, unknown> };
-export type ProductReadiness = { productId: string; revisionId: string | null; ready: boolean; sections: { basicInfo: ProductReadinessSection; experience: ProductReadinessSection; options: ProductReadinessSection; rates: ProductReadinessSection; availability: ProductReadinessSection; mediaFulfilment: ProductReadinessSection }; reasonCodes: string[]; evaluatedAt: string };
+export type ProductReadiness = { productId: string; revisionId: string | null; ready: boolean; sections: { basicInfo: ProductReadinessSection; experience: ProductReadinessSection; options: ProductReadinessSection; rates: ProductReadinessSection; availability: ProductReadinessSection; mediaFulfilment: ProductReadinessSection; distribution: ProductReadinessSection }; distributionReady: boolean; distributionReasonCodes: string[]; reasonCodes: string[]; evaluatedAt: string };
 
 export type TravellerRule = {
   id?: string;
@@ -137,7 +156,7 @@ export type InventoryRow = {
 export type InventoryResource = { id: string; resourceCode: string; name: string; type: string; allocationMode: string; capacity?: number | null; active: boolean; version?: number; archivedAt?: string | null };
 export type Schedule = { id: string; variantId: string; scheduleCode: string; name: string; status: 'DRAFT'|'ACTIVE'|'INACTIVE'|'ARCHIVED'; operatingModel?: string|null; timezone: string; effectiveFrom: string; effectiveTo?: string|null; operatingDays: string[]; capacityUnit: string; capacityUnitReviewRequired?: boolean; defaultCapacity?: number|null; version: number; slotTemplates: Array<{ id:string; slotCode:string; label?:string|null; startTime:string; endTime?:string|null; active:boolean; archivedAt?:string|null }>; ratePlanMappings: Array<{ id:string; active:boolean; ratePlan:{id:string;ratePlanCode:string;name:string} }>; exceptions?: Array<{id:string;serviceDate:string;slotTemplateId?:string|null;type:string;reason:string}>; resourceRequirements?: Array<{id:string;resourceType:string;quantity:number;required:boolean;version:number;active:boolean;archivedAt?:string|null}>; variant?: ProductVariant };
 
-export const API_BASE = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '/voya/api' : '/api');
+export const API_BASE = import.meta.env.PROD ? '/voya/api' : (import.meta.env.VITE_API_BASE_URL || '/api');
 
 export class ApiError extends Error {
   status: number;
@@ -195,6 +214,18 @@ class ApiClient {
 
   register(fullName: string, email: string, password: string) {
     return this.request<{ accessToken: string; user: User }>('/auth/register', { method: 'POST', body: JSON.stringify({ fullName, email, password }) });
+  }
+
+  requestVendorEmailCode(email: string) {
+    return this.request<{ message: string; demoOtp?: string }>('/auth/vendor/email/request', { method: 'POST', body: JSON.stringify({ email }) });
+  }
+
+  verifyVendorEmailCode(email: string, code: string) {
+    return this.request<{ setupToken: string; email: string; purpose: 'ACTIVATE_VENDOR' | 'RESET_VENDOR_PASSWORD' }>('/auth/vendor/email/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
+  }
+
+  setVendorPassword(setupToken: string, password: string, fullName?: string) {
+    return this.request<{ accessToken: string; user: User }>('/auth/vendor/password', { method: 'POST', body: JSON.stringify({ setupToken, password, fullName }) });
   }
 }
 

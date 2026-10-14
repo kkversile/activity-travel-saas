@@ -28,7 +28,7 @@ const day = (days: number) => date(days).toISOString().slice(0, 10);
 
 async function main() {
   const adminRow: any = await prisma.user.findFirst({
-    where: { role: { in: [UserRole.ADMIN, UserRole.SUB_ADMIN] } },
+    where: { role: { in: [UserRole.SUPER_ADMIN, UserRole.ADMIN] } },
     select: {
       id: true,
       email: true,

@@ -17,7 +17,7 @@ import { DistributionService } from './distribution.service';
 @Controller('admin/distribution')
 @ApiTags('Distribution Administration')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
-@Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class DistributionAdminController {
   constructor(private readonly service: DistributionService, private readonly contracts: ChannelContractService, private readonly mappings: ChannelMappingService, private readonly projector: DistributionEventProjectorService, private readonly events: DistributionEventService) {}
   @Get('overview') @Permissions('distribution.view') overview() { return this.service.overview(); }
@@ -31,6 +31,7 @@ export class DistributionAdminController {
   @Post('contracts/:id/retire') @Permissions('distribution.contract.manage') retireContract(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.retireContract(user, id); }
   @Get('mappings') @Permissions('distribution.view') mappingList(@Query('channelId') channelId?: string) { return this.service.mappingWorkspace(channelId); }
   @Post('mappings/products') @Permissions('distribution.mapping.manage') productMapping(@CurrentUser() user: AuthUser, @Body() dto: MappingDto) { return this.service.productMapping(user, dto); }
+  @Post('products/:productId/activate-agent') @Permissions('distribution.mapping.manage') activateAgent(@CurrentUser() user: AuthUser, @Param('productId') productId: string) { return this.service.activateAgentHierarchy(user, productId); }
   @Post('mappings/variants') @Permissions('distribution.mapping.manage') variantMapping(@CurrentUser() user: AuthUser, @Body() dto: VariantMappingDto) { return this.service.variantMapping(user, dto); }
   @Post('mappings/rate-plans') @Permissions('distribution.mapping.manage') rateMapping(@CurrentUser() user: AuthUser, @Body() dto: RateMappingDto) { return this.service.rateMapping(user, dto); }
   @Post('inventory-rules') @Permissions('distribution.inventory-rule.manage') inventoryRule(@CurrentUser() user: AuthUser, @Body() dto: InventoryRuleDto) { return this.service.inventoryRule(user, dto); }

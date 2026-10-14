@@ -15,7 +15,7 @@ import { FinanceConfigurationDto, SettlementHoldDto } from "./finance.dto";
 const admin: any = {
   sub: "admin-1",
   email: "admin@example.com",
-  role: UserRole.ADMIN,
+  role: UserRole.SUPER_ADMIN,
   tenantId: null,
 };
 const txBase = () => ({

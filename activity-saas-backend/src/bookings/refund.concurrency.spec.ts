@@ -1,7 +1,7 @@
 import { BookingStatus, CancellationFinancialState, FinancialEventStatus, RefundStatus, UserRole } from '@prisma/client';
 import { CancellationService } from './cancellation.service';
 
-const admin: any = { sub: 'admin-1', email: 'admin@test.local', role: UserRole.ADMIN, tenantId: null, organizationRole: 'OWNER' };
+const admin: any = { sub: 'admin-1', email: 'admin@test.local', role: UserRole.SUPER_ADMIN, tenantId: null, organizationRole: 'OWNER' };
 const pending = (status: RefundStatus = RefundStatus.PENDING, externalReference: string | null = null): any => ({ id: 'refund-1', bookingId: 'booking-1', cancellationId: 'cancel-1', amount: '100.00', currency: 'INR', status, externalReference, version: 1, cancellation: { id: 'cancel-1', financialState: CancellationFinancialState.REFUND_PENDING }, booking: { id: 'booking-1', vendorTenantId: 'vendor-1' } });
 
 function serviceWith(refund: any) {

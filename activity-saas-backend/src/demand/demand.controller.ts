@@ -16,7 +16,7 @@ import { DemandPolicyService } from './demand-policy.service';
 @Controller('admin/demand')
 @ApiTags('Demand Intelligence')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
-@Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class DemandController {
   constructor(private readonly opportunities: DemandOpportunityService, private readonly analysis: DemandAnalysisService, private readonly policies: DemandPolicyService) {}
   @Get('overview') @Permissions('demand.view.admin') overview() { return this.opportunities.overview(); }

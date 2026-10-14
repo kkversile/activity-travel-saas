@@ -3,7 +3,7 @@ import { FinanceService } from './finance.service';
 
 function make(events: any[]) { const prisma: any = { financeConfiguration: { upsert: jest.fn().mockResolvedValue({ paymentCollectionMode: PaymentCollectionMode.UNCONFIGURED, baseCurrency: 'INR' }) }, vendorSettlementPolicy: { findUnique: jest.fn().mockResolvedValue({ vendorTenantId: 'v', active: true, reviewRequired: false, cycleMode: 'MANUAL', eligibilityTrigger: 'BOOKING_CONFIRMED', settlementDelayDays: 0, version: 1 }) }, financialEvent: { findMany: jest.fn().mockResolvedValue(events) }, settlementHold: { findMany: jest.fn().mockResolvedValue([]) } }; return new FinanceService(prisma, {} as any, {} as any); }
 const e = (id: string, amount: string, booking?: any) => ({ id, vendorTenantId: 'v', type: booking ? FinancialEventType.BOOKING_CONFIRMED : FinancialEventType.VENDOR_ADJUSTMENT, status: FinancialEventStatus.POSTED, currency: 'INR', amount: new Prisma.Decimal(amount), vendorAmount: new Prisma.Decimal(amount), booking: booking || null, bookingId: booking?.id || null, settlementAllocations: [], components: {}, occurredAt: new Date(Date.now() - 20 * 86400000) });
-const user: any = { sub: 'a', role: UserRole.ADMIN, tenantId: null };
+const user: any = { sub: 'a', role: UserRole.SUPER_ADMIN, tenantId: null };
 
 describe('settlement totals and currency boundaries', () => {
   it('allows a settled-base debit to offset a future booking', async () => {

@@ -1,18 +1,71 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { AgentVerificationStatus, BookingStatus, DocumentReviewStatus, Prisma, ProductRevisionStatus, TenantKind, VendorVerificationStatus } from '@prisma/client';
+import { AgentVerificationStatus, BookingStatus, DocumentReviewStatus, Prisma, ProductRevisionStatus, TenantKind, UserRole, VendorVerificationStatus } from '@prisma/client';
+import { hash } from 'bcryptjs';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Optional } from '@nestjs/common';
 import { ChannelMappingService } from '../distribution/channel-mapping.service';
+import { ChannelDistributionReadinessService } from '../distribution/channel-distribution-readiness.service';
 
 const profileSelect = { id: true, tenantId: true, legalBusinessName: true, operatingCity: true, operatingRegion: true, gstin: true, category: true, verificationStatus: true, readinessScore: true, payoutAccountMasked: true, payoutAccountHolder: true, payoutBankName: true, payoutBranch: true, payoutIfsc: true, payoutSwift: true, payoutAccountType: true, payoutCurrency: true } satisfies Prisma.VendorProfileSelect;
 const documentsInclude = { vendorDocuments: { include: { versions: { orderBy: { versionNumber: 'desc' as const }, include: { fileAsset: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true, visibility: true, purpose: true } } } } } } };
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, @Optional() private readonly distributionMappings?: ChannelMappingService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, @Optional() private readonly distributionMappings?: ChannelMappingService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService) {}
+
+  platformAdmins() {
+    return this.prisma.user.findMany({ where: { role: { in: [UserRole.SUPER_ADMIN, UserRole.ADMIN] } }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true }, orderBy: [{ role: 'asc' }, { createdAt: 'asc' }] });
+  }
+
+  impersonationTargets() {
+    return this.prisma.user.findMany({
+      where: { active: true, role: { in: [UserRole.ADMIN, UserRole.VENDOR, UserRole.TRAVEL_AGENT] } },
+      select: { id: true, email: true, fullName: true, role: true, tenantId: true, organizationRole: true, active: true, createdAt: true },
+      orderBy: [{ role: 'asc' }, { fullName: 'asc' }],
+    });
+  }
+
+  async createAdmin(actor: AuthUser, input: { fullName: string; email: string; password: string }) {
+    const fullName = input.fullName.trim();
+    const email = input.email.trim().toLowerCase();
+    if (email === actor.email.toLowerCase()) throw new ConflictException('This account is already the signed-in Super Admin');
+    if (await this.prisma.user.findUnique({ where: { email }, select: { id: true } })) throw new ConflictException('An account with this email already exists');
+    const passwordHash = await hash(input.password, 10);
+    const created = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({ data: { email, passwordHash, fullName, role: UserRole.ADMIN, tenantId: null, organizationRole: null, active: true }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true } });
+      await this.audit.write(tx, { actor, action: 'ADMIN_CREATED', entityType: 'User', entityId: user.id, afterState: { email: user.email, fullName: user.fullName, role: user.role, active: user.active } });
+      await this.outbox.enqueue(tx, { eventType: 'ADMIN_CREATED', aggregateType: 'User', aggregateId: user.id, payload: { email: user.email, role: user.role } });
+      return user;
+    });
+    return created;
+  }
+
+  async setAdminStatus(actor: AuthUser, id: string, active: boolean) {
+    const before = await this.prisma.user.findFirst({ where: { id, role: UserRole.ADMIN }, select: { id: true, email: true, fullName: true, role: true, active: true } });
+    if (!before) throw new NotFoundException('Admin account not found');
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({ where: { id }, data: { active }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true } });
+      await this.audit.write(tx, { actor, action: active ? 'ADMIN_ACTIVATED' : 'ADMIN_DEACTIVATED', entityType: 'User', entityId: user.id, beforeState: before, afterState: { email: user.email, fullName: user.fullName, role: user.role, active: user.active } });
+      await this.outbox.enqueue(tx, { eventType: active ? 'ADMIN_ACTIVATED' : 'ADMIN_DEACTIVATED', aggregateType: 'User', aggregateId: user.id, payload: { email: user.email, role: user.role, active } });
+      return user;
+    });
+    return updated;
+  }
+
+  async resetAdminPassword(actor: AuthUser, id: string, password: string) {
+    const before = await this.prisma.user.findFirst({ where: { id, role: UserRole.ADMIN }, select: { id: true, email: true, fullName: true, role: true, active: true } });
+    if (!before) throw new NotFoundException('Admin account not found');
+    const passwordHash = await hash(password, 10);
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({ where: { id }, data: { passwordHash }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true } });
+      await this.audit.write(tx, { actor, action: 'ADMIN_PASSWORD_RESET', entityType: 'User', entityId: user.id, beforeState: { email: before.email, fullName: before.fullName, role: before.role, active: before.active }, afterState: { email: user.email, fullName: user.fullName, role: user.role, active: user.active } });
+      await this.outbox.enqueue(tx, { eventType: 'ADMIN_PASSWORD_RESET', aggregateType: 'User', aggregateId: user.id, payload: { email: user.email, role: user.role } });
+      return user;
+    });
+  }
 
   agents() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.TRAVEL_AGENT }, include: { agentProfile: true, users: { select: { id: true, email: true, fullName: true, active: true, organizationRole: true } } }, orderBy: { createdAt: 'desc' } }); }
   async approveAgent(actor: AuthUser, tenantId: string) { return this.setAgentVerification(actor, tenantId, AgentVerificationStatus.APPROVED); }
@@ -44,8 +97,8 @@ export class AdminService {
     return { ...mapping, enabled: mapping.status === 'ACTIVE' };
   }
   async dashboard() { const [vendors, pendingVendors, products, reviewProducts, bookings, pendingBookings] = await Promise.all([this.prisma.tenant.count({ where: { kind: TenantKind.VENDOR } }), this.prisma.vendorProfile.count({ where: { verificationStatus: VendorVerificationStatus.PENDING } }), this.prisma.product.count({ where: { tenant: { kind: TenantKind.VENDOR } } }), this.prisma.productRevision.count({ where: { product: { tenant: { kind: TenantKind.VENDOR } }, status: ProductRevisionStatus.UNDER_REVIEW } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR } } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR }, status: BookingStatus.PENDING } })]); return { vendors, pendingVendors, products, listings: products, reviewProducts, reviewActivities: reviewProducts, bookings, pendingBookings }; }
-  vendors() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { email: true, fullName: true, active: true } }, _count: { select: { products: true, vendorBookings: true, payouts: true } } }, orderBy: { createdAt: 'desc' } }); }
-  async vendor(tenantId: string) { const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { email: true, fullName: true, active: true } }, products: { include: { currentRevision: true, variants: { include: { ratePlans: true } } }, orderBy: { updatedAt: 'desc' } }, _count: { select: { vendorBookings: true, payouts: true } } } }); if (!vendor) throw new NotFoundException('Vendor not found'); return vendor; }
+  vendors() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { id: true, email: true, fullName: true, active: true } }, _count: { select: { products: true, vendorBookings: true, payouts: true } } }, orderBy: { createdAt: 'desc' } }); }
+  async vendor(tenantId: string) { const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { email: true, fullName: true, active: true } }, products: { include: { currentRevision: true, variants: { include: { ratePlans: true } } }, orderBy: { updatedAt: 'desc' } }, _count: { select: { vendorBookings: true, payouts: true } } } }); if (!vendor) throw new NotFoundException('Vendor not found'); if (!this.distributionReadiness) return vendor; const products = await Promise.all(vendor.products.map(async (product: any) => ({ ...product, distribution: await this.distributionReadiness!.evaluate(product.id) }))); return { ...vendor, products }; }
   async verification(actor: AuthUser, tenantId: string, status: VendorVerificationStatus, reason?: string) {
     if (status !== VendorVerificationStatus.VERIFIED && status !== VendorVerificationStatus.SUSPENDED) throw new ConflictException('Only VERIFIED or SUSPENDED vendor verification actions are allowed');
     if (status === VendorVerificationStatus.SUSPENDED && !reason?.trim()) throw new ConflictException('A reason is required when suspending a vendor');

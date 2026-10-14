@@ -4,7 +4,7 @@ import { ArchiveVariantDto, CreateProductRevisionDto, UpdateVariantDto } from '.
 import { CatalogueService } from './catalogue.service';
 
 const vendor = { sub: 'u1', email: 'vendor@test', role: UserRole.VENDOR, tenantId: 't1' } as any;
-const admin = { sub: 'a1', email: 'admin@test', role: UserRole.ADMIN, tenantId: null } as any;
+const admin = { sub: 'a1', email: 'admin@test', role: UserRole.SUPER_ADMIN, tenantId: null } as any;
 const baseRevision = { id: 'r1', productId: 'p1', versionNumber: 1, status: ProductRevisionStatus.DRAFT, productName: 'Test', type: ProductType.ACTIVITY, subType: 'TOUR', description: 'Description', media: [], faqs: [], sourcePayload: null } as any;
 
 function make() {

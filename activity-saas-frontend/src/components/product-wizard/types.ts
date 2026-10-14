@@ -76,6 +76,7 @@ export type WizardStepProps = {
   locked: boolean;
   revisionForm: RevisionForm;
   fulfilment: FulfilmentForm;
+  onSaveDraft: () => Promise<boolean>;
   onRevisionChange: <K extends keyof RevisionForm>(key: K, value: RevisionForm[K]) => void;
   onFulfilmentChange: (next: FulfilmentForm) => void;
   onRefresh: () => Promise<void>;

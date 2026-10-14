@@ -7,6 +7,14 @@ type Context = { serviceDate: string; travellers: Array<{ travellerType: string;
 type Question = { code: string; label: string; helpText?: string | null; type: 'TEXT' | 'NUMBER' | 'BOOLEAN' | 'SELECT'; required: boolean; options?: unknown; appliesPerTraveller: boolean };
 
 function expandTravellers(context: Context) { return context.travellers.flatMap((traveller) => Array.from({ length: traveller.quantity }, () => ({ travellerType: traveller.travellerType, quantity: 1 }))); }
+function createAttemptId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = character === 'x' ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
 function policyRange(rule: any) { const min = Number(rule.minDaysBefore); const max = rule.maxDaysBefore == null ? null : Number(rule.maxDaysBefore); if (min === 0 && max === 0) return 'On the service day'; if (max == null) return `${min}+ days before service`; return `${min}-${max} days before service`; }
 function policyCharge(rule: any, currency?: string) { return rule.chargeType === 'PERCENTAGE' ? `${rule.chargeValue}% cancellation charge` : `${currency || ''}${rule.chargeValue} cancellation charge`; }
 
@@ -14,7 +22,7 @@ export default function BookingWizard({ product, offer, context, onDone }: { pro
   const initial = useMemo(() => expandTravellers(context).map((t, index) => ({ ...t, fullName: index === 0 ? 'Lead traveller' : '', age: '', email: '', phone: '', isLead: index === 0, answers: {} as Record<string, unknown> })), [context]);
   const [name, setName] = useState('Demo customer'); const [email, setEmail] = useState('customer@example.com'); const [details, setDetails] = useState(initial);
   const [answers, setAnswers] = useState<Record<string, unknown>>({}); const [preview, setPreview] = useState<any>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [created, setCreated] = useState<any>(null); const [priceAccepted, setPriceAccepted] = useState(false); const [policyAccepted, setPolicyAccepted] = useState(false);
-  const key = useMemo(() => crypto.randomUUID(), []); const questions: Question[] = preview?.questions || product.bookingQuestions || product.questions || [];
+  const key = useMemo(() => createAttemptId(), []); const questions: Question[] = preview?.questions || product.bookingQuestions || product.questions || [];
   const bookingRows = details.map((d) => ({ ...d, age: d.age === '' ? undefined : Number(d.age), email: d.email || undefined, phone: d.phone || undefined }));
   const setDetail = (index: number, field: string, value: unknown) => setDetails((rows) => rows.map((row, i) => i === index ? { ...row, [field]: value } : row));
   const setTravellerAnswer = (index: number, code: string, value: unknown) => setDetails((rows) => rows.map((row, i) => i === index ? { ...row, answers: { ...row.answers, [code]: value } } : row));

@@ -8,5 +8,5 @@ export function requireTenant(user: AuthUser): string {
 }
 
 export function isPlatformRole(user: AuthUser): boolean {
-  return user.role === UserRole.ADMIN || user.role === UserRole.SUB_ADMIN;
+  return user.role === UserRole.SUPER_ADMIN || user.role === UserRole.ADMIN;
 }

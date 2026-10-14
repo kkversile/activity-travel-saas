@@ -8,7 +8,7 @@ import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { Permissions } from '../common/permissions.decorator';
 import { PermissionsGuard } from '../common/permissions.guard';
-import { AgentSuspensionDto, DocumentReviewDto, EligibilityInspectDto, VendorVerificationDto } from './governance.dto';
+import { AgentSuspensionDto, CreateAdminDto, DocumentReviewDto, EligibilityInspectDto, ResetAdminPasswordDto, UpdateAdminStatusDto, VendorVerificationDto } from './governance.dto';
 import { EligibilityService } from '../eligibility/eligibility.service';
 import { AdminService } from './admin.service';
 import { BookingDecisionDto, BookingListQueryDto } from '../bookings/booking.dto';
@@ -20,9 +20,14 @@ import { AdminCancellationListQueryDto, FinancialResolutionDto, OperationalCance
 @Controller('admin')
 @ApiTags('Administration')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
-@Roles(UserRole.ADMIN, UserRole.SUB_ADMIN)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class AdminController {
   constructor(private readonly service: AdminService, private readonly eligibility: EligibilityService, private readonly bookings: BookingsService, private readonly expiry: BookingExpiryService, private readonly cancellations: CancellationService) {}
+  @Get('platform-admins') @Roles(UserRole.SUPER_ADMIN) platformAdmins() { return this.service.platformAdmins(); }
+  @Get('impersonation/targets') @Roles(UserRole.SUPER_ADMIN) impersonationTargets() { return this.service.impersonationTargets(); }
+  @Post('platform-admins') @Roles(UserRole.SUPER_ADMIN) @ApiBody({ schema: { type: 'object', example: { fullName: 'Operations Admin', email: 'operations@voya.demo', password: 'ChangeMe@123' } } }) createAdmin(@CurrentUser() user: AuthUser, @Body() dto: CreateAdminDto) { return this.service.createAdmin(user, dto); }
+  @Patch('platform-admins/:id/status') @Roles(UserRole.SUPER_ADMIN) updateAdminStatus(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateAdminStatusDto) { return this.service.setAdminStatus(user, id, dto.active); }
+  @Patch('platform-admins/:id/password') @Roles(UserRole.SUPER_ADMIN) resetAdminPassword(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ResetAdminPasswordDto) { return this.service.resetAdminPassword(user, id, dto.password); }
   @Get('bookings') @Permissions('booking.view.admin') bookingsList(@Query() query: BookingListQueryDto) { return this.bookings.adminList(query); }
   @Get('bookings/:id') @Permissions('booking.view.admin') bookingsDetail(@Param('id') id: string) { return this.bookings.adminDetail(id); }
   @Post('bookings/:id/manual-confirm') @Permissions('booking.manual.decide') manualConfirm(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.bookings.manualConfirm(user, id); }

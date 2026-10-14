@@ -278,8 +278,8 @@ async function bootstrap() {
   const swaggerDemoAccounts = swaggerDemoEnabled ? [
     { key: 'vendor', label: 'Vendor', role: 'VENDOR', email: config.get<string>('SWAGGER_DEMO_VENDOR_EMAIL', 'vendor@voya.demo'), password: swaggerDemoPassword },
     { key: 'agent', label: 'Travel Agent', role: 'TRAVEL_AGENT', email: config.get<string>('SWAGGER_DEMO_AGENT_EMAIL', 'agent@voya.demo'), password: swaggerDemoPassword },
-    { key: 'admin', label: 'Admin', role: 'ADMIN', email: config.get<string>('SWAGGER_DEMO_ADMIN_EMAIL', 'admin@voya.demo'), password: swaggerDemoPassword },
-    ...(config.get<string>('SWAGGER_DEMO_SUB_ADMIN_EMAIL') ? [{ key: 'sub-admin', label: 'Sub-admin', role: 'SUB_ADMIN', email: config.get<string>('SWAGGER_DEMO_SUB_ADMIN_EMAIL', ''), password: swaggerDemoPassword }] : []),
+    { key: 'super-admin', label: 'Super Admin', role: 'SUPER_ADMIN', email: config.get<string>('SWAGGER_DEMO_SUPER_ADMIN_EMAIL', 'superadmin@voya.demo'), password: swaggerDemoPassword },
+    ...(config.get<string>('SWAGGER_DEMO_ADMIN_EMAIL') ? [{ key: 'admin', label: 'Admin', role: 'ADMIN', email: config.get<string>('SWAGGER_DEMO_ADMIN_EMAIL', ''), password: swaggerDemoPassword }] : []),
   ] : [];
   const swagger = new DocumentBuilder()
     .setTitle('Voya Vendor API')

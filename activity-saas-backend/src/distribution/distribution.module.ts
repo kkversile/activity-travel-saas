@@ -8,6 +8,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { ChannelContractService } from './channel-contract.service';
 import { ChannelEligibilityService } from './channel-eligibility.service';
 import { ChannelMappingService } from './channel-mapping.service';
+import { ChannelDistributionReadinessService } from './channel-distribution-readiness.service';
 import { DistributionAdminController } from './distribution-admin.controller';
 import { DistributionApiController } from './distribution-api.controller';
 import { DistributionAvailabilityService } from './distribution-availability.service';
@@ -17,5 +18,5 @@ import { DistributionEventProjectorService, DistributionEventService } from './d
 import { DistributionPricingService } from './distribution-pricing.service';
 import { DistributionService } from './distribution.service';
 
-@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, CommercialModule, EligibilityModule], controllers: [DistributionAdminController, DistributionApiController], providers: [DistributionService, ChannelContractService, ChannelMappingService, ChannelEligibilityService, DistributionCatalogService, DistributionAvailabilityService, DistributionPricingService, DistributionAuthGuard, DistributionCapabilityGuard, DistributionEventService, DistributionEventProjectorService], exports: [DistributionService, ChannelEligibilityService, ChannelMappingService, ChannelContractService] })
+@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, CommercialModule, EligibilityModule], controllers: [DistributionAdminController, DistributionApiController], providers: [DistributionService, ChannelContractService, ChannelMappingService, ChannelDistributionReadinessService, ChannelEligibilityService, DistributionCatalogService, DistributionAvailabilityService, DistributionPricingService, DistributionAuthGuard, DistributionCapabilityGuard, DistributionEventService, DistributionEventProjectorService], exports: [DistributionService, ChannelEligibilityService, ChannelMappingService, ChannelContractService, ChannelDistributionReadinessService] })
 export class DistributionModule {}
