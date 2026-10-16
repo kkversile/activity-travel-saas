@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
 import { randomBytes, randomInt } from 'crypto';
 import { EmailAuthChallengePurpose, TenantKind, UserRole } from '@prisma/client';
+import nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { hashOtp } from '../common/secret-crypto';
 import { LoginDto } from './login.dto';
@@ -86,6 +87,38 @@ export class AuthService {
   }
 
   private async deliverVendorEmailCode(email: string, code: string, purpose: EmailAuthChallengePurpose) {
+    const smtpHost = process.env.SMTP_HOST?.trim();
+    const smtpUser = process.env.SMTP_USER?.trim();
+    const smtpPassword = process.env.SMTP_PASSWORD;
+
+    if (smtpHost && smtpUser && smtpPassword) {
+      const port = Number(process.env.SMTP_PORT || 587);
+      const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port,
+        secure,
+        auth: { user: smtpUser, pass: smtpPassword },
+      });
+      const isPasswordReset = purpose === EmailAuthChallengePurpose.RESET_VENDOR_PASSWORD;
+      try {
+        await transporter.sendMail({
+          from: {
+            name: process.env.SMTP_FROM_NAME?.trim() || 'Voya',
+            address: process.env.SMTP_FROM_EMAIL?.trim() || smtpUser,
+          },
+          to: email,
+          subject: isPasswordReset ? 'Reset your Voya vendor password' : 'Complete your Voya vendor access',
+          text: `Your Voya verification code is ${code}. It expires in 10 minutes.`,
+          html: `<p>Your Voya verification code is:</p><p style="font-size:24px;font-weight:700;letter-spacing:6px">${code}</p><p>This code expires in 10 minutes.</p>`,
+        });
+        return;
+      } catch (error) {
+        console.error('SMTP email delivery failed', error instanceof Error ? error.message : error);
+        throw new ServiceUnavailableException('Email delivery failed');
+      }
+    }
+
     const webhook = process.env.EMAIL_OTP_WEBHOOK_URL;
     if (!webhook) {
       if (process.env.NODE_ENV === 'production') throw new ServiceUnavailableException('Email delivery is not configured');
