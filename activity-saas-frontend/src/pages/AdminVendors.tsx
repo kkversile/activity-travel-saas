@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, type ImpersonationTarget } from '../api';
 
-const docs = [['GSTIN', 'GSTIN certificate'], ['PAN', 'PAN card'], ['BANK_PROOF', 'Cancelled cheque / bank proof'], ['TRADE_LICENSE', 'Trade license']] as const;
+const docs = [['GSTIN', 'GSTIN certificate'], ['PAN', 'PAN card'], ['BANK_PROOF', 'Cancelled cheque / bank proof']] as const;
 type ReasonModal = { kind: 'onboarding'; status: 'CHANGES_REQUESTED' | 'REJECTED' } | { kind: 'suspend' } | { kind: 'document'; versionId: string };
 
 export default function AdminVendors({ canImpersonate = false, canCreateVendor = false }: { canImpersonate?: boolean; canCreateVendor?: boolean }) {
@@ -80,6 +80,23 @@ export default function AdminVendors({ canImpersonate = false, canCreateVendor =
       {selected && <div className="panel admin-detail"><div className="panel-head"><h3>{selected.vendorProfile?.legalBusinessName || selected.name}</h3><span className="badge">{selected.vendorProfile?.verificationStatus}</span></div><div className="panel-body"><p className="muted">{selected.vendorProfile?.operatingCity || 'City not set'} · {selected.users?.[0]?.email}</p><div className="status-actions"><button className="btn small primary" onClick={() => void update(`/admin/vendors/${selected.id}/verification`, { status: 'VERIFIED' })}>Approve vendor</button><button className="btn small" onClick={() => openReasonModal({ kind: 'suspend' })}>Suspend</button>{canImpersonate && selected.users?.find((item: any) => item.active && item.id) && <button className="btn small" onClick={() => void loginAsVendor(selected)}>Login as vendor</button>}</div>
         <h4>Onboarding application</h4>{onboarding ? <><div className="onboarding-admin-summary"><span className="badge">{onboarding.status.replaceAll('_', ' ')}</span><small>Last updated {new Date(onboarding.updatedAt).toLocaleString()}</small>{onboarding.reviewReason && <small>Review note: {onboarding.reviewReason}</small>}</div><div className="status-actions"><button className="btn small" disabled={onboarding.status === 'APPROVED'} onClick={() => void reviewOnboarding('UNDER_REVIEW')}>Mark under review</button><button className="btn small primary" disabled={onboarding.status === 'APPROVED'} onClick={() => void reviewOnboarding('APPROVED')}>Approve application</button><button className="btn small" disabled={onboarding.status === 'APPROVED'} onClick={() => void reviewOnboarding('CHANGES_REQUESTED')}>Request corrections</button><button className="btn small" disabled={onboarding.status === 'APPROVED'} onClick={() => void reviewOnboarding('REJECTED')}>Reject</button>{canImpersonate && <button className="btn small" disabled={!['SUBMITTED', 'UNDER_REVIEW', 'CHANGES_REQUESTED'].includes(onboarding.status)} onClick={() => void reopenOnboarding()}>Return to draft</button>}</div></> : <p className="muted">No onboarding application has been started.</p>} <h4>Documents</h4>
         {docs.map(([type, label]) => { const d = selected.vendorDocuments?.find((item: any) => item.type === type); const version = d?.versions?.[0]; const gstNotApplicable = type === 'GSTIN' && onboarding?.gstStatus === 'NOT_REGISTERED'; return <div className="admin-doc" key={type}><span><b>{label}</b><small>{gstNotApplicable ? 'Not applicable' : `${version?.fileAsset?.originalName || 'Not uploaded'} · ${version?.status || d?.currentStatus || 'PENDING'}${version?.rejectionReason ? ` · ${version.rejectionReason}` : ''}`}</small></span><span><button className="btn small" disabled={!version || gstNotApplicable} onClick={() => version && void preview(version)}>View</button><button className="btn small" disabled={!version || gstNotApplicable} onClick={() => version && void update(`/admin/vendors/${selected.id}/documents/versions/${version.id}`, { status: 'VERIFIED' })}>Verify</button><button className="btn small" disabled={!version || gstNotApplicable} onClick={() => version && openReasonModal({ kind: 'document', versionId: version.id })}>Reject</button></span></div>; })}
+        <h4>Agreement &amp; signature</h4>
+        <div className="admin-agreement-review">
+          <div className="admin-agreement-meta">
+            <span className={'badge ' + (onboarding?.agreementAcceptedAt ? 'verified' : 'pending')}>{onboarding?.agreementAcceptedAt ? 'Accepted' : 'Not accepted'}</span>
+            <small>{onboarding?.agreementVersion || 'Draft agreement'}</small>
+            {onboarding?.agreementAcceptedAt && <small>Accepted {new Date(onboarding.agreementAcceptedAt).toLocaleString()}</small>}
+          </div>
+          <dl className="admin-agreement-fields">
+            <div><dt>Authorized business</dt><dd>{onboarding?.authorizedBusinessName || 'Not provided'}</dd></div>
+            <div><dt>Authorized representative</dt><dd>{onboarding?.authorizedRepresentative || 'Not provided'}</dd></div>
+          </dl>
+          <div className="admin-signature-preview">
+            <b>Signed agreement</b>
+            {onboarding?.signatureData ? <img src={onboarding.signatureData} alt="Vendor signature" /> : <span className="muted">No signature drawn or uploaded.</span>}
+            <small>{onboarding?.signatureData ? 'Drawn or uploaded signature' : 'Signature required before submission'}</small>
+          </div>
+        </div>
         <h4>Products ({selected.products?.length || 0})</h4>{selected.products?.map((p: any) => <div className="admin-listing" key={p.id}><div><b>{p.currentRevision?.productName || p.productCode}</b><span className={'badge ' + p.status.toLowerCase().replace('_', '-')}>{p.status}</span><span className={'badge ' + (p.distribution?.ready ? 'verified' : 'pending')}>{p.distribution?.ready ? 'Agent ready' : 'Distribution pending'}</span><small>{p.variants?.reduce((n: number, v: any) => n + (v.ratePlans?.length || 0), 0) || 0} rate plans{p.distribution?.reasonCodes?.length ? ` · ${p.distribution.reasonCodes[0].replaceAll('_', ' ')}` : ''}</small></div>{p.status === 'LIVE' && !p.distribution?.ready && <button className="btn small primary" onClick={() => void activateForAgents(p.id)}>Enable for Agents</button>}</div>)}
       </div></div>}
     </div>
