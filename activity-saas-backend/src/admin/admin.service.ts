@@ -43,6 +43,23 @@ export class AdminService {
     return created;
   }
 
+  async createVendor(actor: AuthUser, input: { vendorName: string; email: string; password: string }) {
+    const vendorName = input.vendorName.trim();
+    const email = input.email.trim().toLowerCase();
+    if (await this.prisma.user.findUnique({ where: { email }, select: { id: true } })) throw new ConflictException('An account with this email already exists');
+    const passwordHash = await hash(input.password, 10);
+    const slugBase = vendorName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'vendor';
+    const created = await this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.create({ data: { name: vendorName, slug: `${slugBase}-${Date.now().toString(36)}`, kind: TenantKind.VENDOR } });
+      const user = await tx.user.create({ data: { tenantId: tenant.id, email, passwordHash, fullName: vendorName, role: UserRole.VENDOR, organizationRole: 'OWNER', active: true }, select: { id: true, email: true, fullName: true, role: true, tenantId: true, active: true } });
+      await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: vendorName, operatingCity: 'Not set', operatingRegion: 'Not set' } });
+      await this.audit.write(tx, { actor, tenantId: tenant.id, action: 'VENDOR_CREATED', entityType: 'User', entityId: user.id, afterState: { email: user.email, fullName: user.fullName, role: user.role, tenantId: tenant.id, active: user.active } });
+      await this.outbox.enqueue(tx, { tenantId: tenant.id, eventType: 'VENDOR_CREATED', aggregateType: 'User', aggregateId: user.id, payload: { email: user.email, role: user.role } });
+      return { ...user, vendorName };
+    });
+    return { ...created, temporaryPassword: input.password };
+  }
+
   async setAdminStatus(actor: AuthUser, id: string, active: boolean) {
     const before = await this.prisma.user.findFirst({ where: { id, role: UserRole.ADMIN }, select: { id: true, email: true, fullName: true, role: true, active: true } });
     if (!before) throw new NotFoundException('Admin account not found');

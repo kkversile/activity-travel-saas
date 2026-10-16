@@ -55,3 +55,6 @@
 .voyaMapMarker{border:0;background:transparent}
 .voyaMapMarker span{position:relative;display:block;width:18px;height:18px;border:2px solid #fff;border-radius:50% 50% 50% 0;background:#e8a33d;box-shadow:0 1px 3px rgba(18,62,110,.35);transform:rotate(-45deg)}
 .voyaMapMarker span::after{content:"";position:absolute;top:5px;left:5px;width:6px;height:6px;border-radius:50%;background:#14213d}
+.vendor-create-panel{margin-bottom:18px}
+.vendor-credentials{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}
+.vendor-credentials span{display:block}

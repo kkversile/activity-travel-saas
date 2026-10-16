@@ -4,6 +4,16 @@ import { AdminService } from './admin.service';
 const actor = { sub: 'admin-1', email: 'admin@voya.test', role: UserRole.SUPER_ADMIN, tenantId: null } as any;
 
 describe('AdminService governance', () => {
+  it('creates a vendor account with a hashed password and returns the one-time shareable password', async () => {
+    const user = { id: 'vendor-user', email: 'vendor@example.com', fullName: 'Demo Vendor', role: UserRole.VENDOR, tenantId: 'tenant-1', active: true };
+    const tx: any = { tenant: { create: jest.fn().mockResolvedValue({ id: 'tenant-1' }) }, user: { create: jest.fn().mockResolvedValue(user) }, vendorProfile: { create: jest.fn().mockResolvedValue({}) } };
+    const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(null) }, $transaction: jest.fn((callback: any) => callback(tx)) };
+    const service = new AdminService(prisma, { write: jest.fn() } as any, { enqueue: jest.fn() } as any);
+    const result = await service.createVendor(actor, { vendorName: 'Demo Vendor', email: 'Vendor@example.com', password: 'ChangeMe@123' });
+    expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ email: 'vendor@example.com', role: UserRole.VENDOR, passwordHash: expect.not.stringMatching('ChangeMe@123') }) }));
+    expect(result).toMatchObject({ email: 'vendor@example.com', temporaryPassword: 'ChangeMe@123', vendorName: 'Demo Vendor' });
+  });
+
   it('rejects unsupported vendor verification transitions', async () => {
     const prisma: any = { vendorProfile: { findUnique: jest.fn() } };
     const service = new AdminService(prisma, {} as any, {} as any);

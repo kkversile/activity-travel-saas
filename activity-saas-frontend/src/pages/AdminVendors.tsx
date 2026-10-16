@@ -1,15 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api, type ImpersonationTarget } from '../api';
 
 const docs = [['GSTIN', 'GSTIN certificate'], ['PAN', 'PAN card'], ['BANK_PROOF', 'Cancelled cheque / bank proof'], ['TRADE_LICENSE', 'Trade license']] as const;
 
-export default function AdminVendors({ canImpersonate = false }: { canImpersonate?: boolean }) {
+export default function AdminVendors({ canImpersonate = false, canCreateVendor = false }: { canImpersonate?: boolean; canCreateVendor?: boolean }) {
   const [vendors, setVendors] = useState<any[]>([]);
   const [selected, setSelected] = useState<any>(null);
   const [onboarding, setOnboarding] = useState<any>(null);
   const [viewing, setViewing] = useState<{ fileName: string; url: string; mimeType: string } | null>(null);
   const [q, setQ] = useState('');
   const [error, setError] = useState('');
+  const [vendorName, setVendorName] = useState('');
+  const [vendorEmail, setVendorEmail] = useState('');
+  const [vendorPassword, setVendorPassword] = useState('');
+  const [createdCredentials, setCreatedCredentials] = useState<{ vendorName: string; email: string; temporaryPassword: string } | null>(null);
+  const [creating, setCreating] = useState(false);
   const load = () => api.request<any[]>('/admin/vendors').then(setVendors).catch((e) => setError((e as Error).message));
   useEffect(() => { void load(); }, []);
   async function open(id: string) { try { const [vendor, application] = await Promise.all([api.request<any>('/admin/vendors/' + id), api.request<any>('/admin/vendors/' + id + '/onboarding')]); setSelected(vendor); setOnboarding(application.vendorOnboarding); } catch (e) { setError((e as Error).message); } }
@@ -30,10 +35,20 @@ export default function AdminVendors({ canImpersonate = false }: { canImpersonat
       setError((e as Error).message);
     }
   }
+  async function createVendor(e: FormEvent) {
+    e.preventDefault();
+    setCreating(true); setError(''); setCreatedCredentials(null);
+    try {
+      const result = await api.request<{ vendorName: string; email: string; temporaryPassword: string }>('/admin/vendors', { method: 'POST', body: JSON.stringify({ vendorName, email: vendorEmail, password: vendorPassword }) });
+      setCreatedCredentials(result); setVendorName(''); setVendorEmail(''); setVendorPassword(''); await load();
+    } catch (e) { setError((e as Error).message); } finally { setCreating(false); }
+  }
+  async function copyCredentials() { if (!createdCredentials) return; await navigator.clipboard.writeText(`Voya vendor access\nVendor: ${createdCredentials.vendorName}\nEmail: ${createdCredentials.email}\nPassword: ${createdCredentials.temporaryPassword}`); }
   async function preview(version: any) { try { const blob = await api.blob(`/files/${version.fileAsset.id}/content`); if (viewing) URL.revokeObjectURL(viewing.url); setViewing({ fileName: version.fileAsset.originalName, url: URL.createObjectURL(blob), mimeType: version.fileAsset.mimeType }); } catch (e) { setError((e as Error).message); } }
   function closePreview() { if (viewing) URL.revokeObjectURL(viewing.url); setViewing(null); }
   const filtered = vendors.filter((v) => (v.name + ' ' + (v.vendorProfile?.legalBusinessName || '') + ' ' + v.users?.[0]?.email).toLowerCase().includes(q.toLowerCase()));
   return <>
+    {canCreateVendor && <div className="panel vendor-create-panel"><div className="panel-head"><div><h3>Create vendor access</h3><p className="muted">Create the vendor login and share the initial password securely.</p></div></div><div className="panel-body"><form onSubmit={(e) => void createVendor(e)}><div className="form-grid three"><label className="field"><span>Vendor / business name</span><input required minLength={2} value={vendorName} onChange={(e) => setVendorName(e.target.value)} placeholder="Demo Adventures" /></label><label className="field"><span>Vendor email</span><input required type="email" value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} placeholder="vendor@example.com" /></label><label className="field"><span>Initial password</span><input required minLength={8} type="text" value={vendorPassword} onChange={(e) => setVendorPassword(e.target.value)} placeholder="At least 8 characters" /></label></div><button className="btn primary" disabled={creating}>{creating ? 'Creating…' : 'Create vendor'}</button></form>{createdCredentials && <div className="alert success vendor-credentials"><b>Vendor created. Share these credentials securely:</b><span>Email: {createdCredentials.email}</span><span>Password: {createdCredentials.temporaryPassword}</span><button type="button" className="btn small" onClick={() => void copyCredentials()}>Copy credentials</button></div>}</div></div>}
     <div className="admin-hero"><div><h2>Vendors</h2><p className="muted">All vendor tenants and onboarding status.</p></div><div className="admin-toolbar"><input className="search" placeholder="Search vendors..." value={q} onChange={(e) => setQ(e.target.value)} /><button className="btn small" onClick={() => void load()}>Refresh</button></div></div>
     {error && <div className="alert error">{error}</div>}
     <div className="admin-columns">
