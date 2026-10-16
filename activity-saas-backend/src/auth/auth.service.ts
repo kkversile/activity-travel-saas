@@ -6,6 +6,7 @@ import { EmailAuthChallengePurpose, TenantKind, UserRole } from '@prisma/client'
 import nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { hashOtp } from '../common/secret-crypto';
+import { renderVoyaVendorEmailCodeHtml } from '../common/voya-email-template';
 import { LoginDto } from './login.dto';
 import { RegisterDto, SetVendorPasswordDto } from './register.dto';
 
@@ -110,7 +111,7 @@ export class AuthService {
           to: email,
           subject: isPasswordReset ? 'Reset your Voya vendor password' : 'Complete your Voya vendor access',
           text: `Your Voya verification code is ${code}. It expires in 10 minutes.`,
-          html: `<p>Your Voya verification code is:</p><p style="font-size:24px;font-weight:700;letter-spacing:6px">${code}</p><p>This code expires in 10 minutes.</p>`,
+          html: renderVoyaVendorEmailCodeHtml(code, purpose),
         });
         return;
       } catch (error) {
