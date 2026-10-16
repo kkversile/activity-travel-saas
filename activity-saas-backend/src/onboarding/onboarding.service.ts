@@ -103,6 +103,11 @@ export class OnboardingService {
       if (dto.accountType !== undefined) profileData.payoutAccountType = clean(dto.accountType) as string;
       if (dto.bankAccountNumber !== undefined) profileData.payoutAccountMasked = data.bankAccountMasked as string;
       if (Object.keys(profileData).length) await tx.vendorProfile.update({ where: { tenantId }, data: profileData });
+      if (dto.firstName !== undefined || dto.lastName !== undefined) {
+        const firstName = clean(dto.firstName ?? app.firstName) as string;
+        const lastName = clean(dto.lastName ?? app.lastName) as string;
+        if (firstName && lastName) await tx.user.update({ where: { id: user.sub }, data: { fullName: `${firstName} ${lastName}` } });
+      }
       return result;
     });
     const savedSignature = await this.prisma.vendorOnboardingApplication.findUnique({ where: { id: app.id }, select: { signatureData: true } });
