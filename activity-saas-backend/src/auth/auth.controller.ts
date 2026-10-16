@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { ApiBody, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/current-user.decorator';
@@ -6,7 +6,7 @@ import { AuthUser } from '../common/auth.types';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { LoginDto } from './login.dto';
-import { RegisterDto, RequestVendorEmailCodeDto, SetVendorPasswordDto, VerifyVendorEmailCodeDto } from './register.dto';
+import { ChangePasswordDto, RegisterDto, RequestVendorEmailCodeDto, SetVendorPasswordDto, VerifyVendorEmailCodeDto } from './register.dto';
 import { swaggerExamples } from '../common/swagger-examples';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
@@ -49,6 +49,12 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   me(@CurrentUser() user: AuthUser) {
     return user;
+  }
+
+  @Patch('password')
+  @UseGuards(JwtAuthGuard)
+  changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
+    return this.auth.changePassword(user, dto);
   }
 
   @Post('impersonation/start')

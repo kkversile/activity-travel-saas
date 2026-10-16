@@ -227,6 +227,13 @@ class ApiClient {
   setVendorPassword(setupToken: string, password: string) {
     return this.request<{ accessToken: string; user: User }>('/auth/vendor/password', { method: 'POST', body: JSON.stringify({ setupToken, password }) });
   }
+
+  changePassword(currentPassword: string, newPassword: string, confirmPassword: string) {
+    return this.request<{ message: string }>('/auth/password', {
+      method: 'PATCH',
+      body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+    });
+  }
 }
 
 export const api = new ApiClient();

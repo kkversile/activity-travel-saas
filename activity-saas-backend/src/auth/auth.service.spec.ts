@@ -1,4 +1,5 @@
 import { EmailAuthChallengePurpose, UserRole } from '@prisma/client';
+import { hash } from 'bcryptjs';
 import { hashOtp } from '../common/secret-crypto';
 import { AuthService } from './auth.service';
 
@@ -17,7 +18,7 @@ describe('email-first vendor access', () => {
       vendorProfile: { create: jest.fn().mockResolvedValue({ id: 'profile-1' }) },
     };
     const prisma = {
-      user: { findUnique: jest.fn().mockResolvedValue(null) },
+      user: { findUnique: jest.fn().mockResolvedValue(null), update: jest.fn().mockResolvedValue(null) },
       emailAuthChallenge: {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue(challenge),
@@ -56,5 +57,32 @@ describe('email-first vendor access', () => {
     expect(tx.tenant.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ kind: 'VENDOR' }) }));
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: 'VENDOR', email: challenge.email }) }));
     expect(result).toMatchObject({ accessToken: 'access-token', user: { id: user.id, role: UserRole.VENDOR } });
+  });
+
+  it('changes a password when the current password and confirmation are valid', async () => {
+    const { service, prisma } = make();
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-1', passwordHash: await hash('old-password', 4), active: true });
+    prisma.user.update.mockResolvedValue({});
+
+    await expect(service.changePassword({ sub: 'user-1' }, {
+      currentPassword: 'old-password',
+      newPassword: 'new-password',
+      confirmPassword: 'new-password',
+    })).resolves.toEqual({ message: 'Password changed successfully' });
+    expect(prisma.user.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'user-1' },
+      data: { passwordHash: expect.any(String) },
+    }));
+  });
+
+  it('rejects a password change when confirmation does not match', async () => {
+    const { service, prisma } = make();
+
+    await expect(service.changePassword({ sub: 'user-1' }, {
+      currentPassword: 'old-password',
+      newPassword: 'new-password',
+      confirmPassword: 'different-password',
+    })).rejects.toThrow('New password and confirmation do not match');
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
 });
