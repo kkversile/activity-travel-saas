@@ -1,6 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { DocumentReviewStatus, Prisma, TenantKind, UserRole, VendorBankVerificationStatus, VendorGstStatus, VendorOnboardingStatus, VendorVerificationStatus } from '@prisma/client';
-import { randomInt } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
 import { encryptSecret, hashOtp, maskAccountNumber } from '../common/secret-crypto';
@@ -119,9 +118,11 @@ export class OnboardingService {
     const normalized = contactNumber.trim();
     if (!/^\+?[1-9]\d{9,14}$/.test(normalized)) throw new BadRequestException('Enter a valid mobile number with country code');
     if (app.otpRequestedAt && Date.now() - app.otpRequestedAt.getTime() < 30_000) throw new HttpException('Please wait before requesting another OTP', HttpStatus.TOO_MANY_REQUESTS);
-    const otp = process.env.NODE_ENV === 'production' ? String(randomInt(100000, 1000000)) : (process.env.DEMO_OTP || '123456');
+    // Temporary mock mobile verification until an SMS/DLT provider is configured.
+    // Keep the override so the demo code can be changed without a code deployment.
+    const otp = process.env.ONBOARDING_PHONE_OTP || '123456';
     const updated = await this.prisma.vendorOnboardingApplication.update({ where: { id: app.id }, data: { contactNumber: normalized, phoneVerifiedAt: null, otpHash: hashOtp(otp), otpExpiresAt: new Date(Date.now() + 10 * 60_000), otpRequestedAt: new Date(), otpAttempts: 0 }, select: { otpExpiresAt: true } });
-    return { expiresAt: updated.otpExpiresAt, cooldownSeconds: 30, ...(process.env.NODE_ENV === 'production' ? {} : { demoOtp: otp }) };
+    return { expiresAt: updated.otpExpiresAt, cooldownSeconds: 30, demoOtp: otp };
   }
 
   async verifyOtp(user: AuthUser, otp: string) {
