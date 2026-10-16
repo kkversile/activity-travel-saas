@@ -224,8 +224,8 @@ class ApiClient {
     return this.request<{ setupToken: string; email: string; purpose: 'ACTIVATE_VENDOR' | 'RESET_VENDOR_PASSWORD' }>('/auth/vendor/email/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
   }
 
-  setVendorPassword(setupToken: string, password: string, fullName?: string) {
-    return this.request<{ accessToken: string; user: User }>('/auth/vendor/password', { method: 'POST', body: JSON.stringify({ setupToken, password, fullName }) });
+  setVendorPassword(setupToken: string, password: string) {
+    return this.request<{ accessToken: string; user: User }>('/auth/vendor/password', { method: 'POST', body: JSON.stringify({ setupToken, password }) });
   }
 }
 

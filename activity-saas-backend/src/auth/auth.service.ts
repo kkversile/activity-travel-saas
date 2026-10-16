@@ -56,11 +56,12 @@ export class AuthService {
     const user = await this.prisma.$transaction(async (tx) => {
       const consumed = await tx.emailAuthChallenge.updateMany({ where: { id: challenge.id, consumedAt: null }, data: { consumedAt: new Date() } });
       if (consumed.count !== 1) throw new UnauthorizedException('Your verification session has already been used');
-      if (existing) return tx.user.update({ where: { id: existing.id }, data: { passwordHash, active: true, ...(dto.fullName?.trim() ? { fullName: dto.fullName.trim() } : {}) } });
-      const base = (dto.fullName?.trim() || challenge.email.split('@')[0]).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'vendor';
-      const tenant = await tx.tenant.create({ data: { name: `${dto.fullName?.trim() || challenge.email} Vendor`, slug: `${base}-${randomBytes(4).toString('hex')}`, kind: TenantKind.VENDOR } });
-      const created = await tx.user.create({ data: { tenantId: tenant.id, email: challenge.email, passwordHash, fullName: dto.fullName?.trim() || challenge.email.split('@')[0], role: UserRole.VENDOR, organizationRole: 'OWNER' } });
-      await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: dto.fullName?.trim() || 'Vendor pending onboarding', operatingCity: 'Not set', operatingRegion: 'Not set' } });
+      if (existing) return tx.user.update({ where: { id: existing.id }, data: { passwordHash, active: true } });
+      const emailName = challenge.email.split('@')[0];
+      const base = emailName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'vendor';
+      const tenant = await tx.tenant.create({ data: { name: `${challenge.email} Vendor`, slug: `${base}-${randomBytes(4).toString('hex')}`, kind: TenantKind.VENDOR } });
+      const created = await tx.user.create({ data: { tenantId: tenant.id, email: challenge.email, passwordHash, fullName: emailName, role: UserRole.VENDOR, organizationRole: 'OWNER' } });
+      await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: 'Vendor pending onboarding', operatingCity: 'Not set', operatingRegion: 'Not set' } });
       return created;
     });
     return this.issueToken(user);

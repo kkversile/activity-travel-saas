@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsString, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @IsString() @MinLength(2) fullName!: string;
@@ -18,5 +18,4 @@ export class VerifyVendorEmailCodeDto {
 export class SetVendorPasswordDto {
   @IsString() @MinLength(32) setupToken!: string;
   @IsString() @MinLength(8) password!: string;
-  @IsOptional() @IsString() @MinLength(2) fullName?: string;
 }

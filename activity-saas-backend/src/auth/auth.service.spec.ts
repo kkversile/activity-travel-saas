@@ -51,7 +51,7 @@ describe('email-first vendor access', () => {
     challenge.verificationTokenHash = hashOtp('verified-token');
     prisma.emailAuthChallenge.findFirst.mockResolvedValue(challenge);
 
-    const result = await service.setVendorPassword({ setupToken: 'verified-token', password: 'secure-password', fullName: 'New Vendor' });
+    const result = await service.setVendorPassword({ setupToken: 'verified-token', password: 'secure-password' });
 
     expect(tx.tenant.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ kind: 'VENDOR' }) }));
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: 'VENDOR', email: challenge.email }) }));
