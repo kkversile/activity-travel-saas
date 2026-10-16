@@ -18,7 +18,7 @@ const publicApplicationSelect = {
   businessDisplayName: true, legalBusinessName: true, panNumber: true, gstStatus: true, gstin: true, gstDeclarationAccepted: true,
   addressLine: true, city: true, state: true, pinCode: true, latitude: true, longitude: true, accountHolderName: true, bankName: true,
   bankAccountMasked: true, ifscCode: true, accountType: true, bankOwnershipConfirmed: true, bankVerificationStatus: true,
-  agreementVersion: true, agreementAcceptedAt: true, authorizedBusinessName: true, authorizedRepresentative: true, startedAt: true,
+  agreementVersion: true, agreementAcceptedAt: true, authorizedBusinessName: true, authorizedRepresentative: true, signatureData: true, startedAt: true,
   submittedAt: true, reviewedAt: true, reviewReason: true, createdAt: true, updatedAt: true,
 } satisfies Prisma.VendorOnboardingApplicationSelect;
 
