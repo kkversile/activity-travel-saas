@@ -62,3 +62,4 @@
 .admin-main{min-height:100vh;overflow:visible}.admin-hero .btn.primary{margin-left:4px}.vendor-create-modal{width:min(760px,calc(100vw - 48px));padding:0;overflow:auto}.vendor-create-modal .panel-head{padding:18px 20px}.vendor-create-modal .panel-body{padding:20px}.vendor-create-modal .form-grid{margin-bottom:0}.vendor-create-modal .modal-actions{margin-top:4px}html{overflow-y:auto;overflow-x:hidden}body{overflow:auto;overflow-x:hidden}
 .field-error{color:var(--bad)!important;font-weight:700}
 .phone-input{display:grid;grid-template-columns:minmax(150px,.35fr) 1fr;gap:8px}.phone-input select{min-width:0}
+.doc-preview-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

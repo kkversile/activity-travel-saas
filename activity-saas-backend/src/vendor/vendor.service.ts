@@ -56,8 +56,8 @@ export class VendorService {
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         const type = documentKeyMap[key as DocumentKey];
-        const asset = await tx.fileAsset.create({ data: { tenantId, storageKey: saved.storageKey, originalName: file.originalname, mimeType: file.mimetype, sizeBytes: file.size, visibility: FileVisibility.PRIVATE, purpose: FilePurpose.VENDOR_DOCUMENT, entityType: 'VendorDocument', createdById: user.sub } });
         const doc = await tx.vendorDocument.upsert({ where: { tenantId_type: { tenantId, type } }, update: { currentStatus: DocumentReviewStatus.PENDING }, create: { tenantId, type } });
+        const asset = await tx.fileAsset.create({ data: { tenantId, storageKey: saved.storageKey, originalName: file.originalname, mimeType: file.mimetype, sizeBytes: file.size, visibility: FileVisibility.PRIVATE, purpose: FilePurpose.VENDOR_DOCUMENT, entityType: 'VendorDocument', entityId: doc.id, createdById: user.sub } });
         const latest = await tx.vendorDocumentVersion.findFirst({ where: { vendorDocumentId: doc.id }, orderBy: { versionNumber: 'desc' }, select: { versionNumber: true } });
         const version = await tx.vendorDocumentVersion.create({ data: { vendorDocumentId: doc.id, versionNumber: (latest?.versionNumber ?? 0) + 1, fileAssetId: asset.id, status: DocumentReviewStatus.PENDING, createdById: user.sub } });
         await this.audit.write(tx, { actor: user, tenantId, action: 'VENDOR_DOCUMENT_SUBMITTED', entityType: 'VendorDocumentVersion', entityId: version.id, metadata: { documentType: type, versionNumber: version.versionNumber, fileAssetId: asset.id } });
