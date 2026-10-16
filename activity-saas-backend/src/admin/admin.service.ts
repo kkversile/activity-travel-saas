@@ -17,7 +17,7 @@ export class AdminService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, @Optional() private readonly distributionMappings?: ChannelMappingService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService) {}
 
   platformAdmins() {
-    return this.prisma.user.findMany({ where: { role: { in: [UserRole.SUPER_ADMIN, UserRole.ADMIN] } }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true }, orderBy: [{ role: 'asc' }, { createdAt: 'asc' }] });
+    return this.prisma.user.findMany({ where: { role: UserRole.ADMIN }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true }, orderBy: { createdAt: 'asc' } });
   }
 
   impersonationTargets() {
