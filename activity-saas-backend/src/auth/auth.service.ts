@@ -26,7 +26,7 @@ export class AuthService {
     const normalizedEmail = email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email: normalizedEmail }, select: { role: true } });
     const purpose = existing?.role === UserRole.VENDOR ? EmailAuthChallengePurpose.RESET_VENDOR_PASSWORD : EmailAuthChallengePurpose.ACTIVATE_VENDOR;
-    const recent = await this.prisma.emailAuthChallenge.findFirst({ where: { email: normalizedEmail, purpose, createdAt: { gt: new Date(Date.now() - 30_000) } } });
+    const recent = await this.prisma.emailAuthChallenge.findFirst({ where: { email: normalizedEmail, purpose, createdAt: { gt: new Date(Date.now() - 10_000) } } });
     if (recent) throw new HttpException('Please wait before requesting another code', HttpStatus.TOO_MANY_REQUESTS);
     const code = process.env.NODE_ENV === 'production' ? String(randomInt(100000, 1_000_000)) : (process.env.DEMO_OTP || '123456');
     await this.deliverVendorEmailCode(normalizedEmail, code, purpose);

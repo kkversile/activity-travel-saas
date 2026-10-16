@@ -19,3 +19,17 @@
   margin: 10px 0;
   color: #8d6b31;
 }
+
+.login-resend {
+  min-height: 24px;
+  margin: 12px 0 2px;
+  text-align: center;
+  color: #71809a;
+  font-size: 13px;
+}
+
+.login-resend .link-button {
+  color: #1d4f91;
+  font-size: 13px;
+  font-weight: 700;
+}
