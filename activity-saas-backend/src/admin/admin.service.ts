@@ -35,7 +35,7 @@ export class AdminService {
     if (await this.prisma.user.findUnique({ where: { email }, select: { id: true } })) throw new ConflictException('An account with this email already exists');
     const passwordHash = await hash(input.password, 10);
     const created = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({ data: { email, passwordHash, fullName, role: UserRole.ADMIN, tenantId: null, organizationRole: null, active: true }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true } });
+      const user = await tx.user.create({ data: { email, passwordHash, fullName, role: UserRole.ADMIN, tenantId: null, organizationRole: null, active: true, mustChangePassword: true }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true } });
       await this.audit.write(tx, { actor, action: 'ADMIN_CREATED', entityType: 'User', entityId: user.id, afterState: { email: user.email, fullName: user.fullName, role: user.role, active: user.active } });
       await this.outbox.enqueue(tx, { eventType: 'ADMIN_CREATED', aggregateType: 'User', aggregateId: user.id, payload: { email: user.email, role: user.role } });
       return user;
@@ -51,7 +51,7 @@ export class AdminService {
     const slugBase = vendorName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'vendor';
     const created = await this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({ data: { name: vendorName, slug: `${slugBase}-${Date.now().toString(36)}`, kind: TenantKind.VENDOR } });
-      const user = await tx.user.create({ data: { tenantId: tenant.id, email, passwordHash, fullName: vendorName, role: UserRole.VENDOR, organizationRole: 'OWNER', active: true }, select: { id: true, email: true, fullName: true, role: true, tenantId: true, active: true } });
+      const user = await tx.user.create({ data: { tenantId: tenant.id, email, passwordHash, fullName: vendorName, role: UserRole.VENDOR, organizationRole: 'OWNER', active: true, mustChangePassword: true }, select: { id: true, email: true, fullName: true, role: true, tenantId: true, active: true } });
       await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: vendorName, operatingCity: 'Not set', operatingRegion: 'Not set' } });
       await this.audit.write(tx, { actor, tenantId: tenant.id, action: 'VENDOR_CREATED', entityType: 'User', entityId: user.id, afterState: { email: user.email, fullName: user.fullName, role: user.role, tenantId: tenant.id, active: user.active } });
       await this.outbox.enqueue(tx, { tenantId: tenant.id, eventType: 'VENDOR_CREATED', aggregateType: 'User', aggregateId: user.id, payload: { email: user.email, role: user.role } });
@@ -77,7 +77,7 @@ export class AdminService {
     if (!before) throw new NotFoundException('Admin account not found');
     const passwordHash = await hash(password, 10);
     return this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.update({ where: { id }, data: { passwordHash }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true } });
+      const user = await tx.user.update({ where: { id }, data: { passwordHash, mustChangePassword: true }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true } });
       await this.audit.write(tx, { actor, action: 'ADMIN_PASSWORD_RESET', entityType: 'User', entityId: user.id, beforeState: { email: before.email, fullName: before.fullName, role: before.role, active: before.active }, afterState: { email: user.email, fullName: user.fullName, role: user.role, active: user.active } });
       await this.outbox.enqueue(tx, { eventType: 'ADMIN_PASSWORD_RESET', aggregateType: 'User', aggregateId: user.id, payload: { email: user.email, role: user.role } });
       return user;

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { api } from '../api';
 
-export default function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+export default function ChangePasswordDialog({ onClose, required = false, onChanged }: { onClose: () => void; required?: boolean; onChanged?: () => void }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -28,6 +28,8 @@ export default function ChangePasswordDialog({ onClose }: { onClose: () => void 
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+      onChanged?.();
+      onClose();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to change password.');
     } finally {
@@ -36,14 +38,14 @@ export default function ChangePasswordDialog({ onClose }: { onClose: () => void 
   }
 
   return (
-    <div className="change-password-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="change-password-backdrop" role="presentation" onMouseDown={(event) => { if (!required && event.target === event.currentTarget) onClose(); }}>
       <section className="change-password-modal" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
         <div className="modal-head">
           <div>
-            <h3 id="change-password-title">Change password</h3>
-            <p className="muted">Update the password for your Voya account.</p>
+            <h3 id="change-password-title">{required ? 'Set your new password' : 'Change password'}</h3>
+            <p className="muted">{required ? 'Your Super Admin-provided password is temporary. Change it before continuing to onboarding.' : 'Update the password for your Voya account.'}</p>
           </div>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">×</button>
+          {!required && <button type="button" className="modal-close" onClick={onClose} aria-label="Close">×</button>}
         </div>
         <form onSubmit={(event) => void submit(event)}>
           <div className="change-password-body">
@@ -55,7 +57,7 @@ export default function ChangePasswordDialog({ onClose }: { onClose: () => void 
             <p className="muted password-help">Use at least 8 characters. Your current password is required to confirm this change.</p>
           </div>
           <div className="modal-actions">
-            <button type="button" className="btn" onClick={onClose}>Cancel</button>
+            {!required && <button type="button" className="btn" onClick={onClose}>Cancel</button>}
             <button type="submit" className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Change password'}</button>
           </div>
         </form>

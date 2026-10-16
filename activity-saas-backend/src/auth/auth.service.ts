@@ -40,7 +40,7 @@ export class AuthService {
 
     await this.prisma.user.update({
       where: { id: existing.id },
-      data: { passwordHash: await hash(dto.newPassword, 10) },
+      data: { passwordHash: await hash(dto.newPassword, 10), mustChangePassword: false },
     });
     return { message: 'Password changed successfully' };
   }
@@ -79,7 +79,7 @@ export class AuthService {
     const user = await this.prisma.$transaction(async (tx) => {
       const consumed = await tx.emailAuthChallenge.updateMany({ where: { id: challenge.id, consumedAt: null }, data: { consumedAt: new Date() } });
       if (consumed.count !== 1) throw new UnauthorizedException('Your verification session has already been used');
-      if (existing) return tx.user.update({ where: { id: existing.id }, data: { passwordHash, active: true } });
+      if (existing) return tx.user.update({ where: { id: existing.id }, data: { passwordHash, active: true, mustChangePassword: false } });
       const emailName = challenge.email.split('@')[0];
       const base = emailName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'vendor';
       const tenant = await tx.tenant.create({ data: { name: `${challenge.email} Vendor`, slug: `${base}-${randomBytes(4).toString('hex')}`, kind: TenantKind.VENDOR } });
@@ -106,9 +106,9 @@ export class AuthService {
     return this.issueToken(created);
   }
 
-  private async issueToken(user: { id: string; email: string; fullName: string; role: UserRole; tenantId: string | null; organizationRole: any; active: boolean }) {
-    const payload = { sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId, organizationRole: user.organizationRole };
-    return { accessToken: await this.jwt.signAsync(payload), user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role, tenantId: user.tenantId, organizationRole: user.organizationRole, active: user.active } };
+  private async issueToken(user: { id: string; email: string; fullName: string; role: UserRole; tenantId: string | null; organizationRole: any; active: boolean; mustChangePassword: boolean }) {
+    const payload = { sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId, organizationRole: user.organizationRole, mustChangePassword: user.mustChangePassword };
+    return { accessToken: await this.jwt.signAsync(payload), user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role, tenantId: user.tenantId, organizationRole: user.organizationRole, active: user.active, mustChangePassword: user.mustChangePassword } };
   }
 
   private async deliverVendorEmailCode(email: string, code: string, purpose: EmailAuthChallengePurpose) {

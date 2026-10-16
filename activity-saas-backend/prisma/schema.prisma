@@ -746,6 +746,7 @@ model User {
   role                            UserRole
   organizationRole                OrganizationRole?
   active                          Boolean                         @default(true)
+  mustChangePassword              Boolean                         @default(false)
   createdFileAssets               FileAsset[]
   createdDocumentVersions         VendorDocumentVersion[]         @relation("DocumentVersionCreatedBy")
   reviewedDocumentVersions        VendorDocumentVersion[]         @relation("DocumentVersionReviewedBy")

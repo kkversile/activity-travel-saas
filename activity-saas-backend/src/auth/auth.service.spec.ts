@@ -71,7 +71,7 @@ describe('email-first vendor access', () => {
     })).resolves.toEqual({ message: 'Password changed successfully' });
     expect(prisma.user.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'user-1' },
-      data: { passwordHash: expect.any(String) },
+      data: expect.objectContaining({ passwordHash: expect.any(String), mustChangePassword: false }),
     }));
   });
 

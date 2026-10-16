@@ -10,7 +10,7 @@ describe('AdminService governance', () => {
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(null) }, $transaction: jest.fn((callback: any) => callback(tx)) };
     const service = new AdminService(prisma, { write: jest.fn() } as any, { enqueue: jest.fn() } as any);
     const result = await service.createVendor(actor, { vendorName: 'Demo Vendor', email: 'Vendor@example.com', password: 'ChangeMe@123' });
-    expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ email: 'vendor@example.com', role: UserRole.VENDOR, passwordHash: expect.not.stringMatching('ChangeMe@123') }) }));
+    expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ email: 'vendor@example.com', role: UserRole.VENDOR, passwordHash: expect.not.stringMatching('ChangeMe@123'), mustChangePassword: true }) }));
     expect(result).toMatchObject({ email: 'vendor@example.com', temporaryPassword: 'ChangeMe@123', vendorName: 'Demo Vendor' });
   });
 

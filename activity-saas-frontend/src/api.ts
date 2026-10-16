@@ -7,6 +7,7 @@ export type User = {
   tenantId: string | null;
   organizationRole?: 'OWNER' | 'CATALOGUE' | 'OPERATIONS' | 'FINANCE' | 'VIEWER' | null;
   active?: boolean;
+  mustChangePassword?: boolean;
   isImpersonating?: boolean;
   impersonationSessionId?: string;
   impersonatorId?: string;

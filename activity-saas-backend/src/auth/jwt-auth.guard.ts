@@ -16,7 +16,7 @@ export class JwtAuthGuard implements CanActivate {
       const payload = await this.jwt.verifyAsync<AuthUser>(auth.slice(7));
       const current = await this.prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, email: true, fullName: true, role: true, tenantId: true, organizationRole: true, active: true },
+        select: { id: true, email: true, fullName: true, role: true, tenantId: true, organizationRole: true, active: true, mustChangePassword: true },
       });
       if (!current?.active || current.role !== payload.role || current.tenantId !== payload.tenantId) {
         throw new UnauthorizedException('Session is no longer valid');
@@ -28,7 +28,7 @@ export class JwtAuthGuard implements CanActivate {
         const original = await this.prisma.user.findFirst({ where: { id: session.originalAdminId, role: 'SUPER_ADMIN', active: true }, select: { id: true, email: true } });
         if (!original) throw new UnauthorizedException('The original Super Admin session is no longer active');
       }
-      request.user = { sub: current.id, email: current.email, fullName: current.fullName, role: current.role, tenantId: current.tenantId, organizationRole: current.organizationRole, active: current.active, isImpersonating: Boolean(payload.isImpersonating), impersonationSessionId: payload.impersonationSessionId, impersonatorId: payload.impersonatorId, impersonatorEmail: payload.impersonatorEmail };
+      request.user = { sub: current.id, email: current.email, fullName: current.fullName, role: current.role, tenantId: current.tenantId, organizationRole: current.organizationRole, active: current.active, mustChangePassword: current.mustChangePassword, isImpersonating: Boolean(payload.isImpersonating), impersonationSessionId: payload.impersonationSessionId, impersonatorId: payload.impersonatorId, impersonatorEmail: payload.impersonatorEmail };
       return true;
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
