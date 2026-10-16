@@ -7,6 +7,8 @@ import { requireTenant } from '../common/tenant';
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReviewOnboardingDto, UpdateOnboardingDto } from './onboarding.dto';
+import { OnboardingEmailService } from './onboarding-email.service';
+import { OnboardingEmailKind } from './onboarding-email-template';
 
 const DRAFT_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.DRAFT, VendorOnboardingStatus.CHANGES_REQUESTED];
 const REVIEWABLE_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.SUBMITTED, VendorOnboardingStatus.UNDER_REVIEW, VendorOnboardingStatus.CHANGES_REQUESTED];
@@ -28,7 +30,12 @@ function normalizeGstin(value?: string | null) { return value ? value.trim().toU
 
 @Injectable()
 export class OnboardingService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly outbox: OutboxService,
+    private readonly onboardingEmail: OnboardingEmailService,
+  ) {}
 
   private async ensureApplication(tenantId: string) {
     const profile = await this.prisma.vendorProfile.findUnique({ where: { tenantId }, select: { legalBusinessName: true, operatingCity: true, operatingRegion: true, gstin: true } });
@@ -160,6 +167,7 @@ export class OnboardingService {
       await this.outbox.enqueue(tx, { tenantId, eventType: 'VENDOR_ONBOARDING_SUBMITTED', aggregateType: 'VendorOnboardingApplication', aggregateId: app.id, payload: { status: VendorOnboardingStatus.SUBMITTED } });
       return current;
     });
+    await this.onboardingEmail.notifySubmitted(tenantId, result.businessDisplayName || result.legalBusinessName);
     return { ...result, hasSignature: true, agreementVersion: result.agreementVersion || AGREEMENT_VERSION, documents: await this.documents(tenantId) };
   }
 
@@ -183,6 +191,13 @@ export class OnboardingService {
       await this.outbox.enqueue(tx, { tenantId, eventType: `VENDOR_ONBOARDING_${dto.status}`, aggregateType: 'VendorOnboardingApplication', aggregateId: app.id, payload: { status: dto.status, reason: dto.reason?.trim() || null } });
       return updated;
     });
+    const emailKind = (
+      dto.status === VendorOnboardingStatus.UNDER_REVIEW ? 'UNDER_REVIEW' :
+      dto.status === VendorOnboardingStatus.CHANGES_REQUESTED ? 'CHANGES_REQUESTED' :
+      dto.status === VendorOnboardingStatus.REJECTED ? 'REJECTED' :
+      dto.status === VendorOnboardingStatus.APPROVED ? 'APPROVED' : 'DRAFT'
+    ) as OnboardingEmailKind;
+    await this.onboardingEmail.notifyReview(tenantId, emailKind, dto.status, dto.reason);
     return { ...result, hasSignature: true, agreementVersion: result.agreementVersion || AGREEMENT_VERSION, documents: await this.documents(tenantId) };
   }
 
@@ -201,6 +216,7 @@ export class OnboardingService {
       await this.outbox.enqueue(tx, { tenantId, eventType: 'VENDOR_ONBOARDING_REOPENED', aggregateType: 'VendorOnboardingApplication', aggregateId: app.id, payload: { status: VendorOnboardingStatus.DRAFT, currentStep: updated.currentStep } });
       return updated;
     });
+    await this.onboardingEmail.notifyReview(tenantId, 'DRAFT', VendorOnboardingStatus.DRAFT, 'Your onboarding was returned to draft for corrections.');
     return { ...result, hasSignature: true, agreementVersion: result.agreementVersion || AGREEMENT_VERSION, documents: await this.documents(tenantId) };
   }
 }
