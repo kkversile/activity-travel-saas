@@ -24,7 +24,7 @@ export default function AdminVendors({ canImpersonate = false }: { canImpersonat
       sessionStorage.setItem('voya_impersonation_original_token', api.token);
       const result = await api.request<{ accessToken: string }>('/auth/impersonation/start', { method: 'POST', body: JSON.stringify({ targetUserId: target.id, reason: 'Support session started from Vendors' }) });
       api.setToken(result.accessToken);
-      window.location.reload();
+      window.location.assign(import.meta.env.BASE_URL);
     } catch (e) {
       sessionStorage.removeItem('voya_impersonation_original_token');
       setError((e as Error).message);
