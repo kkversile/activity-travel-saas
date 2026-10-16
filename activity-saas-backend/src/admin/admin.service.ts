@@ -84,6 +84,19 @@ export class AdminService {
     });
   }
 
+  async resetManagedUserPassword(actor: AuthUser, id: string, password: string) {
+    const before = await this.prisma.user.findFirst({ where: { id, role: { in: [UserRole.VENDOR, UserRole.TRAVEL_AGENT] } }, select: { id: true, email: true, fullName: true, role: true, active: true, tenantId: true } });
+    if (!before) throw new NotFoundException('Vendor or Travel Agent account not found');
+    const passwordHash = await hash(password, 10);
+    const action = before.role === UserRole.VENDOR ? 'VENDOR_PASSWORD_RESET' : 'TRAVEL_AGENT_PASSWORD_RESET';
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.update({ where: { id }, data: { passwordHash, mustChangePassword: true }, select: { id: true, email: true, fullName: true, role: true, tenantId: true, active: true, createdAt: true, updatedAt: true } });
+      await this.audit.write(tx, { actor, tenantId: user.tenantId || undefined, action, entityType: 'User', entityId: user.id, beforeState: before, afterState: { email: user.email, fullName: user.fullName, role: user.role, tenantId: user.tenantId, active: user.active, mustChangePassword: true } });
+      await this.outbox.enqueue(tx, { tenantId: user.tenantId || undefined, eventType: action, aggregateType: 'User', aggregateId: user.id, payload: { email: user.email, role: user.role, tenantId: user.tenantId } });
+      return user;
+    });
+  }
+
   agents() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.TRAVEL_AGENT }, include: { agentProfile: true, users: { select: { id: true, email: true, fullName: true, active: true, organizationRole: true } } }, orderBy: { createdAt: 'desc' } }); }
   async approveAgent(actor: AuthUser, tenantId: string) { return this.setAgentVerification(actor, tenantId, AgentVerificationStatus.APPROVED); }
   async suspendAgent(actor: AuthUser, tenantId: string, reason: string) { return this.setAgentVerification(actor, tenantId, AgentVerificationStatus.SUSPENDED, reason); }
@@ -115,7 +128,7 @@ export class AdminService {
   }
   async dashboard() { const [vendors, pendingVendors, products, reviewProducts, bookings, pendingBookings] = await Promise.all([this.prisma.tenant.count({ where: { kind: TenantKind.VENDOR } }), this.prisma.vendorProfile.count({ where: { verificationStatus: VendorVerificationStatus.PENDING } }), this.prisma.product.count({ where: { tenant: { kind: TenantKind.VENDOR } } }), this.prisma.productRevision.count({ where: { product: { tenant: { kind: TenantKind.VENDOR } }, status: ProductRevisionStatus.UNDER_REVIEW } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR } } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR }, status: BookingStatus.PENDING } })]); return { vendors, pendingVendors, products, listings: products, reviewProducts, reviewActivities: reviewProducts, bookings, pendingBookings }; }
   vendors() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { id: true, email: true, fullName: true, active: true } }, _count: { select: { products: true, vendorBookings: true, payouts: true } } }, orderBy: { createdAt: 'desc' } }); }
-  async vendor(tenantId: string) { const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { email: true, fullName: true, active: true } }, products: { include: { currentRevision: true, variants: { include: { ratePlans: true } } }, orderBy: { updatedAt: 'desc' } }, _count: { select: { vendorBookings: true, payouts: true } } } }); if (!vendor) throw new NotFoundException('Vendor not found'); if (!this.distributionReadiness) return vendor; const products = await Promise.all(vendor.products.map(async (product: any) => ({ ...product, distribution: await this.distributionReadiness!.evaluate(product.id) }))); return { ...vendor, products }; }
+  async vendor(tenantId: string) { const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { id: true, email: true, fullName: true, active: true } }, products: { include: { currentRevision: true, variants: { include: { ratePlans: true } } }, orderBy: { updatedAt: 'desc' } }, _count: { select: { vendorBookings: true, payouts: true } } } }); if (!vendor) throw new NotFoundException('Vendor not found'); if (!this.distributionReadiness) return vendor; const products = await Promise.all(vendor.products.map(async (product: any) => ({ ...product, distribution: await this.distributionReadiness!.evaluate(product.id) }))); return { ...vendor, products }; }
   async verification(actor: AuthUser, tenantId: string, status: VendorVerificationStatus, reason?: string) {
     if (status !== VendorVerificationStatus.VERIFIED && status !== VendorVerificationStatus.SUSPENDED) throw new ConflictException('Only VERIFIED or SUSPENDED vendor verification actions are allowed');
     if (status === VendorVerificationStatus.SUSPENDED && !reason?.trim()) throw new ConflictException('A reason is required when suspending a vendor');

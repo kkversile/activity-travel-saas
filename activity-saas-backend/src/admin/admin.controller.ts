@@ -29,6 +29,7 @@ export class AdminController {
   @Post('vendors') @Roles(UserRole.SUPER_ADMIN) @ApiBody({ schema: { type: 'object', example: { vendorName: 'Demo Adventures Pvt. Ltd.', email: 'vendor@example.com', password: 'ChangeMe@123' } } }) createVendor(@CurrentUser() user: AuthUser, @Body() dto: CreateVendorDto) { return this.service.createVendor(user, dto); }
   @Patch('platform-admins/:id/status') @Roles(UserRole.SUPER_ADMIN) updateAdminStatus(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateAdminStatusDto) { return this.service.setAdminStatus(user, id, dto.active); }
   @Patch('platform-admins/:id/password') @Roles(UserRole.SUPER_ADMIN) resetAdminPassword(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ResetAdminPasswordDto) { return this.service.resetAdminPassword(user, id, dto.password); }
+  @Patch('users/:id/password') @Roles(UserRole.SUPER_ADMIN) resetManagedUserPassword(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ResetAdminPasswordDto) { return this.service.resetManagedUserPassword(user, id, dto.password); }
   @Get('bookings') @Permissions('booking.view.admin') bookingsList(@Query() query: BookingListQueryDto) { return this.bookings.adminList(query); }
   @Get('bookings/:id') @Permissions('booking.view.admin') bookingsDetail(@Param('id') id: string) { return this.bookings.adminDetail(id); }
   @Post('bookings/:id/manual-confirm') @Permissions('booking.manual.decide') manualConfirm(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.bookings.manualConfirm(user, id); }
