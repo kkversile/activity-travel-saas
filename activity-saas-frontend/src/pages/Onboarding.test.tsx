@@ -121,4 +121,14 @@ describe('Vendor onboarding', () => {
     expect(panNumber).toHaveValue('ABCDE1234F');
     expect(request).toHaveBeenCalledWith('/vendor/documents/pan', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }));
   });
+
+  it('prefills agreement business and representative details from earlier onboarding steps', async () => {
+    vi.spyOn(api, 'request').mockResolvedValueOnce({ ...draft, startedAt: new Date().toISOString(), currentStep: 6, firstName: 'Binu', lastName: 'Mathew', businessDisplayName: 'Voya Adventures', legalBusinessName: 'Voya Adventures Private Limited' } as never);
+
+    render(<Onboarding />);
+
+    expect(await screen.findByDisplayValue('Voya Adventures Private Limited')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Binu Mathew')).toBeInTheDocument();
+    expect(screen.getByText('Person authorized to sign this agreement for the business.')).toBeInTheDocument();
+  });
 });
