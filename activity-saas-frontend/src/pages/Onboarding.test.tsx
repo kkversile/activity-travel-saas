@@ -96,4 +96,29 @@ describe('Vendor onboarding', () => {
     expect(lastName).toHaveValue('Kumar');
     expect(request).toHaveBeenCalledWith('/vendor/onboarding/otp/verify', expect.objectContaining({ method: 'POST' }));
   });
+
+  it('keeps business identity values after a PAN upload reloads the application', async () => {
+    const started = { ...draft, startedAt: new Date().toISOString(), currentStep: 2 };
+    const uploaded = { ...started, businessDisplayName: '', legalBusinessName: '', panNumber: '', documents: [{ type: 'PAN', currentStatus: 'PENDING', latestVersion: { status: 'PENDING', fileAsset: { originalName: 'sample.pdf' } } }] };
+    const request = vi.spyOn(api, 'request')
+      .mockResolvedValueOnce(started as never)
+      .mockResolvedValueOnce({ uploaded: true } as never)
+      .mockResolvedValueOnce(uploaded as never);
+
+    render(<Onboarding />);
+
+    const displayName = await screen.findByLabelText('Business display name *');
+    const legalName = screen.getByLabelText('Legal business name *');
+    const panNumber = screen.getByLabelText('PAN number *');
+    fireEvent.change(displayName, { target: { value: 'Demo Adventures' } });
+    fireEvent.change(legalName, { target: { value: 'Demo Adventures Pvt Ltd' } });
+    fireEvent.change(panNumber, { target: { value: 'ABCDE1234F' } });
+    fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [new File(['pdf'], 'sample.pdf', { type: 'application/pdf' })] } });
+
+    await waitFor(() => expect(screen.getByText('PAN uploaded and pending review.')).toBeInTheDocument());
+    expect(displayName).toHaveValue('Demo Adventures');
+    expect(legalName).toHaveValue('Demo Adventures Pvt Ltd');
+    expect(panNumber).toHaveValue('ABCDE1234F');
+    expect(request).toHaveBeenCalledWith('/vendor/documents/pan', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }));
+  });
 });
