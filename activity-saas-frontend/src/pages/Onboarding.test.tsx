@@ -59,4 +59,32 @@ describe('Vendor onboarding', () => {
     await waitFor(() => expect(request).toHaveBeenCalledWith('/vendor/onboarding', expect.objectContaining({ method: 'PATCH' })));
     expect(await screen.findByText('Your draft is saved automatically as you move through the application.')).toBeInTheDocument();
   });
+
+  it('keeps the entered names after OTP verification reloads the application', async () => {
+    const started = { ...draft, startedAt: new Date().toISOString() };
+    const verified = { ...started, contactNumber: '+919876543210', phoneVerifiedAt: new Date().toISOString() };
+    const request = vi.spyOn(api, 'request')
+      .mockResolvedValueOnce(started as never)
+      .mockResolvedValueOnce({ demoOtp: '123456' } as never)
+      .mockResolvedValueOnce({ verified: true } as never)
+      .mockResolvedValueOnce(verified as never);
+
+    render(<Onboarding />);
+
+    const firstName = await screen.findByLabelText('First name *');
+    const lastName = screen.getByLabelText('Last name *');
+    fireEvent.change(firstName, { target: { value: 'Kiran' } });
+    fireEvent.change(lastName, { target: { value: 'Kumar' } });
+    fireEvent.change(screen.getByPlaceholderText('9876543210'), { target: { value: '9876543210' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send OTP' }));
+
+    const otp = await screen.findByLabelText('Six digit OTP');
+    fireEvent.change(otp, { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+
+    await waitFor(() => expect(screen.getByText('Contact number verified.')).toBeInTheDocument());
+    expect(firstName).toHaveValue('Kiran');
+    expect(lastName).toHaveValue('Kumar');
+    expect(request).toHaveBeenCalledWith('/vendor/onboarding/otp/verify', expect.objectContaining({ method: 'POST' }));
+  });
 });
