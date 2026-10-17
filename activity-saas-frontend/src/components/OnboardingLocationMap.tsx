@@ -25,6 +25,7 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const lastSelectedQueryRef = useRef('');
   onChangeRef.current = onChange;
   onReverseGeocodeRef.current = onReverseGeocode;
 
@@ -75,9 +76,8 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
     mapRef.current.setView(next);
   }, [latitude, longitude, lat, lng, hasCoordinates]);
 
-  async function searchLocation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const search = query.trim();
+  async function searchLocation(searchValue = query) {
+    const search = searchValue.trim();
     if (!search) {
       setResults([]);
       setSearchError('Enter a city, address or landmark to search.');
@@ -100,6 +100,19 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
     }
   }
 
+  useEffect(() => {
+    const search = query.trim();
+    if (search.length < 3 || lastSelectedQueryRef.current === search) {
+      if (search.length < 3) {
+        setResults([]);
+        setSearchError('');
+      }
+      return;
+    }
+    const timer = window.setTimeout(() => { void searchLocation(search); }, 350);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
   function selectResult(result: SearchResult) {
     const nextLatitude = Number(result.lat);
     const nextLongitude = Number(result.lon);
@@ -111,5 +124,5 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
     setSearchError('');
   }
 
-  return <div className="onboarding-location-widget"><form className="location-search" onSubmit={searchLocation}><label htmlFor="onboarding-location-search">Search location</label><div className="location-search-row"><input id="onboarding-location-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search city, address or landmark" autoComplete="off" /><button type="submit" className="btn small" disabled={searching}>{searching ? 'Searching…' : 'Search'}</button></div>{searchError && <small className="field-error" role="alert">{searchError}</small>}{results.length > 0 && <div className="location-search-results" role="listbox" aria-label="Location search results">{results.map((result) => <button key={result.place_id} type="button" role="option" onClick={() => selectResult(result)}><b>{result.display_name}</b><small>Select this location</small></button>)}</div>}</form><div className="onboarding-location-map" ref={containerRef} aria-label="Business location map" /></div>;
+  return <div className="onboarding-location-widget"><form className="location-search" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void searchLocation(); }}><label htmlFor="onboarding-location-search">Search location</label><div className="location-search-row"><input id="onboarding-location-search" value={query} onChange={(event) => { lastSelectedQueryRef.current = ''; setQuery(event.target.value); }} placeholder="Type a city, address or landmark" autoComplete="off" aria-autocomplete="list" aria-controls="onboarding-location-results" />{searching && <span className="location-search-status" aria-live="polite">Searching…</span>}</div>{searchError && <small className="field-error" role="alert">{searchError}</small>}{results.length > 0 && <div id="onboarding-location-results" className="location-search-results" role="listbox" aria-label="Location search results">{results.map((result) => <button key={result.place_id} type="button" role="option" onClick={() => selectResult(result)}><b>{result.display_name}</b><small>Select this location to move the map</small></button>)}</div>}</form><div className="onboarding-location-map" ref={containerRef} aria-label="Business location map" /></div>;
 }
