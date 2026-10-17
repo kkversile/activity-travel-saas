@@ -119,6 +119,7 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
     if (!Number.isFinite(nextLatitude) || !Number.isFinite(nextLongitude)) return;
     onChange(nextLatitude.toFixed(6), nextLongitude.toFixed(6));
     onReverseGeocode?.(resultDetails(result));
+    lastSelectedQueryRef.current = result.display_name;
     setQuery(result.display_name);
     setResults([]);
     setSearchError('');
