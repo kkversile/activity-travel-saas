@@ -1,8 +1,19 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 const DEFAULT_LOCATION: [number, number] = [10.2381, 77.4892];
 
 type ReverseGeocodeDetails = { address?: string; city?: string; state?: string; pincode?: string };
+type SearchResult = { place_id: number; display_name: string; lat: string; lon: string; address?: Record<string, string> };
+
+function resultDetails(result: SearchResult): ReverseGeocodeDetails {
+  const address = result.address ?? {};
+  return {
+    address: result.display_name,
+    city: address.city ?? address.town ?? address.village ?? address.municipality,
+    state: address.state,
+    pincode: address.postcode,
+  };
+}
 
 export function OnboardingLocationMap({ latitude, longitude, onChange, onReverseGeocode }: { latitude?: string | number | null; longitude?: string | number | null; onChange: (latitude: string, longitude: string) => void; onReverseGeocode?: (details: ReverseGeocodeDetails) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -10,6 +21,10 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
   const markerRef = useRef<any>(null);
   const onChangeRef = useRef(onChange);
   const onReverseGeocodeRef = useRef(onReverseGeocode);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
   onChangeRef.current = onChange;
   onReverseGeocodeRef.current = onReverseGeocode;
 
@@ -60,5 +75,41 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
     mapRef.current.setView(next);
   }, [latitude, longitude, lat, lng, hasCoordinates]);
 
-  return <div className="onboarding-location-map" ref={containerRef} aria-label="Business location map" />;
+  async function searchLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const search = query.trim();
+    if (!search) {
+      setResults([]);
+      setSearchError('Enter a city, address or landmark to search.');
+      return;
+    }
+    setSearching(true);
+    setSearchError('');
+    try {
+      const params = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', limit: '5', q: search });
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`);
+      if (!response.ok) throw new Error('Location search is unavailable right now.');
+      const matches = await response.json() as SearchResult[];
+      setResults(matches);
+      if (!matches.length) setSearchError('No matching locations found. Try a broader search.');
+    } catch (error) {
+      setResults([]);
+      setSearchError((error as Error).message || 'Location search is unavailable right now.');
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function selectResult(result: SearchResult) {
+    const nextLatitude = Number(result.lat);
+    const nextLongitude = Number(result.lon);
+    if (!Number.isFinite(nextLatitude) || !Number.isFinite(nextLongitude)) return;
+    onChange(nextLatitude.toFixed(6), nextLongitude.toFixed(6));
+    onReverseGeocode?.(resultDetails(result));
+    setQuery(result.display_name);
+    setResults([]);
+    setSearchError('');
+  }
+
+  return <div className="onboarding-location-widget"><form className="location-search" onSubmit={searchLocation}><label htmlFor="onboarding-location-search">Search location</label><div className="location-search-row"><input id="onboarding-location-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search city, address or landmark" autoComplete="off" /><button type="submit" className="btn small" disabled={searching}>{searching ? 'Searching…' : 'Search'}</button></div>{searchError && <small className="field-error" role="alert">{searchError}</small>}{results.length > 0 && <div className="location-search-results" role="listbox" aria-label="Location search results">{results.map((result) => <button key={result.place_id} type="button" role="option" onClick={() => selectResult(result)}><b>{result.display_name}</b><small>Select this location</small></button>)}</div>}</form><div className="onboarding-location-map" ref={containerRef} aria-label="Business location map" /></div>;
 }
