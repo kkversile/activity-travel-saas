@@ -11,7 +11,7 @@ import { OnboardingEmailService } from './onboarding-email.service';
 import { OnboardingEmailKind } from './onboarding-email-template';
 
 const DRAFT_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.DRAFT, VendorOnboardingStatus.CHANGES_REQUESTED];
-const REVIEWABLE_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.SUBMITTED, VendorOnboardingStatus.UNDER_REVIEW, VendorOnboardingStatus.CHANGES_REQUESTED];
+const REVIEWABLE_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.SUBMITTED, VendorOnboardingStatus.UNDER_REVIEW, VendorOnboardingStatus.CHANGES_REQUESTED, VendorOnboardingStatus.REJECTED];
 const NEGATIVE_REVIEW_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.REJECTED, VendorOnboardingStatus.CHANGES_REQUESTED];
 const REVIEW_DECISIONS: VendorOnboardingStatus[] = [VendorOnboardingStatus.UNDER_REVIEW, VendorOnboardingStatus.APPROVED, VendorOnboardingStatus.REJECTED, VendorOnboardingStatus.CHANGES_REQUESTED];
 const AGREEMENT_VERSION = 'VOYA-DRAFT-PARTNER-AGREEMENT-v1';
