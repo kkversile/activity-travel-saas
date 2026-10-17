@@ -56,6 +56,7 @@ describe('email-first vendor access', () => {
 
     expect(tx.tenant.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ kind: 'VENDOR' }) }));
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ role: 'VENDOR', email: challenge.email }) }));
+    expect(tx.vendorProfile.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ legalBusinessName: '' }) }));
     expect(result).toMatchObject({ accessToken: 'access-token', user: { id: user.id, role: UserRole.VENDOR } });
   });
 

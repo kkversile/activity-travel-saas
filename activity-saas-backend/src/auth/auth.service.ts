@@ -84,7 +84,7 @@ export class AuthService {
       const base = emailName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'vendor';
       const tenant = await tx.tenant.create({ data: { name: `${challenge.email} Vendor`, slug: `${base}-${randomBytes(4).toString('hex')}`, kind: TenantKind.VENDOR } });
       const created = await tx.user.create({ data: { tenantId: tenant.id, email: challenge.email, passwordHash, fullName: emailName, role: UserRole.VENDOR, organizationRole: 'OWNER' } });
-      await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: 'Vendor pending onboarding', operatingCity: 'Not set', operatingRegion: 'Not set' } });
+      await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: '', operatingCity: 'Not set', operatingRegion: 'Not set' } });
       return created;
     });
     return this.issueToken(user);

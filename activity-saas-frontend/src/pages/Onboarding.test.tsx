@@ -46,6 +46,15 @@ const draft = {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Vendor onboarding', () => {
+  it('does not show the temporary vendor placeholder as business data', async () => {
+    vi.spyOn(api, 'request').mockResolvedValueOnce({ ...draft, startedAt: new Date().toISOString(), currentStep: 2, businessDisplayName: 'Vendor pending onboarding', legalBusinessName: 'Vendor pending onboarding' } as never);
+
+    render(<Onboarding />);
+
+    expect(await screen.findByLabelText('Business display name *')).toHaveValue('');
+    expect(screen.getByLabelText('Legal business name *')).toHaveValue('');
+  });
+
   it('loads the welcome state and starts a saved application', async () => {
     const request = vi.spyOn(api, 'request')
       .mockResolvedValueOnce(draft as never)
