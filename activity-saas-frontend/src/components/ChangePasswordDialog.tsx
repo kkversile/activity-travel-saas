@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api';
 
 export default function ChangePasswordDialog({ onClose, required = false, onChanged }: { onClose: () => void; required?: boolean; onChanged?: () => void }) {
@@ -37,7 +38,7 @@ export default function ChangePasswordDialog({ onClose, required = false, onChan
     }
   }
 
-  return (
+  const dialog = (
     <div className="change-password-backdrop" role="presentation" onMouseDown={(event) => { if (!required && event.target === event.currentTarget) onClose(); }}>
       <section className="change-password-modal" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
         <div className="modal-head">
@@ -64,4 +65,6 @@ export default function ChangePasswordDialog({ onClose, required = false, onChan
       </section>
     </div>
   );
+
+  return createPortal(dialog, document.body);
 }
