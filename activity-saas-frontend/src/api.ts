@@ -76,6 +76,15 @@ export type ProductRevision = {
 export type ProductVariant = { id: string; productId: string; variantCode: string; name: string; description?: string; status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'; version: number; durationMinutes?: number; privateShared?: string; vehicleType?: string; pickupIncluded: boolean; pickupType?: string; pickupInput?: string; pickupTimings?: string; dropoffIncluded: boolean; dropoffTimings?: string; mealIncluded: boolean; mealType?: string; menu?: string[]; mealVariety?: string; pointsOfInterest?: string[]; inclusions: string[]; exclusions: string[]; suitableFor: string[]; ratePlans?: RatePlan[] };
 export type Product = { id: string; tenantId: string; productCode: string; status: 'DRAFT' | 'LIVE' | 'SUSPENDED' | 'ARCHIVED'; currentRevisionId?: string | null; currentRevision?: ProductRevision | null; revisions?: ProductRevision[]; variants?: ProductVariant[]; _count?: { variants: number; bookings: number } };
 export type ProductDistribution = { channelCode: 'VOYA_AGENT' | string; ready: boolean; status: 'READY' | 'PENDING'; reasonCodes: string[]; details?: Record<string, unknown> };
+export const distributionReasonLabel: Record<string, string> = {
+  CHANNEL_PRODUCT_NOT_MAPPED: 'Not connected to Agent Marketplace',
+  CHANNEL_PRODUCT_MAPPING_DISABLED: 'Agent Marketplace connection disabled',
+  CHANNEL_VARIANT_NOT_MAPPED: 'Options not connected to Agent Marketplace',
+  CHANNEL_VARIANT_MAPPING_DISABLED: 'Option connection to Agent Marketplace disabled',
+  CHANNEL_RATE_PLAN_NOT_MAPPED: 'Rate plans not connected to Agent Marketplace',
+  CHANNEL_RATE_PLAN_MAPPING_DISABLED: 'Rate-plan connection to Agent Marketplace disabled',
+  CHANNEL_INVENTORY_NOT_EXPOSED: 'Inventory not available to Agent Marketplace',
+};
 export type ProductListingItem = { id: string; productCode: string; experienceName: string; destination: string | null; optionCount: number; productStatus: Product['status']; displayStatus: 'PUBLISHED' | 'UNDER_REVIEW' | 'DRAFT' | 'NEEDS_CHANGES' | 'SUSPENDED' | 'ARCHIVED'; currentRevisionId: string | null; workingRevisionId: string | null; workingRevisionStatus: ProductRevision['status'] | null; updatedAt: string; bookability: { status: 'BOOKABLE' | 'NOT_BOOKABLE' | 'LOW_INVENTORY' | 'NOT_EVALUATED'; reasonCodes: string[] }; distribution?: ProductDistribution; quality: { score: number | null; status: 'SCORED' | 'NOT_SCORED' }; action: 'OPEN' | 'FIX' };
 export type ProductListingResponse = { items: ProductListingItem[]; summary: { live: number; review: number; draft: number }; pagination: { page: number; limit: number; total: number; totalPages: number } };
 export type ProductReadinessSection = { ready: boolean; reasonCodes: string[]; details?: Record<string, unknown> };
