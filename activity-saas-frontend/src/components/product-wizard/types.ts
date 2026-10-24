@@ -32,6 +32,7 @@ export type FulfilmentForm = {
   mode: 'AUTO' | 'AFTER_FULFILMENT' | 'PNR_ONLY' | 'TICKET_QR' | '';
   requiredEvidenceKinds: string[];
   evidenceMatchMode: 'ALL' | 'ANY';
+  reviewRequired: boolean;
   operationsContactName: string;
   operationsContactPhone: string;
   operationsContactEmail: string;
@@ -91,7 +92,7 @@ export const emptyRevisionForm: RevisionForm = {
 };
 
 export const emptyFulfilmentForm: FulfilmentForm = {
-  mode: '', requiredEvidenceKinds: [], evidenceMatchMode: 'ALL', operationsContactName: '', operationsContactPhone: '', operationsContactEmail: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactEmail: '', voucherNotes: '',
+  mode: '', requiredEvidenceKinds: [], evidenceMatchMode: 'ALL', reviewRequired: false, operationsContactName: '', operationsContactPhone: '', operationsContactEmail: '', emergencyContactName: '', emergencyContactPhone: '', emergencyContactEmail: '', voucherNotes: '',
 };
 
 export const emptyVariantForm: VariantForm = {
@@ -107,7 +108,7 @@ export function toRevisionForm(revision?: ProductRevision | null): RevisionForm 
 
 export function toFulfilmentForm(policy?: ProductRevision['fulfilmentPolicy'] | null): FulfilmentForm {
   if (!policy) return { ...emptyFulfilmentForm };
-  return { mode: policy.mode || '', requiredEvidenceKinds: policy.requiredEvidenceKinds || [], evidenceMatchMode: policy.evidenceMatchMode || 'ALL', operationsContactName: policy.operationsContactName || '', operationsContactPhone: policy.operationsContactPhone || '', operationsContactEmail: policy.operationsContactEmail || '', emergencyContactName: policy.emergencyContactName || '', emergencyContactPhone: policy.emergencyContactPhone || '', emergencyContactEmail: policy.emergencyContactEmail || '', voucherNotes: joinList(policy.voucherNotes) };
+  return { mode: policy.mode || '', requiredEvidenceKinds: policy.requiredEvidenceKinds || [], evidenceMatchMode: policy.evidenceMatchMode || 'ALL', reviewRequired: Boolean(policy.reviewRequired), operationsContactName: policy.operationsContactName || '', operationsContactPhone: policy.operationsContactPhone || '', operationsContactEmail: policy.operationsContactEmail || '', emergencyContactName: policy.emergencyContactName || '', emergencyContactPhone: policy.emergencyContactPhone || '', emergencyContactEmail: policy.emergencyContactEmail || '', voucherNotes: joinList(policy.voucherNotes) };
 }
 
 export function toVariantForm(variant?: ProductVariant | null): VariantForm {
