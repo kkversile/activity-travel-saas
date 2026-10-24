@@ -144,7 +144,8 @@ export class CatalogueService {
     const display = published || working || rejected || product.currentRevision;
     const displayStatus = product.status === ProductStatus.ARCHIVED ? 'ARCHIVED' : product.status === ProductStatus.SUSPENDED ? 'SUSPENDED' : published ? 'PUBLISHED' : working?.status === ProductRevisionStatus.UNDER_REVIEW ? 'UNDER_REVIEW' : rejected ? 'NEEDS_CHANGES' : 'DRAFT';
     const publishedVariants = (product.variants || []).filter((variant: any) => !published || variant.revisionId === published.id || (!variant.revisionId && product.currentRevisionId === published.id));
-    const displayVariants = working ? (product.variants || []).filter((variant: any) => variant.revisionId === working.id || (!variant.revisionId && product.currentRevisionId === working.id)) : publishedVariants;
+    const workingVariants = working ? (product.variants || []).filter((variant: any) => variant.revisionId === working.id) : [];
+    const displayVariants = working && workingVariants.length ? workingVariants : publishedVariants;
     const readiness = await this.aggregateBookability(user, { ...product, variants: publishedVariants }, published);
     const distribution = this.distributionReadiness
       ? await this.distributionReadiness.evaluate(product.id)

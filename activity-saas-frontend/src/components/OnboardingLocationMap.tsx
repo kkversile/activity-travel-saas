@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 const DEFAULT_LOCATION: [number, number] = [10.2381, 77.4892];
 
-type ReverseGeocodeDetails = { address?: string; city?: string; state?: string; pincode?: string };
+export type ReverseGeocodeDetails = { address?: string; city?: string; state?: string; country?: string; pincode?: string };
 type SearchResult = { place_id: number; display_name: string; lat: string; lon: string; address?: Record<string, string> };
 
 function resultDetails(result: SearchResult): ReverseGeocodeDetails {
@@ -11,11 +11,12 @@ function resultDetails(result: SearchResult): ReverseGeocodeDetails {
     address: result.display_name,
     city: address.city ?? address.town ?? address.village ?? address.municipality,
     state: address.state,
+    country: address.country,
     pincode: address.postcode,
   };
 }
 
-export function OnboardingLocationMap({ latitude, longitude, onChange, onReverseGeocode }: { latitude?: string | number | null; longitude?: string | number | null; onChange: (latitude: string, longitude: string) => void; onReverseGeocode?: (details: ReverseGeocodeDetails) => void }) {
+export function OnboardingLocationMap({ latitude, longitude, onChange, onReverseGeocode, searchId = 'onboarding-location-search', mapLabel = 'Business location map' }: { latitude?: string | number | null; longitude?: string | number | null; onChange: (latitude: string, longitude: string) => void; onReverseGeocode?: (details: ReverseGeocodeDetails) => void; searchId?: string; mapLabel?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
@@ -45,6 +46,7 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
         address: result.display_name,
         city: address.city ?? address.town ?? address.village ?? address.municipality,
         state: address.state,
+        country: address.country,
         pincode: address.postcode,
       });
     } catch {
@@ -125,5 +127,5 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
     setSearchError('');
   }
 
-  return <div className="onboarding-location-widget"><form className="location-search" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void searchLocation(); }}><label htmlFor="onboarding-location-search">Search location</label><div className="location-search-row"><input id="onboarding-location-search" value={query} onChange={(event) => { lastSelectedQueryRef.current = ''; setQuery(event.target.value); }} placeholder="Type a city, address or landmark" autoComplete="off" aria-autocomplete="list" aria-controls="onboarding-location-results" />{searching && <span className="location-search-status" aria-live="polite">Searching…</span>}</div>{searchError && <small className="field-error" role="alert">{searchError}</small>}{results.length > 0 && <div id="onboarding-location-results" className="location-search-results" role="listbox" aria-label="Location search results">{results.map((result) => <button key={result.place_id} type="button" role="option" onClick={() => selectResult(result)}><b>{result.display_name}</b><small>Select this location to move the map</small></button>)}</div>}</form><div className="onboarding-location-map" ref={containerRef} aria-label="Business location map" /></div>;
+  return <div className="onboarding-location-widget"><form className="location-search" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void searchLocation(); }}><label htmlFor={searchId}>Search location</label><div className="location-search-row"><input id={searchId} value={query} onChange={(event) => { lastSelectedQueryRef.current = ''; setQuery(event.target.value); }} placeholder="Type a city, address or landmark" autoComplete="off" aria-autocomplete="list" aria-controls={`${searchId}-results`} />{searching && <span className="location-search-status" aria-live="polite">Searching…</span>}</div>{searchError && <small className="field-error" role="alert">{searchError}</small>}{results.length > 0 && <div id={`${searchId}-results`} className="location-search-results" role="listbox" aria-label="Location search results">{results.map((result) => <button key={result.place_id} type="button" role="option" onClick={() => selectResult(result)}><b>{result.display_name}</b><small>Select this location to move the map</small></button>)}</div>}</form><div className="onboarding-location-map" ref={containerRef} aria-label={mapLabel} /></div>;
 }
