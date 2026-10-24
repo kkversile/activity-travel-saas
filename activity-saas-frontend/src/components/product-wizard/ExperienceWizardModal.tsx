@@ -35,12 +35,25 @@ export default function ExperienceWizardModal({ product, onDone, onChanged }: Pr
       const loaded = await api.request<Product>(`/products/${id}`);
       if (sequence !== reloadSequenceRef.current) return;
       const working = loaded.revisions?.find((revision) => revision.status === 'DRAFT' || revision.status === 'UNDER_REVIEW') || loaded.currentRevision || null;
+      // Older live API builds do not include bookingQuestions in GET /products/:id,
+      // even though the records exist and the dedicated endpoint is available.
+      // Enrich the revision from that endpoint so reopening the wizard does not
+      // make saved questions appear to have disappeared.
+      let revisionWithQuestions = working;
+      if (working) {
+        try {
+          const questions = await api.request<NonNullable<ProductRevision['bookingQuestions']>>(`/product-revisions/${working.id}/booking-questions`);
+          revisionWithQuestions = { ...working, bookingQuestions: questions };
+        } catch {
+          // Keep the embedded response when the endpoint is unavailable.
+        }
+      }
       const latestRejected = loaded.revisions?.filter((revision) => revision.status === 'REJECTED').sort((a, b) => b.versionNumber - a.versionNumber)[0] || null;
-      setSnapshot({ product: loaded, revision: working, variants: loaded.variants || [], schedules: [] });
+      setSnapshot({ product: loaded, revision: revisionWithQuestions, variants: loaded.variants || [], schedules: [] });
       setRejected(latestRejected);
       if (!preserveEditor) {
-        setForm(toRevisionForm(working));
-        setFulfilment(toFulfilmentForm(working?.fulfilmentPolicy));
+        setForm(toRevisionForm(revisionWithQuestions));
+        setFulfilment(toFulfilmentForm(revisionWithQuestions?.fulfilmentPolicy));
         setDirty(false);
       }
     } catch (e) {
