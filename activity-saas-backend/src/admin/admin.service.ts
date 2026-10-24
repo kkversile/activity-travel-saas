@@ -176,6 +176,18 @@ export class AdminService {
       return updated;
     });
   }
+  async archiveProduct(actor: AuthUser, productId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE`);
+      const product = await tx.product.findFirst({ where: { id: productId, tenant: { kind: TenantKind.VENDOR } }, select: { id: true, tenantId: true, status: true, currentRevisionId: true } });
+      if (!product) throw new NotFoundException('Product not found');
+      if (product.status !== ProductStatus.LIVE) throw new ConflictException(`Only LIVE products can be archived; current status is ${product.status}`);
+      const updated = await tx.product.update({ where: { id: productId }, data: { status: ProductStatus.ARCHIVED } });
+      await this.audit.write(tx, { actor, tenantId: product.tenantId, action: 'PRODUCT_ARCHIVED', entityType: 'Product', entityId: productId, beforeState: { status: product.status, currentRevisionId: product.currentRevisionId }, afterState: { status: updated.status, currentRevisionId: updated.currentRevisionId } });
+      await this.outbox.enqueue(tx, { tenantId: product.tenantId, eventType: 'PRODUCT_ARCHIVED', aggregateType: 'Product', aggregateId: productId, payload: { previousStatus: product.status, status: updated.status } });
+      return updated;
+    });
+  }
   async vendor(tenantId: string) { const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { id: true, email: true, fullName: true, active: true } }, products: { include: { currentRevision: true, variants: { include: { ratePlans: true } } }, orderBy: { updatedAt: 'desc' } }, _count: { select: { vendorBookings: true, payouts: true } } } }); if (!vendor) throw new NotFoundException('Vendor not found'); if (!this.distributionReadiness) return vendor; const products = await Promise.all(vendor.products.map(async (product: any) => ({ ...product, distribution: await this.distributionReadiness!.evaluate(product.id) }))); return { ...vendor, products }; }
   async verification(actor: AuthUser, tenantId: string, status: VendorVerificationStatus, reason?: string) {
     if (status !== VendorVerificationStatus.VERIFIED && status !== VendorVerificationStatus.SUSPENDED) throw new ConflictException('Only VERIFIED or SUSPENDED vendor verification actions are allowed');

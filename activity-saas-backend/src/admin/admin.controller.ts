@@ -47,6 +47,7 @@ export class AdminController {
   @Get('vendors') @Permissions('vendor.profile.view') vendors() { return this.service.vendors(); }
   @Get('products') @Permissions('product.view') products(@Query() query: AdminProductListQueryDto) { return this.service.products(query); }
   @Post('products/:id/deactivate') @Permissions('product.publish') deactivateProduct(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.deactivateProduct(user, id); }
+  @Post('products/:id/archive') @Permissions('product.publish') archiveProduct(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.archiveProduct(user, id); }
   @Get('agents') @Permissions('agent.governance.view') agents() { return this.service.agents(); }
   @Post('agents/:tenantId/approve') @Permissions('agent.governance.edit') approveAgent(@CurrentUser() user: AuthUser, @Param('tenantId') tenantId: string) { return this.service.approveAgent(user, tenantId); }
   @Post('agents/:tenantId/suspend') @Permissions('agent.governance.edit') suspendAgent(@CurrentUser() user: AuthUser, @Param('tenantId') tenantId: string, @Body() dto: AgentSuspensionDto) { return this.service.suspendAgent(user, tenantId, dto.reason); }

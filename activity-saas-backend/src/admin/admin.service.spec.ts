@@ -1,4 +1,4 @@
-import { DocumentReviewStatus, UserRole, VendorVerificationStatus } from '@prisma/client';
+import { DocumentReviewStatus, ProductStatus, UserRole, VendorVerificationStatus } from '@prisma/client';
 import { AdminService } from './admin.service';
 
 const actor = { sub: 'admin-1', email: 'admin@voya.test', role: UserRole.SUPER_ADMIN, tenantId: null } as any;
@@ -29,5 +29,17 @@ describe('AdminService governance', () => {
     tx.vendorDocumentVersion.findFirst.mockResolvedValue({ id: 'v2', versionNumber: 2, status: DocumentReviewStatus.PENDING, vendorDocumentId: 'd1', vendorDocument: { versions: [latest] } });
     await expect(service.document(actor, 't1', 'v2', DocumentReviewStatus.VERIFIED)).resolves.toBeDefined();
     expect(tx.vendorDocument.update).toHaveBeenCalledWith({ where: { id: 'd1' }, data: { currentStatus: DocumentReviewStatus.VERIFIED } });
+  });
+
+  it('archives only live products and records the lifecycle event', async () => {
+    const tx: any = { $queryRaw: jest.fn(), product: { findFirst: jest.fn().mockResolvedValue({ id: 'p1', tenantId: 't1', status: ProductStatus.LIVE, currentRevisionId: 'r1' }), update: jest.fn().mockResolvedValue({ id: 'p1', status: ProductStatus.ARCHIVED }) } };
+    const prisma: any = { $transaction: jest.fn((callback: any) => callback(tx)) };
+    const audit = { write: jest.fn() };
+    const outbox = { enqueue: jest.fn() };
+    const service = new AdminService(prisma, audit as any, outbox as any);
+    await expect(service.archiveProduct(actor, 'p1')).resolves.toMatchObject({ status: ProductStatus.ARCHIVED });
+    expect(tx.product.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { status: ProductStatus.ARCHIVED } });
+    expect(audit.write).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'PRODUCT_ARCHIVED' }));
+    expect(outbox.enqueue).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ eventType: 'PRODUCT_ARCHIVED' }));
   });
 });
