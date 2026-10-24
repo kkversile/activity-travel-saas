@@ -1,84 +1,61 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { API_BASE, api } from '../api';
 import { Badge, ErrorBox, Panel } from '../components/Ui';
 
-type ReviewRatePlan = { id: string; ratePlanCode: string; name: string; status: string; currency: string; unitType: string; basePrice: string | number; validFrom: string; validTo: string; instantConfirmation: boolean; minPax: number; maxPax: number };
-type ReviewVariant = { id: string; variantCode: string; name: string; status: string; durationMinutes?: number | null; description?: string | null; pickupIncluded: boolean; dropoffIncluded: boolean; inclusions: string[]; exclusions: string[]; ratePlans: ReviewRatePlan[] };
+type ReviewRatePlan = { id: string; ratePlanCode: string; name: string; status: string; currency: string; unitType: string; basePrice: string | number; validFrom: string; validTo: string; instantConfirmation: boolean; minPax: number; maxPax: number; travellerRules?: Array<{ type: string; minCount: number; maxCount: number; minAge?: number | null; maxAge?: number | null }>; cancellationRules?: Array<{ minDaysBefore: number; maxDaysBefore?: number | null; chargeValue: string | number; chargeType: string }> };
+type ReviewSchedule = { id: string; scheduleCode: string; name: string; status: string; operatingModel?: string | null; timezone: string; effectiveFrom: string; effectiveTo?: string | null; operatingDays: string[]; capacityUnit: string; defaultCapacity?: number | null; slotTemplates: Array<{ id: string; startTime: string; endTime?: string | null; label?: string | null }> };
+type ReviewVariant = { id: string; variantCode: string; name: string; status: string; durationMinutes?: number | null; description?: string | null; pickupIncluded: boolean; dropoffIncluded: boolean; inclusions: string[]; exclusions: string[]; suitableFor?: string[]; ratePlans: ReviewRatePlan[]; schedules?: ReviewSchedule[] };
 type ReviewMedia = { id: string; kind: 'IMAGE' | 'VIDEO'; externalUrl?: string | null; fileAssetId?: string | null; description?: string | null; fileAsset?: { id: string; originalName: string } | null };
 type Review = {
-  id: string;
-  versionNumber: number;
-  status: string;
-  productName: string;
-  type: string;
-  subType: string;
-  subCategory?: string | null;
-  meetingModel?: string | null;
-  meetingPoint?: string | null;
-  description: string;
-  shortDescription?: string | null;
-  highlights: string[];
-  importantInfo: string[];
-  thingsToCarry: string[];
-  safetyMeasures: string[];
-  terms: string[];
-  howToRedeem: string[];
-  additionalInfo: string[];
-  channels: string[];
-  labels: string[];
-  cityName: string;
-  stateName: string;
-  countryName: string;
-  address?: string | null;
-  lat?: string | number | null;
-  lon?: string | number | null;
-  submittedAt?: string | null;
-  media?: ReviewMedia[];
-  bookingQuestions?: Array<{ id: string; code: string; label: string; type: string; required: boolean }>;
+  id: string; versionNumber: number; status: string; productName: string; type: string; subType: string; subCategory?: string | null; meetingModel?: string | null; meetingPoint?: string | null; description: string; shortDescription?: string | null;
+  highlights: string[]; importantInfo: string[]; thingsToCarry: string[]; safetyMeasures: string[]; terms: string[]; howToRedeem: string[]; additionalInfo: string[]; channels: string[]; labels: string[];
+  cityName: string; stateName: string; countryName: string; address?: string | null; lat?: string | number | null; lon?: string | number | null; submittedAt?: string | null;
+  media?: ReviewMedia[]; bookingQuestions?: Array<{ id: string; code: string; label: string; type: string; required: boolean; helpText?: string | null; options?: unknown }>;
   fulfilmentPolicy?: { mode?: string | null; reviewRequired: boolean; operationsContactName?: string | null; operationsContactPhone?: string | null; operationsContactEmail?: string | null; voucherNotes: string[] } | null;
-  variants: ReviewVariant[];
-  product: { productCode: string; tenant: { name: string; vendorProfile?: { legalBusinessName?: string | null; verificationStatus?: string | null } | null }; variants: ReviewVariant[] };
+  variants?: ReviewVariant[]; product: { productCode: string; tenant: { name: string; vendorProfile?: { legalBusinessName?: string | null; verificationStatus?: string | null } | null }; variants: ReviewVariant[] };
 };
 
 const display = (value: string | null | undefined) => value?.replaceAll('_', ' ') || '—';
 const list = (values: string[] | undefined) => values?.length ? values.join(', ') : '—';
 const date = (value?: string | null) => value ? new Date(value).toLocaleString() : '—';
+const simpleDate = (value?: string | null) => value ? new Date(value).toLocaleDateString() : '—';
+const steps = ['Basic info', 'Experience', 'Options', 'Rates & rules', 'Availability', 'Review & submit'];
+
+function ReadonlyField({ label, value }: { label: string; value: ReactNode }) { return <div className="review-readonly-field"><small>{label}</small><div>{value || '—'}</div></div>; }
+
+function ReviewMedia({ selected }: { selected: Review }) {
+  return <section className="review-detail-section"><div className="review-section-heading"><h4>Media</h4><span className="badge">{selected.media?.length || 0} assets</span></div><div className="review-media-grid">{selected.media?.length ? selected.media.map((media) => { const source = media.externalUrl || (media.fileAssetId ? `${API_BASE}/files/public/${media.fileAssetId}/content` : ''); return <div className="review-media-card" key={media.id}>{source && media.kind === 'IMAGE' ? <img src={source} alt={media.description || media.fileAsset?.originalName || 'Product media'} /> : <div className="review-media-placeholder">{media.kind} · {media.fileAsset?.originalName || media.externalUrl || 'Media asset'}</div>}<small>{media.description || media.fileAsset?.originalName || 'No description'}</small></div>; }) : <span className="muted">No media submitted.</span>}</div></section>;
+}
+
+function ReviewVariantCard({ variant }: { variant: ReviewVariant }) {
+  return <div className="review-variant"><div><b>{variant.name}</b><small>{variant.variantCode} · {variant.durationMinutes ? `${variant.durationMinutes} minutes` : 'Duration not set'} · {variant.pickupIncluded ? 'Pickup included' : 'No pickup'} · {display(variant.status)}</small></div><p><b>Includes:</b> {list(variant.inclusions)} · <b>Excludes:</b> {list(variant.exclusions)}</p></div>;
+}
 
 export default function AdminReview() {
-  const [items, setItems] = useState<Review[]>([]);
-  const [selected, setSelected] = useState<Review | null>(null);
-  const [error, setError] = useState('');
-  const [reason, setReason] = useState('');
-  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [items, setItems] = useState<Review[]>([]); const [selected, setSelected] = useState<Review | null>(null); const [detailStep, setDetailStep] = useState(1); const [error, setError] = useState(''); const [reason, setReason] = useState(''); const [rejecting, setRejecting] = useState<string | null>(null);
   const load = () => api.request<Review[]>('/admin/product-revisions/review').then(setItems).catch((e) => setError((e as Error).message));
   useEffect(() => { void load(); }, []);
-  async function act(id: string, action: 'publish' | 'reject') {
-    try {
-      await api.request(`/admin/product-revisions/${id}/${action}`, { method: 'POST', ...(action === 'reject' ? { body: JSON.stringify({ reason }) } : {}) });
-      setRejecting(null);
-      setSelected(null);
-      setReason('');
-      void load();
-    } catch (e) { setError((e as Error).message); }
-  }
+  async function act(id: string, action: 'publish' | 'reject') { try { await api.request(`/admin/product-revisions/${id}/${action}`, { method: 'POST', ...(action === 'reject' ? { body: JSON.stringify({ reason }) } : {}) }); setRejecting(null); setSelected(null); setReason(''); void load(); } catch (e) { setError((e as Error).message); } }
+  function openDetails(review: Review) { setSelected(review); setDetailStep(1); }
+  const variants = selected ? (selected.variants ?? selected.product.variants ?? []) : [];
   return <>
     <div className="admin-hero"><div><h2>Product revision review queue</h2><p className="muted">Inspect the submitted product details before publishing or rejecting the revision.</p></div><span className="badge pending">{items.length} awaiting review</span></div>
     {error && <ErrorBox error={error} />}
-    <Panel><div className="panel-body">{!items.length ? <div className="empty">No product revisions are waiting for review.</div> : items.map((r) => { const variants = r.variants ?? r.product.variants ?? []; return <div className="admin-review-row" key={r.id}>
-      <div><b>{r.product.productCode} · Revision v{r.versionNumber}</b><small>{r.product.tenant.vendorProfile?.legalBusinessName || r.product.tenant.name}</small><small>{r.productName} · {variants.length} variants · {variants.reduce((n, v) => n + v.ratePlans.length, 0)} rate plans</small></div>
-      <Badge value={r.status} />
-      <div className="status-actions"><button className="btn small" onClick={() => setSelected(r)}>View details</button><button className="btn small primary" onClick={() => void act(r.id, 'publish')}>Publish</button><button className="btn small" onClick={() => setRejecting(rejecting === r.id ? null : r.id)}>Reject</button></div>
+    <Panel><div className="panel-body">{!items.length ? <div className="empty">No product revisions are waiting for review.</div> : items.map((r) => { const rowVariants = r.variants ?? r.product.variants ?? []; return <div className="admin-review-row" key={r.id}>
+      <div><b>{r.product.productCode} · Revision v{r.versionNumber}</b><small>{r.product.tenant.vendorProfile?.legalBusinessName || r.product.tenant.name}</small><small>{r.productName} · {rowVariants.length} variants · {rowVariants.reduce((n, v) => n + v.ratePlans.length, 0)} rate plans</small></div><Badge value={r.status} /><div className="status-actions"><button className="btn small" onClick={() => openDetails(r)}>View details</button><button className="btn small primary" onClick={() => void act(r.id, 'publish')}>Publish</button><button className="btn small" onClick={() => setRejecting(rejecting === r.id ? null : r.id)}>Reject</button></div>
       {rejecting === r.id && <div className="form-grid two"><input placeholder="Reason for rejection" value={reason} onChange={(e) => setReason(e.target.value)} /><button className="btn small" disabled={!reason.trim()} onClick={() => void act(r.id, 'reject')}>Confirm rejection</button></div>}
     </div>; })}</div></Panel>
     {selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="modal-card admin-review-detail" role="dialog" aria-modal="true" aria-labelledby="review-detail-title" onClick={(e) => e.stopPropagation()}>
       <div className="modal-head"><div><h3 id="review-detail-title">{selected.productName}</h3><p className="muted">{selected.product.productCode} · Revision v{selected.versionNumber} · Submitted {date(selected.submittedAt)}</p></div><button className="modal-close" onClick={() => setSelected(null)} aria-label="Close product details">×</button></div>
-      <div className="review-detail-body">
-        <div className="review-detail-summary"><Badge value={selected.status} /><span>{selected.product.tenant.vendorProfile?.legalBusinessName || selected.product.tenant.name}</span><span>{display(selected.type)} · {display(selected.subType)}</span><span>{selected.cityName}, {selected.stateName}, {selected.countryName}</span></div>
-        <section className="review-detail-section"><h4>Basic information</h4><p><b>Sub-category:</b> {selected.subCategory || '—'} · <b>Meeting model:</b> {display(selected.meetingModel)}</p><p><b>Meeting point:</b> {selected.meetingPoint || '—'}</p><p><b>Address:</b> {selected.address || '—'}{selected.lat != null && selected.lon != null ? ` · ${selected.lat}, ${selected.lon}` : ''}</p><p>{selected.shortDescription || selected.description}</p><p><b>Highlights:</b> {list(selected.highlights)}</p></section>
-        <section className="review-detail-section"><h4>Experience and customer instructions</h4><p><b>Important information:</b> {list(selected.importantInfo)}</p><p><b>Things to carry:</b> {list(selected.thingsToCarry)}</p><p><b>Safety:</b> {list(selected.safetyMeasures)}</p><p><b>Terms:</b> {list(selected.terms)}</p><p><b>How to redeem:</b> {list(selected.howToRedeem)}</p></section>
-        <section className="review-detail-section"><h4>Media ({selected.media?.length || 0})</h4><div className="review-media-grid">{selected.media?.length ? selected.media.map((media) => { const source = media.externalUrl || (media.fileAssetId ? `${API_BASE}/files/public/${media.fileAssetId}/content` : ''); return <div className="review-media-card" key={media.id}>{source && media.kind === 'IMAGE' ? <img src={source} alt={media.description || media.fileAsset?.originalName || 'Product media'} /> : <div className="review-media-placeholder">{media.kind} · {media.fileAsset?.originalName || media.externalUrl || 'Media asset'}</div>}<small>{media.description || media.fileAsset?.originalName || 'No description'}</small></div>; }) : <span className="muted">No media submitted.</span>}</div></section>
-        <section className="review-detail-section"><h4>Options and rate plans</h4>{(selected.variants ?? selected.product.variants ?? []).map((variant) => <div className="review-variant" key={variant.id}><div><b>{variant.name}</b><small>{variant.variantCode} · {variant.durationMinutes ? `${variant.durationMinutes} minutes` : 'Duration not set'} · {variant.pickupIncluded ? 'Pickup included' : 'No pickup'}</small></div>{variant.ratePlans.map((plan) => <div className="review-rate-plan" key={plan.id}><span><b>{plan.name}</b><small>{plan.ratePlanCode} · {plan.currency} {plan.basePrice} · {display(plan.unitType)} · {plan.minPax}–{plan.maxPax} pax</small></span><Badge value={plan.status} /></div>)}</div>)}{!(selected.variants ?? selected.product.variants ?? []).length && <span className="muted">No options submitted.</span>}</section>
-        <section className="review-detail-section"><h4>Booking and fulfilment</h4><p><b>Booking questions:</b> {selected.bookingQuestions?.length ? selected.bookingQuestions.map((q) => `${q.label} (${q.type}${q.required ? ', required' : ''})`).join('; ') : 'None'}</p><p><b>Fulfilment:</b> {display(selected.fulfilmentPolicy?.mode)}{selected.fulfilmentPolicy?.reviewRequired ? ' · evidence review required' : ''}</p><p><b>Operations contact:</b> {selected.fulfilmentPolicy?.operationsContactName || '—'} · {selected.fulfilmentPolicy?.operationsContactPhone || '—'} · {selected.fulfilmentPolicy?.operationsContactEmail || '—'}</p></section>
+      <div className="review-detail-body"><div className="review-detail-summary"><Badge value={selected.status} /><span>{selected.product.tenant.vendorProfile?.legalBusinessName || selected.product.tenant.name}</span><span>{display(selected.type)} · {display(selected.subType)}</span><span>{selected.cityName}, {selected.stateName}, {selected.countryName}</span></div>
+        <div className="review-detail-wizard"><nav className="review-detail-nav" aria-label="Product review steps">{steps.map((label, index) => <button type="button" key={label} className={detailStep === index + 1 ? 'active' : ''} onClick={() => setDetailStep(index + 1)}><span>{index + 1}</span>{label}</button>)}</nav><div className="review-detail-content">
+          {detailStep === 1 && <section className="review-detail-section review-detail-section-first"><div className="review-section-heading"><div><h4>1 · Basic information</h4><p>Read-only view of the submitted marketplace identity.</p></div><Badge value="READ ONLY" /></div><div className="review-readonly-grid"><ReadonlyField label="Product name" value={selected.productName} /><ReadonlyField label="Type" value={display(selected.type)} /><ReadonlyField label="Sub-type" value={display(selected.subType)} /><ReadonlyField label="Sub-category" value={selected.subCategory} /><ReadonlyField label="Destination" value={`${selected.cityName}, ${selected.stateName}, ${selected.countryName}`} /><ReadonlyField label="Meeting model" value={display(selected.meetingModel)} /><ReadonlyField label="Channels" value={list(selected.channels)} /><ReadonlyField label="Labels" value={list(selected.labels)} /></div><div className="review-copy-block"><small>Short marketplace description</small><p>{selected.shortDescription || '—'}</p></div></section>}
+          {detailStep === 2 && <><section className="review-detail-section review-detail-section-first"><h4>2 · Experience</h4><div className="review-copy-block"><small>Full description</small><p>{selected.description || '—'}</p></div><div className="review-readonly-grid"><ReadonlyField label="Highlights" value={list(selected.highlights)} /><ReadonlyField label="Important information" value={list(selected.importantInfo)} /><ReadonlyField label="Things to carry" value={list(selected.thingsToCarry)} /><ReadonlyField label="Safety measures" value={list(selected.safetyMeasures)} /><ReadonlyField label="Terms" value={list(selected.terms)} /><ReadonlyField label="How to redeem" value={list(selected.howToRedeem)} /><ReadonlyField label="Additional information" value={list(selected.additionalInfo)} /><ReadonlyField label="Meeting point" value={selected.meetingPoint} /><ReadonlyField label="Address" value={selected.address} /><ReadonlyField label="Coordinates" value={selected.lat != null && selected.lon != null ? `${selected.lat}, ${selected.lon}` : '—'} /></div></section><ReviewMedia selected={selected} /><section className="review-detail-section"><h4>Booking questions</h4>{selected.bookingQuestions?.length ? <div className="review-question-list">{selected.bookingQuestions.map((question) => <div className="review-question" key={question.id}><b>{question.label}</b><span>{display(question.type)} · {question.required ? 'Required' : 'Optional'}{question.helpText ? ` · ${question.helpText}` : ''}</span></div>)}</div> : <p className="muted">No booking questions submitted.</p>}</section><section className="review-detail-section"><h4>Fulfilment</h4><div className="review-readonly-grid"><ReadonlyField label="Mode" value={display(selected.fulfilmentPolicy?.mode)} /><ReadonlyField label="Review required" value={selected.fulfilmentPolicy?.reviewRequired ? 'Yes' : 'No'} /><ReadonlyField label="Operations contact" value={selected.fulfilmentPolicy?.operationsContactName} /><ReadonlyField label="Contact details" value={[selected.fulfilmentPolicy?.operationsContactPhone, selected.fulfilmentPolicy?.operationsContactEmail].filter(Boolean).join(' · ') || '—'} /><ReadonlyField label="Voucher notes" value={list(selected.fulfilmentPolicy?.voucherNotes)} /></div></section></>}
+          {detailStep === 3 && <section className="review-detail-section review-detail-section-first"><div className="review-section-heading"><div><h4>3 · Options</h4><p>These are the traveller-facing options submitted with the revision.</p></div><span className="badge">{variants.length} options</span></div>{variants.length ? variants.map((variant) => <ReviewVariantCard key={variant.id} variant={variant} />) : <p className="muted">No options submitted.</p>}</section>}
+          {detailStep === 4 && <section className="review-detail-section review-detail-section-first"><div className="review-section-heading"><div><h4>4 · Rates & rules</h4><p>Review pricing, booking behaviour and cancellation rules without editing them.</p></div><span className="badge">{variants.reduce((count, variant) => count + variant.ratePlans.length, 0)} rate plans</span></div>{variants.map((variant) => <div className="review-variant" key={variant.id}><b>{variant.name}</b>{variant.ratePlans.length ? variant.ratePlans.map((plan) => <div className="review-rate-plan" key={plan.id}><span><b>{plan.name}</b><small>{plan.ratePlanCode} · {plan.currency} {plan.basePrice} · {display(plan.unitType)} · {plan.minPax}–{plan.maxPax} pax · {plan.instantConfirmation ? 'Instant confirmation' : 'Vendor confirmation'}</small><small>Valid {simpleDate(plan.validFrom)} to {simpleDate(plan.validTo)} · Traveller rules: {plan.travellerRules?.length || 0} · Cancellation rules: {plan.cancellationRules?.length || 0}</small></span><Badge value={plan.status} /></div>) : <p className="muted">No rate plans submitted.</p>}</div>)}{!variants.length && <p className="muted">No options or rate plans submitted.</p>}</section>}
+          {detailStep === 5 && <section className="review-detail-section review-detail-section-first"><div className="review-section-heading"><div><h4>5 · Availability</h4><p>Operating schedules are shown as submitted. This screen is read-only.</p></div><span className="badge">{variants.reduce((count, variant) => count + (variant.schedules?.length || 0), 0)} schedules</span></div>{variants.map((variant) => <div className="review-variant" key={variant.id}><b>{variant.name}</b>{variant.schedules?.length ? variant.schedules.map((schedule) => <div className="review-schedule" key={schedule.id}><div className="review-section-heading"><span><b>{schedule.name}</b><small>{schedule.scheduleCode} · {display(schedule.operatingModel)} · {schedule.timezone}</small></span><Badge value={schedule.status} /></div><div className="review-readonly-grid"><ReadonlyField label="Effective dates" value={`${simpleDate(schedule.effectiveFrom)} to ${simpleDate(schedule.effectiveTo)}`} /><ReadonlyField label="Operating days" value={list(schedule.operatingDays)} /><ReadonlyField label="Capacity" value={`${schedule.defaultCapacity ?? '—'} ${display(schedule.capacityUnit)}`} /><ReadonlyField label="Time slots" value={schedule.slotTemplates?.length ? schedule.slotTemplates.map((slot) => `${slot.label || slot.startTime}${slot.endTime ? `–${slot.endTime}` : ''}`).join(', ') : 'All day / date capacity'} /></div></div>) : <p className="muted">No availability schedule submitted for this option.</p>}</div>)}{!variants.length && <p className="muted">No availability data returned with this revision.</p>}</section>}
+          {detailStep === 6 && <section className="review-detail-section review-detail-section-first"><div className="review-section-heading"><div><h4>6 · Review & submit</h4><p>Final read-only summary before the admin decision.</p></div><Badge value={selected.status} /></div><div className="review-readiness-grid"><ReadonlyField label="Vendor" value={selected.product.tenant.vendorProfile?.legalBusinessName || selected.product.tenant.name} /><ReadonlyField label="Product code" value={selected.product.productCode} /><ReadonlyField label="Revision" value={`v${selected.versionNumber}`} /><ReadonlyField label="Submitted" value={date(selected.submittedAt)} /><ReadonlyField label="Options" value={variants.length} /><ReadonlyField label="Rate plans" value={variants.reduce((count, variant) => count + variant.ratePlans.length, 0)} /><ReadonlyField label="Media assets" value={selected.media?.length || 0} /><ReadonlyField label="Review action" value="Publish to make this revision current, or reject with a reason." /></div></section>}
+        </div></div>
       </div>
       <div className="modal-actions"><button className="btn" onClick={() => setSelected(null)}>Close</button><button className="btn primary" onClick={() => void act(selected.id, 'publish')}>Publish</button><button className="btn" onClick={() => { setRejecting(selected.id); setSelected(null); }}>Reject</button></div>
     </div></div>}

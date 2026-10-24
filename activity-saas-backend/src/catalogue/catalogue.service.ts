@@ -16,6 +16,7 @@ import { ChannelDistributionReadinessService } from '../distribution/channel-dis
 
 const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, fulfilmentPolicy: true, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
 const variantInclude = { ratePlans: { include: { travellerRules: true, cancellationRules: { orderBy: { minDaysBefore: 'desc' as const } } }, orderBy: { createdAt: 'asc' as const } } };
+const reviewVariantInclude = { ...variantInclude, schedules: { where: { archivedAt: null }, orderBy: { effectiveFrom: 'asc' as const }, include: { slotTemplates: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } } } } };
 const revisionCloneInclude = {
   media: { where: { archivedAt: null } },
   bookingQuestions: { where: { archivedAt: null } },
@@ -470,7 +471,7 @@ export class CatalogueService {
         media: { where: { archivedAt: null }, orderBy: { rank: 'asc' }, include: { fileAsset: { select: { id: true, originalName: true } } } },
         bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] },
         fulfilmentPolicy: true,
-        product: { select: { productCode: true, tenant: { select: { id: true, name: true, vendorProfile: { select: { legalBusinessName: true, verificationStatus: true } } } }, variants: { where: { status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, include: variantInclude, orderBy: { createdAt: 'asc' } } } },
+        product: { select: { productCode: true, tenant: { select: { id: true, name: true, vendorProfile: { select: { legalBusinessName: true, verificationStatus: true } } } }, variants: { where: { status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, include: reviewVariantInclude, orderBy: { createdAt: 'asc' } } } },
       },
       orderBy: { submittedAt: 'asc' },
     });
