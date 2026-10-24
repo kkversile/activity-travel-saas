@@ -470,8 +470,7 @@ export class CatalogueService {
         media: { where: { archivedAt: null }, orderBy: { rank: 'asc' }, include: { fileAsset: { select: { id: true, originalName: true } } } },
         bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] },
         fulfilmentPolicy: true,
-        variants: { where: { status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, include: variantInclude, orderBy: { createdAt: 'asc' } },
-        product: { select: { productCode: true, tenant: { select: { id: true, name: true, vendorProfile: { select: { legalBusinessName: true, verificationStatus: true } } } } } },
+        product: { select: { productCode: true, tenant: { select: { id: true, name: true, vendorProfile: { select: { legalBusinessName: true, verificationStatus: true } } } }, variants: { where: { status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, include: variantInclude, orderBy: { createdAt: 'asc' } } } },
       },
       orderBy: { submittedAt: 'asc' },
     });
