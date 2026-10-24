@@ -75,6 +75,10 @@ export class ChannelDistributionReadinessService {
       return this.result(missingDetails, reasons);
     }
 
+    // Channel readiness is for the currently published catalogue only. Draft
+    // revision variants must not make Agent distribution look ready.
+    product.variants = product.variants.filter((variant: any) => !product.currentRevisionId || variant.revisionId === product.currentRevisionId || !variant.revisionId);
+
     const productMapping = product.channelMappings[0];
     const details = {
       channelId: channel.id,

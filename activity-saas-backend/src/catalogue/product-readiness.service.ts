@@ -85,7 +85,7 @@ export class ProductReadinessService {
     if (revision?.meetingModel === 'FIXED_MEETING_POINT' && !revision.meetingPoint?.trim()) experienceReasons.push('MEETING_POINT_MISSING');
 
     const optionsReasons: string[] = [];
-    const variants = product.variants as any[];
+    const variants = (product.variants as any[]).filter((variant: any) => !revision || variant.revisionId === revision.id || (!variant.revisionId && product.currentRevisionId === revision.id));
     if (!variants.length) optionsReasons.push('OPTIONS_MISSING');
 
     const ratesReasons: string[] = [];

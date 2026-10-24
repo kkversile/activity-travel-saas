@@ -44,7 +44,7 @@ export class MarketplaceService {
 
   private async findEligibleOffers(agentTenantId: string, dto: MarketplaceSearchDto | MarketplaceProductViewDto, options: SearchOptions = {}) {
     const parsedDate = new Date(dto.serviceDate); const serviceDate = new Date(Date.UTC(parsedDate.getUTCFullYear(), parsedDate.getUTCMonth(), parsedDate.getUTCDate()));
-    const s: any = dto; const revisionWhere: any = { status: ProductRevisionStatus.PUBLISHED }; const variantWhere: any = { status: VariantStatus.ACTIVE, archivedAt: null };
+    const s: any = dto; const revisionWhere: any = { status: ProductRevisionStatus.PUBLISHED }; const variantWhere: any = { status: VariantStatus.ACTIVE, archivedAt: null, revision: { status: ProductRevisionStatus.PUBLISHED } };
     if (!options.productId) this.validatePriceCurrency(dto as MarketplaceSearchDto);
     if (s.durationMin != null && s.durationMax != null && s.durationMin > s.durationMax) throw new BadRequestException('durationMin must be less than or equal to durationMax');
     if (s.priceMin != null && s.priceMax != null && s.priceMin > s.priceMax) throw new BadRequestException('priceMin must be less than or equal to priceMax');

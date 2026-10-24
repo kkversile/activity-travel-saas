@@ -16,6 +16,18 @@ import { ChannelDistributionReadinessService } from '../distribution/channel-dis
 
 const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, fulfilmentPolicy: true, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
 const variantInclude = { ratePlans: { include: { travellerRules: true, cancellationRules: { orderBy: { minDaysBefore: 'desc' as const } } }, orderBy: { createdAt: 'asc' as const } } };
+const revisionCloneInclude = {
+  media: { where: { archivedAt: null } },
+  bookingQuestions: { where: { archivedAt: null } },
+  fulfilmentPolicy: true,
+  variants: {
+    where: { status: { not: VariantStatus.ARCHIVED }, archivedAt: null },
+    include: {
+      ratePlans: { include: { travellerRules: true, cancellationRules: true, commercialVersions: { include: { travellerPrices: true } } } },
+      schedules: { include: { slotTemplates: { where: { archivedAt: null } }, ratePlanMappings: { where: { active: true } } } },
+    },
+  },
+};
 const startOfToday = () => { const value = new Date(); value.setHours(0, 0, 0, 0); return value; };
 
 @Injectable()
@@ -83,6 +95,7 @@ export class CatalogueService {
         where: { status: { not: VariantStatus.ARCHIVED }, archivedAt: null },
         select: {
           id: true, status: true,
+          revisionId: true,
           ratePlans: {
             where: { status: 'ACTIVE' },
             select: {
@@ -130,14 +143,16 @@ export class CatalogueService {
     const rejected = revisions.find((revision: any) => revision.status === ProductRevisionStatus.REJECTED) || null;
     const display = published || working || rejected || product.currentRevision;
     const displayStatus = product.status === ProductStatus.ARCHIVED ? 'ARCHIVED' : product.status === ProductStatus.SUSPENDED ? 'SUSPENDED' : published ? 'PUBLISHED' : working?.status === ProductRevisionStatus.UNDER_REVIEW ? 'UNDER_REVIEW' : rejected ? 'NEEDS_CHANGES' : 'DRAFT';
-    const readiness = await this.aggregateBookability(user, product, published);
+    const publishedVariants = (product.variants || []).filter((variant: any) => !published || variant.revisionId === published.id || (!variant.revisionId && product.currentRevisionId === published.id));
+    const displayVariants = working ? (product.variants || []).filter((variant: any) => variant.revisionId === working.id || (!variant.revisionId && product.currentRevisionId === working.id)) : publishedVariants;
+    const readiness = await this.aggregateBookability(user, { ...product, variants: publishedVariants }, published);
     const distribution = this.distributionReadiness
       ? await this.distributionReadiness.evaluate(product.id)
       : { channelCode: 'VOYA_AGENT', ready: false, status: 'PENDING', reasonCodes: ['CHANNEL_PRODUCT_NOT_MAPPED'] };
     const updatedAt = [product.updatedAt, published?.updatedAt, working?.updatedAt, rejected?.updatedAt].filter(Boolean).map((value: Date) => value.getTime()).reduce((max: number, value: number) => Math.max(max, value), 0);
     return {
       id: product.id, productCode: product.productCode, experienceName: display?.productName || 'Untitled product', destination: [display?.cityName, display?.stateName].filter(Boolean).join(', ') || null,
-      optionCount: product.variants?.length || 0, productStatus: product.status, displayStatus, currentRevisionId: product.currentRevisionId || null, workingRevisionId: working?.id || null, workingRevisionStatus: working?.status || null,
+      optionCount: displayVariants.length, productStatus: product.status, displayStatus, currentRevisionId: product.currentRevisionId || null, workingRevisionId: working?.id || null, workingRevisionStatus: working?.status || null,
       updatedAt: new Date(updatedAt || Date.now()).toISOString(), bookability: readiness, distribution, quality: { score: null, status: 'NOT_SCORED' }, action: displayStatus === 'NEEDS_CHANGES' ? 'FIX' : 'OPEN',
     };
   }
@@ -183,7 +198,10 @@ export class CatalogueService {
 
   async get(user: AuthUser, id: string) {
     await this.product(user, id);
-    return this.prisma.product.findFirstOrThrow({ where: { id }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, fulfilmentPolicy: true } }, revisions: { orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, fulfilmentPolicy: true } }, variants: { where: { status: { not: VariantStatus.ARCHIVED } }, include: variantInclude }, _count: { select: { variants: true, bookings: true } } } });
+    const result: any = await this.prisma.product.findFirstOrThrow({ where: { id }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, fulfilmentPolicy: true } }, revisions: { orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, fulfilmentPolicy: true } }, variants: { where: { status: { not: VariantStatus.ARCHIVED } }, include: variantInclude }, _count: { select: { variants: true, bookings: true } } } });
+    const selectedRevision = result.revisions.find((revision: any) => revision.status === ProductRevisionStatus.DRAFT || revision.status === ProductRevisionStatus.UNDER_REVIEW) || result.currentRevision || result.revisions.find((revision: any) => revision.status === ProductRevisionStatus.REJECTED);
+    result.variants = (result.variants || []).filter((variant: any) => !selectedRevision || variant.revisionId === selectedRevision.id || (!variant.revisionId && result.currentRevisionId === selectedRevision.id));
+    return result;
   }
 
   async create(user: AuthUser, dto: CreateProductDto) {
@@ -241,11 +259,11 @@ export class CatalogueService {
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE`);
       const working = await tx.productRevision.findFirst({ where: { productId, status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW] } }, orderBy: { versionNumber: 'desc' } });
       if (working) return working;
-      const published = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.PUBLISHED }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } }, fulfilmentPolicy: true } });
-      const latest = await tx.productRevision.findFirst({ where: { productId }, orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } }, fulfilmentPolicy: true } });
+      const published = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.PUBLISHED }, orderBy: { versionNumber: 'desc' }, include: revisionCloneInclude });
+      const latest = await tx.productRevision.findFirst({ where: { productId }, orderBy: { versionNumber: 'desc' }, include: revisionCloneInclude });
       let source = published;
       if (dto.sourceRevisionId) {
-        source = await tx.productRevision.findFirst({ where: { id: dto.sourceRevisionId, productId, status: { in: [ProductRevisionStatus.PUBLISHED, ProductRevisionStatus.REJECTED, ProductRevisionStatus.SUPERSEDED] } }, include: { media: { where: { archivedAt: null } }, bookingQuestions: { where: { archivedAt: null } }, fulfilmentPolicy: true } });
+        source = await tx.productRevision.findFirst({ where: { id: dto.sourceRevisionId, productId, status: { in: [ProductRevisionStatus.PUBLISHED, ProductRevisionStatus.REJECTED, ProductRevisionStatus.SUPERSEDED] } }, include: revisionCloneInclude });
         if (!source) throw new ConflictException('Source revision must belong to this Product and be immutable history');
       } else if (latest?.status === ProductRevisionStatus.REJECTED && (!published || latest.versionNumber > published.versionNumber)) {
         source = latest;
@@ -254,11 +272,43 @@ export class CatalogueService {
       }
       if (!source) throw new ConflictException('Product has no revision to clone');
       const maxVersion = await tx.productRevision.aggregate({ where: { productId }, _max: { versionNumber: true } });
-      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, versionNumber: _version, status: _status, rejectionReason: _reason, submittedAt: _submitted, reviewedAt: _reviewed, reviewedById: _reviewedBy, createdById: _createdBy, productId: _productId, sourcePayload: _sourcePayload, media: sourceMedia, bookingQuestions: sourceQuestions, fulfilmentPolicy: sourcePolicy, ...content } = source;
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, versionNumber: _version, status: _status, rejectionReason: _reason, submittedAt: _submitted, reviewedAt: _reviewed, reviewedById: _reviewedBy, createdById: _createdBy, productId: _productId, sourcePayload: _sourcePayload, media: sourceMedia, bookingQuestions: sourceQuestions, fulfilmentPolicy: sourcePolicy, variants: sourceVariants, ...content } = source as any;
       const revision = await tx.productRevision.create({ data: { ...content, faqs: (source.faqs ?? []) as Prisma.InputJsonValue, ...(source.sourcePayload ? { sourcePayload: source.sourcePayload as Prisma.InputJsonValue } : {}), productId, versionNumber: (maxVersion._max.versionNumber ?? 0) + 1, createdById: user.sub, status: ProductRevisionStatus.DRAFT } });
-      if ((sourceMedia ?? []).length) await tx.productMedia.createMany({ data: sourceMedia.map(({ id: _mediaId, revisionId: _revisionId, createdAt: _mediaCreatedAt, updatedAt: _mediaUpdatedAt, archivedAt: _archivedAt, ...media }) => ({ ...media, revisionId: revision.id })) });
-      if ((sourceQuestions ?? []).length) await tx.productBookingQuestion.createMany({ data: sourceQuestions.map(({ id: _questionId, productRevisionId: _sourceRevisionId, createdAt: _questionCreatedAt, updatedAt: _questionUpdatedAt, archivedAt: _questionArchivedAt, options, ...question }) => ({ ...question, productRevisionId: revision.id, ...(options == null ? {} : { options: options as Prisma.InputJsonValue }) })) });
+      if ((sourceMedia ?? []).length) await tx.productMedia.createMany({ data: (sourceMedia as any[]).map((item: any) => { const { id: _mediaId, revisionId: _revisionId, createdAt: _mediaCreatedAt, updatedAt: _mediaUpdatedAt, archivedAt: _archivedAt, ...media } = item; return { ...media, revisionId: revision.id }; }) });
+      if ((sourceQuestions ?? []).length) await tx.productBookingQuestion.createMany({ data: (sourceQuestions as any[]).map((item: any) => { const { id: _questionId, productRevisionId: _sourceRevisionId, createdAt: _questionCreatedAt, updatedAt: _questionUpdatedAt, archivedAt: _questionArchivedAt, options, ...question } = item; return { ...question, productRevisionId: revision.id, ...(options == null ? {} : { options: options as Prisma.InputJsonValue }) }; }) });
       if (sourcePolicy) await tx.productFulfilmentPolicy.create({ data: { productRevisionId: revision.id, mode: sourcePolicy.mode, requiredEvidenceKinds: sourcePolicy.requiredEvidenceKinds, evidenceMatchMode: sourcePolicy.evidenceMatchMode, reviewRequired: sourcePolicy.reviewRequired, emergencyContactName: sourcePolicy.emergencyContactName, emergencyContactPhone: sourcePolicy.emergencyContactPhone, emergencyContactEmail: sourcePolicy.emergencyContactEmail, operationsContactName: sourcePolicy.operationsContactName, operationsContactPhone: sourcePolicy.operationsContactPhone, operationsContactEmail: sourcePolicy.operationsContactEmail, voucherNotes: sourcePolicy.voucherNotes, migrationMetadata: sourcePolicy.migrationMetadata as Prisma.InputJsonValue | undefined } });
+      const omit = (input: any, keys: string[]) => { const copy = { ...input }; for (const key of keys) delete copy[key]; return copy; };
+      const ratePlanIdMap = new Map<string, string>();
+      for (const sourceVariant of (sourceVariants || []) as any[]) {
+        const sourcePlans = sourceVariant.ratePlans || [];
+        const sourceSchedules = sourceVariant.schedules || [];
+        const variantData = omit(sourceVariant, ['id', 'productId', 'revisionId', 'createdAt', 'updatedAt', 'ratePlans', 'schedules', 'commercialRules', 'channelMappings', 'bookings']);
+        const clonedVariant = await tx.productVariant.create({ data: { ...variantData, productId, revisionId: revision.id } } as any);
+        for (const sourcePlan of sourcePlans as any[]) {
+          const travellerRules = sourcePlan.travellerRules || [];
+          const cancellationRules = sourcePlan.cancellationRules || [];
+          const commercialVersions = sourcePlan.commercialVersions || [];
+          const planData = omit(sourcePlan, ['id', 'variantId', 'createdAt', 'updatedAt', 'travellerRules', 'cancellationRules', 'commercialVersions', 'scheduleMappings', 'channelMappings', 'bookings', 'commercialRules']);
+          const clonedPlan = await tx.ratePlan.create({ data: {
+            ...planData,
+            variantId: clonedVariant.id,
+            travellerRules: travellerRules.length ? { create: travellerRules.map((rule: any) => omit(rule, ['id', 'ratePlanId'])) } : undefined,
+            cancellationRules: cancellationRules.length ? { create: cancellationRules.map((rule: any) => omit(rule, ['id', 'ratePlanId'])) } : undefined,
+            commercialVersions: commercialVersions.length ? { create: commercialVersions.map((version: any) => ({ ...omit(version, ['id', 'ratePlanId', 'createdAt', 'updatedAt', 'travellerPrices', 'bookingSnapshots']), createdById: user.sub, travellerPrices: version.travellerPrices?.length ? { create: version.travellerPrices.map((price: any) => omit(price, ['id', 'commercialVersionId', 'createdAt', 'updatedAt'])) } : undefined })) } : undefined,
+          } } as any);
+          ratePlanIdMap.set(sourcePlan.id, clonedPlan.id);
+        }
+        for (const sourceSchedule of sourceSchedules as any[]) {
+          const slotTemplates = sourceSchedule.slotTemplates || [];
+          const ratePlanMappings = sourceSchedule.ratePlanMappings || [];
+          const scheduleData = omit(sourceSchedule, ['id', 'variantId', 'createdAt', 'updatedAt', 'status', 'archivedAt', 'slotTemplates', 'ratePlanMappings', 'sessions', 'exceptions', 'resourceRequirements']);
+          const clonedSchedule = await tx.scheduleTemplate.create({ data: { ...scheduleData, variantId: clonedVariant.id, status: ScheduleStatus.INACTIVE, slotTemplates: slotTemplates.length ? { create: slotTemplates.map((slot: any) => omit(slot, ['id', 'scheduleTemplateId', 'createdAt', 'updatedAt', 'archivedAt'])) } : undefined } } as any);
+          for (const mapping of ratePlanMappings as any[]) {
+            const clonedRatePlanId = ratePlanIdMap.get(mapping.ratePlanId);
+            if (clonedRatePlanId) await tx.ratePlanSchedule.create({ data: { ratePlanId: clonedRatePlanId, scheduleTemplateId: clonedSchedule.id, active: true } });
+          }
+        }
+      }
       await this.audit.write(tx, { actor: user, tenantId: product.tenantId, action: 'PRODUCT_REVISION_CREATED', entityType: 'ProductRevision', entityId: revision.id, afterState: { productId, sourceRevisionId: source.id, newRevisionId: revision.id, versionNumber: revision.versionNumber } });
       return revision;
     });
@@ -391,8 +441,8 @@ export class CatalogueService {
       orderBy: { submittedAt: 'asc' },
     });
   }
-  async variants(user: AuthUser, productId: string) { await this.product(user, productId); return this.prisma.productVariant.findMany({ where: { productId, status: { not: VariantStatus.ARCHIVED } }, include: variantInclude, orderBy: { createdAt: 'asc' } }); }
-  async createVariant(user: AuthUser, productId: string, dto: VariantDto) { const product = await this.product(user, productId); const { sourcePayload, ...rest } = dto; try { return await this.prisma.$transaction(async (tx) => { const created = await tx.productVariant.create({ data: { productId, ...rest, ...(sourcePayload ? { sourcePayload: sourcePayload as Prisma.InputJsonValue } : {}) } }); await this.audit.write(tx, { actor: user, tenantId: product.tenantId, action: 'PRODUCT_VARIANT_CREATED', entityType: 'ProductVariant', entityId: created.id, afterState: { variantCode: created.variantCode, status: created.status } }); await this.outbox.enqueue(tx, { tenantId: product.tenantId, eventType: 'PRODUCT_VARIANT_CREATED', aggregateType: 'ProductVariant', aggregateId: created.id, payload: { productId, variantCode: created.variantCode } }); return created; }); } catch (error: any) { if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('A variant with this variantCode already exists for the product'); throw error; } }
+  async variants(user: AuthUser, productId: string) { const product = await this.prisma.product.findFirst({ where: { id: productId, tenantId: requireTenant(user) }, select: { currentRevisionId: true, revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW, ProductRevisionStatus.REJECTED] } }, orderBy: { versionNumber: 'desc' }, select: { id: true, status: true } } } }); if (!product) throw new NotFoundException('Product not found'); const revision = product.revisions.find((item) => item.status === ProductRevisionStatus.DRAFT || item.status === ProductRevisionStatus.UNDER_REVIEW) || product.revisions.find((item) => item.status === ProductRevisionStatus.REJECTED) || { id: product.currentRevisionId }; return this.prisma.productVariant.findMany({ where: { productId, status: { not: VariantStatus.ARCHIVED }, ...(revision?.id ? { OR: [{ revisionId: revision.id }, { revisionId: null, product: { currentRevisionId: revision.id } }] } : {}) }, include: variantInclude, orderBy: { createdAt: 'asc' } }); }
+  async createVariant(user: AuthUser, productId: string, dto: VariantDto) { const product = await this.product(user, productId); const { sourcePayload, ...rest } = dto; try { return await this.prisma.$transaction(async (tx) => { const revision = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.DRAFT }, orderBy: { versionNumber: 'desc' } }); if (!revision) throw new ConflictException('Start a draft revision before adding options'); const created = await tx.productVariant.create({ data: { productId, revisionId: revision.id, ...rest, ...(sourcePayload ? { sourcePayload: sourcePayload as Prisma.InputJsonValue } : {}) } }); await this.audit.write(tx, { actor: user, tenantId: product.tenantId, action: 'PRODUCT_VARIANT_CREATED', entityType: 'ProductVariant', entityId: created.id, afterState: { variantCode: created.variantCode, status: created.status, revisionId: revision.id } }); await this.outbox.enqueue(tx, { tenantId: product.tenantId, eventType: 'PRODUCT_VARIANT_CREATED', aggregateType: 'ProductVariant', aggregateId: created.id, payload: { productId, variantCode: created.variantCode, revisionId: revision.id } }); return created; }); } catch (error: any) { if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('A variant with this variantCode already exists for the product revision'); throw error; } }
   async updateVariant(user: AuthUser, id: string, dto: UpdateVariantDto) { const tenantId = requireTenant(user); const existing = await this.prisma.productVariant.findFirst({ where: { id, product: { tenantId } } }); if (!existing) throw new NotFoundException('Product variant not found'); if (!Number.isInteger(dto.expectedVersion) || dto.expectedVersion < 1) throw new BadRequestException('expectedVersion is required'); const attempted = dto as UpdateVariantDto & { variantCode?: string; status?: VariantStatus; archivedAt?: Date }; if (attempted.variantCode !== undefined || attempted.status !== undefined || attempted.archivedAt !== undefined) throw new ConflictException('Variant code and lifecycle status are immutable; use archive'); const { expectedVersion: _expectedVersion, sourcePayload, ...rest } = dto; return this.prisma.$transaction(async (tx) => { const changed = await tx.productVariant.updateMany({ where: { id, version: dto.expectedVersion, status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, data: { ...rest, version: { increment: 1 }, ...(sourcePayload !== undefined ? { sourcePayload: sourcePayload as Prisma.InputJsonValue } : {}) } }); if (changed.count !== 1) throw new ConflictException('Variant changed in another session; reload and retry'); const updated = await tx.productVariant.findUniqueOrThrow({ where: { id } }); await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_VARIANT_UPDATED', entityType: 'ProductVariant', entityId: id, beforeState: { name: existing.name, version: existing.version, status: existing.status }, afterState: { name: updated.name, version: updated.version, status: updated.status } }); await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_VARIANT_UPDATED', aggregateType: 'ProductVariant', aggregateId: id, payload: { productId: existing.productId, version: updated.version } }); return updated; }); }
   async archiveVariant(user: AuthUser, id: string, dto: ArchiveVariantDto) { const tenantId = requireTenant(user); const existing = await this.prisma.productVariant.findFirst({ where: { id, product: { tenantId } } }); if (!existing) throw new NotFoundException('Product variant not found'); if (!Number.isInteger(dto.expectedVersion) || dto.expectedVersion < 1) throw new BadRequestException('expectedVersion is required'); return this.prisma.$transaction(async (tx) => { const changed = await tx.productVariant.updateMany({ where: { id, version: dto.expectedVersion, status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, data: { status: VariantStatus.ARCHIVED, archivedAt: new Date(), version: { increment: 1 } } }); if (changed.count !== 1) throw new ConflictException('Variant changed in another session; reload and retry'); const updated = await tx.productVariant.findUniqueOrThrow({ where: { id } }); await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_VARIANT_ARCHIVED', entityType: 'ProductVariant', entityId: id, beforeState: { status: existing.status, version: existing.version, archivedAt: existing.archivedAt }, afterState: { status: updated.status, version: updated.version, archivedAt: updated.archivedAt } }); await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_VARIANT_ARCHIVED', aggregateType: 'ProductVariant', aggregateId: id, payload: { productId: existing.productId, version: updated.version } }); return updated; }); }
   async addMedia(user: AuthUser, revisionId: string, dto: ProductMediaDto) { const tenantId = requireTenant(user); const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } } }); if (!revision) throw new NotFoundException('Product revision not found'); this.assertMutableRevision(revision); if ((dto.fileAssetId && dto.externalUrl) || (!dto.fileAssetId && !dto.externalUrl)) throw new ConflictException('Provide exactly one of fileAssetId or externalUrl'); if (dto.fileAssetId) { const asset = await this.prisma.fileAsset.findFirst({ where: { id: dto.fileAssetId, tenantId, purpose: FilePurpose.PRODUCT_MEDIA, visibility: FileVisibility.PUBLIC } }); if (!asset) throw new NotFoundException('Product media file not found'); } return this.prisma.$transaction(async (tx) => { const current = await tx.productRevision.findFirst({ where: { id: revisionId, productId: revision.productId } }); if (!current) throw new NotFoundException('Product revision not found'); this.assertMutableRevision(current); const media = await tx.productMedia.create({ data: { revisionId, ...dto } }); await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_MEDIA_ADDED', entityType: 'ProductMedia', entityId: media.id, afterState: { productId: revision.productId, revisionId, mediaId: media.id, kind: media.kind } }); return media; }); }
