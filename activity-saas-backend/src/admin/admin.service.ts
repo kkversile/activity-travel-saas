@@ -128,6 +128,41 @@ export class AdminService {
   }
   async dashboard() { const [vendors, pendingVendors, products, reviewProducts, bookings, pendingBookings] = await Promise.all([this.prisma.tenant.count({ where: { kind: TenantKind.VENDOR } }), this.prisma.vendorProfile.count({ where: { verificationStatus: VendorVerificationStatus.PENDING } }), this.prisma.product.count({ where: { tenant: { kind: TenantKind.VENDOR } } }), this.prisma.productRevision.count({ where: { product: { tenant: { kind: TenantKind.VENDOR } }, status: ProductRevisionStatus.UNDER_REVIEW } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR } } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR }, status: BookingStatus.PENDING } })]); return { vendors, pendingVendors, products, listings: products, reviewProducts, reviewActivities: reviewProducts, bookings, pendingBookings }; }
   vendors() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { id: true, email: true, fullName: true, active: true } }, _count: { select: { products: true, vendorBookings: true, payouts: true } } }, orderBy: { createdAt: 'desc' } }); }
+  async products(query: { search?: string; vendorId?: string; status?: string; type?: string; page?: number; limit?: number }) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
+    const search = query.search?.trim();
+    const where: any = { tenant: { kind: TenantKind.VENDOR }, AND: [] };
+    if (query.vendorId) where.tenantId = query.vendorId;
+    if (search) where.AND.push({ OR: [
+      { productCode: { contains: search, mode: 'insensitive' } },
+      { tenant: { name: { contains: search, mode: 'insensitive' } } },
+      { tenant: { vendorProfile: { legalBusinessName: { contains: search, mode: 'insensitive' } } } },
+      { currentRevision: { productName: { contains: search, mode: 'insensitive' } } },
+      { revisions: { some: { productName: { contains: search, mode: 'insensitive' } } } },
+    ] });
+    if (query.type) where.AND.push({ currentRevision: { type: query.type } });
+    if (query.status === 'LIVE') where.AND.push({ status: 'LIVE', currentRevision: { status: ProductRevisionStatus.PUBLISHED } });
+    if (query.status === 'SUSPENDED' || query.status === 'ARCHIVED') where.AND.push({ status: query.status });
+    if (query.status === 'UNDER_REVIEW') where.AND.push({ revisions: { some: { status: ProductRevisionStatus.UNDER_REVIEW } } });
+    if (query.status === 'DRAFT') where.AND.push({ OR: [{ status: 'DRAFT' }, { revisions: { some: { status: ProductRevisionStatus.DRAFT } } }] });
+    const revisionSelect = { id: true, versionNumber: true, status: true, productName: true, type: true, subCategory: true, cityName: true, stateName: true, countryName: true };
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.product.count({ where }),
+      this.prisma.product.findMany({ where, orderBy: { updatedAt: 'desc' }, skip: (page - 1) * limit, take: limit, select: {
+        id: true, productCode: true, status: true, updatedAt: true,
+        tenant: { select: { id: true, name: true, vendorProfile: { select: { legalBusinessName: true, verificationStatus: true } } } },
+        currentRevision: { select: revisionSelect },
+        revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW, ProductRevisionStatus.REJECTED] } }, orderBy: { versionNumber: 'desc' }, take: 1, select: revisionSelect },
+        variants: { where: { status: { not: 'ARCHIVED' }, archivedAt: null }, select: { id: true, ratePlans: { where: { status: 'ACTIVE' }, select: { id: true } } } },
+      } }),
+    ]);
+    const items = await Promise.all(rows.map(async (product: any) => {
+      const workingRevision = product.revisions[0] || product.currentRevision;
+      return { id: product.id, productCode: product.productCode, productStatus: product.status, workingRevisionStatus: workingRevision?.status || null, name: product.currentRevision?.productName || workingRevision?.productName || product.productCode, type: product.currentRevision?.type || workingRevision?.type || null, subCategory: product.currentRevision?.subCategory || workingRevision?.subCategory || null, destination: [product.currentRevision?.cityName || workingRevision?.cityName, product.currentRevision?.stateName || workingRevision?.stateName, product.currentRevision?.countryName || workingRevision?.countryName].filter(Boolean).join(', '), vendor: { id: product.tenant.id, name: product.tenant.vendorProfile?.legalBusinessName || product.tenant.name, verificationStatus: product.tenant.vendorProfile?.verificationStatus || null }, optionCount: product.variants.length, ratePlanCount: product.variants.reduce((count: number, variant: any) => count + variant.ratePlans.length, 0), updatedAt: product.updatedAt, distribution: this.distributionReadiness ? await this.distributionReadiness.evaluate(product.id) : null };
+    }));
+    return { items, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+  }
   async vendor(tenantId: string) { const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { id: true, email: true, fullName: true, active: true } }, products: { include: { currentRevision: true, variants: { include: { ratePlans: true } } }, orderBy: { updatedAt: 'desc' } }, _count: { select: { vendorBookings: true, payouts: true } } } }); if (!vendor) throw new NotFoundException('Vendor not found'); if (!this.distributionReadiness) return vendor; const products = await Promise.all(vendor.products.map(async (product: any) => ({ ...product, distribution: await this.distributionReadiness!.evaluate(product.id) }))); return { ...vendor, products }; }
   async verification(actor: AuthUser, tenantId: string, status: VendorVerificationStatus, reason?: string) {
     if (status !== VendorVerificationStatus.VERIFIED && status !== VendorVerificationStatus.SUSPENDED) throw new ConflictException('Only VERIFIED or SUSPENDED vendor verification actions are allowed');

@@ -8,7 +8,7 @@ import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { Permissions } from '../common/permissions.decorator';
 import { PermissionsGuard } from '../common/permissions.guard';
-import { AgentSuspensionDto, CreateAdminDto, CreateVendorDto, DocumentReviewDto, EligibilityInspectDto, ResetAdminPasswordDto, UpdateAdminStatusDto, VendorVerificationDto } from './governance.dto';
+import { AdminProductListQueryDto, AgentSuspensionDto, CreateAdminDto, CreateVendorDto, DocumentReviewDto, EligibilityInspectDto, ResetAdminPasswordDto, UpdateAdminStatusDto, VendorVerificationDto } from './governance.dto';
 import { EligibilityService } from '../eligibility/eligibility.service';
 import { AdminService } from './admin.service';
 import { BookingDecisionDto, BookingListQueryDto } from '../bookings/booking.dto';
@@ -45,6 +45,7 @@ export class AdminController {
   @Post('cancellations/:id/resolve-financial') @Permissions('financial.cancellation.resolve') resolveFinancial(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: FinancialResolutionDto) { return this.cancellations.resolveFinancial(user, id, dto); }
   @Get('dashboard') @Permissions('audit.view') dashboard() { return this.service.dashboard(); }
   @Get('vendors') @Permissions('vendor.profile.view') vendors() { return this.service.vendors(); }
+  @Get('products') @Permissions('product.view') products(@Query() query: AdminProductListQueryDto) { return this.service.products(query); }
   @Get('agents') @Permissions('agent.governance.view') agents() { return this.service.agents(); }
   @Post('agents/:tenantId/approve') @Permissions('agent.governance.edit') approveAgent(@CurrentUser() user: AuthUser, @Param('tenantId') tenantId: string) { return this.service.approveAgent(user, tenantId); }
   @Post('agents/:tenantId/suspend') @Permissions('agent.governance.edit') suspendAgent(@CurrentUser() user: AuthUser, @Param('tenantId') tenantId: string, @Body() dto: AgentSuspensionDto) { return this.service.suspendAgent(user, tenantId, dto.reason); }
