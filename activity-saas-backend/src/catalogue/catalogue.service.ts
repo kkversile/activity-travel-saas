@@ -441,6 +441,7 @@ export class CatalogueService {
       where: { status: ProductRevisionStatus.UNDER_REVIEW },
       select: {
         id: true,
+        productId: true,
         versionNumber: true,
         status: true,
         productName: true,
@@ -481,6 +482,7 @@ export class CatalogueService {
       where: { id: productId, tenant: { kind: 'VENDOR' } },
       select: {
         productCode: true,
+        status: true,
         currentRevisionId: true,
         tenant: { select: { id: true, name: true, vendorProfile: { select: { legalBusinessName: true, verificationStatus: true } } } },
         revisions: {
@@ -500,7 +502,7 @@ export class CatalogueService {
     if (!product) throw new NotFoundException('Product not found');
     const revision = product.revisions.find((item: any) => item.status === ProductRevisionStatus.DRAFT || item.status === ProductRevisionStatus.UNDER_REVIEW) || product.revisions.find((item: any) => item.status === ProductRevisionStatus.REJECTED) || product.revisions.find((item: any) => item.id === product.currentRevisionId) || product.revisions[0];
     if (!revision) throw new NotFoundException('Product revision not found');
-    return { ...revision, product: { productCode: product.productCode, tenant: product.tenant, variants: product.variants.filter((variant: any) => !variant.revisionId || variant.revisionId === revision.id) } };
+    return { ...revision, product: { productCode: product.productCode, status: product.status, tenant: product.tenant, variants: product.variants.filter((variant: any) => !variant.revisionId || variant.revisionId === revision.id) } };
   }
   async variants(user: AuthUser, productId: string) { const product = await this.prisma.product.findFirst({ where: { id: productId, tenantId: requireTenant(user) }, select: { currentRevisionId: true, revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW, ProductRevisionStatus.REJECTED] } }, orderBy: { versionNumber: 'desc' }, select: { id: true, status: true } } } }); if (!product) throw new NotFoundException('Product not found'); const revision = product.revisions.find((item) => item.status === ProductRevisionStatus.DRAFT || item.status === ProductRevisionStatus.UNDER_REVIEW) || product.revisions.find((item) => item.status === ProductRevisionStatus.REJECTED) || { id: product.currentRevisionId }; return this.prisma.productVariant.findMany({ where: { productId, status: { not: VariantStatus.ARCHIVED }, ...(revision?.id ? { OR: [{ revisionId: revision.id }, { revisionId: null, product: { currentRevisionId: revision.id } }] } : {}) }, include: variantInclude, orderBy: { createdAt: 'asc' } }); }
   async createVariant(user: AuthUser, productId: string, dto: VariantDto) { const product = await this.product(user, productId); const { sourcePayload, ...rest } = dto; try { return await this.prisma.$transaction(async (tx) => { const revision = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.DRAFT }, orderBy: { versionNumber: 'desc' } }); if (!revision) throw new ConflictException('Start a draft revision before adding options'); const created = await tx.productVariant.create({ data: { productId, revisionId: revision.id, ...rest, ...(sourcePayload ? { sourcePayload: sourcePayload as Prisma.InputJsonValue } : {}) } }); await this.audit.write(tx, { actor: user, tenantId: product.tenantId, action: 'PRODUCT_VARIANT_CREATED', entityType: 'ProductVariant', entityId: created.id, afterState: { variantCode: created.variantCode, status: created.status, revisionId: revision.id } }); await this.outbox.enqueue(tx, { tenantId: product.tenantId, eventType: 'PRODUCT_VARIANT_CREATED', aggregateType: 'ProductVariant', aggregateId: created.id, payload: { productId, variantCode: created.variantCode, revisionId: revision.id } }); return created; }); } catch (error: any) { if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('A variant with this variantCode already exists for the product revision'); throw error; } }

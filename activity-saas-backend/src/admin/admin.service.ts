@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { AgentVerificationStatus, BookingStatus, DocumentReviewStatus, Prisma, ProductRevisionStatus, TenantKind, UserRole, VendorVerificationStatus } from '@prisma/client';
+import { AgentVerificationStatus, BookingStatus, DocumentReviewStatus, Prisma, ProductRevisionStatus, ProductStatus, TenantKind, UserRole, VendorVerificationStatus } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
@@ -146,6 +146,7 @@ export class AdminService {
     if (query.status === 'SUSPENDED' || query.status === 'ARCHIVED') where.AND.push({ status: query.status });
     if (query.status === 'UNDER_REVIEW') where.AND.push({ revisions: { some: { status: ProductRevisionStatus.UNDER_REVIEW } } });
     if (query.status === 'DRAFT') where.AND.push({ OR: [{ status: 'DRAFT' }, { revisions: { some: { status: ProductRevisionStatus.DRAFT } } }] });
+    if (!query.status) where.AND.push({ OR: [{ status: { in: [ProductStatus.LIVE, ProductStatus.SUSPENDED, ProductStatus.ARCHIVED] } }, { revisions: { some: { status: ProductRevisionStatus.UNDER_REVIEW } } }] });
     const revisionSelect = { id: true, versionNumber: true, status: true, productName: true, type: true, subCategory: true, cityName: true, stateName: true, countryName: true };
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.product.count({ where }),
@@ -159,9 +160,21 @@ export class AdminService {
     ]);
     const items = await Promise.all(rows.map(async (product: any) => {
       const workingRevision = product.revisions[0] || product.currentRevision;
-      return { id: product.id, productCode: product.productCode, productStatus: product.status, workingRevisionStatus: workingRevision?.status || null, name: product.currentRevision?.productName || workingRevision?.productName || product.productCode, type: product.currentRevision?.type || workingRevision?.type || null, subCategory: product.currentRevision?.subCategory || workingRevision?.subCategory || null, destination: [product.currentRevision?.cityName || workingRevision?.cityName, product.currentRevision?.stateName || workingRevision?.stateName, product.currentRevision?.countryName || workingRevision?.countryName].filter(Boolean).join(', '), vendor: { id: product.tenant.id, name: product.tenant.vendorProfile?.legalBusinessName || product.tenant.name, verificationStatus: product.tenant.vendorProfile?.verificationStatus || null }, optionCount: product.variants.length, ratePlanCount: product.variants.reduce((count: number, variant: any) => count + variant.ratePlans.length, 0), updatedAt: product.updatedAt, distribution: this.distributionReadiness ? await this.distributionReadiness.evaluate(product.id) : null };
+      return { id: product.id, productCode: product.productCode, productStatus: product.status, workingRevisionId: workingRevision?.id || null, workingRevisionStatus: workingRevision?.status || null, name: product.currentRevision?.productName || workingRevision?.productName || product.productCode, type: product.currentRevision?.type || workingRevision?.type || null, subCategory: product.currentRevision?.subCategory || workingRevision?.subCategory || null, destination: [product.currentRevision?.cityName || workingRevision?.cityName, product.currentRevision?.stateName || workingRevision?.stateName, product.currentRevision?.countryName || workingRevision?.countryName].filter(Boolean).join(', '), vendor: { id: product.tenant.id, name: product.tenant.vendorProfile?.legalBusinessName || product.tenant.name, verificationStatus: product.tenant.vendorProfile?.verificationStatus || null }, optionCount: product.variants.length, ratePlanCount: product.variants.reduce((count: number, variant: any) => count + variant.ratePlans.length, 0), updatedAt: product.updatedAt, distribution: this.distributionReadiness ? await this.distributionReadiness.evaluate(product.id) : null };
     }));
     return { items, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+  }
+  async deactivateProduct(actor: AuthUser, productId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE`);
+      const product = await tx.product.findFirst({ where: { id: productId, tenant: { kind: TenantKind.VENDOR } }, select: { id: true, tenantId: true, status: true, currentRevisionId: true } });
+      if (!product) throw new NotFoundException('Product not found');
+      if (product.status !== ProductStatus.LIVE) throw new ConflictException(`Only LIVE products can be deactivated; current status is ${product.status}`);
+      const updated = await tx.product.update({ where: { id: productId }, data: { status: ProductStatus.SUSPENDED } });
+      await this.audit.write(tx, { actor, tenantId: product.tenantId, action: 'PRODUCT_DEACTIVATED', entityType: 'Product', entityId: productId, beforeState: { status: product.status, currentRevisionId: product.currentRevisionId }, afterState: { status: updated.status, currentRevisionId: updated.currentRevisionId } });
+      await this.outbox.enqueue(tx, { tenantId: product.tenantId, eventType: 'PRODUCT_DEACTIVATED', aggregateType: 'Product', aggregateId: productId, payload: { previousStatus: product.status, status: updated.status } });
+      return updated;
+    });
   }
   async vendor(tenantId: string) { const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { id: true, email: true, fullName: true, active: true } }, products: { include: { currentRevision: true, variants: { include: { ratePlans: true } } }, orderBy: { updatedAt: 'desc' } }, _count: { select: { vendorBookings: true, payouts: true } } } }); if (!vendor) throw new NotFoundException('Vendor not found'); if (!this.distributionReadiness) return vendor; const products = await Promise.all(vendor.products.map(async (product: any) => ({ ...product, distribution: await this.distributionReadiness!.evaluate(product.id) }))); return { ...vendor, products }; }
   async verification(actor: AuthUser, tenantId: string, status: VendorVerificationStatus, reason?: string) {

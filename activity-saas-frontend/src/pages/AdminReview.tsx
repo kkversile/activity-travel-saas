@@ -8,7 +8,7 @@ type ReviewSchedule = { id: string; scheduleCode: string; name: string; status: 
 type ReviewVariant = { id: string; variantCode: string; name: string; status: string; durationMinutes?: number | null; description?: string | null; pickupIncluded: boolean; dropoffIncluded: boolean; inclusions: string[]; exclusions: string[]; suitableFor?: string[]; ratePlans: ReviewRatePlan[]; schedules?: ReviewSchedule[] };
 type ReviewMedia = { id: string; kind: 'IMAGE' | 'VIDEO'; externalUrl?: string | null; fileAssetId?: string | null; description?: string | null; fileAsset?: { id: string; originalName: string } | null };
 type Review = {
-  id: string; versionNumber: number; status: string; productName: string; type: string; subType: string; subCategory?: string | null; meetingModel?: string | null; meetingPoint?: string | null; description: string; shortDescription?: string | null;
+  id: string; productId: string; versionNumber: number; status: string; productName: string; type: string; subType: string; subCategory?: string | null; meetingModel?: string | null; meetingPoint?: string | null; description: string; shortDescription?: string | null;
   highlights: string[]; importantInfo: string[]; thingsToCarry: string[]; safetyMeasures: string[]; terms: string[]; howToRedeem: string[]; additionalInfo: string[]; channels: string[]; labels: string[];
   cityName: string; stateName: string; countryName: string; address?: string | null; lat?: string | number | null; lon?: string | number | null; submittedAt?: string | null;
   media?: ReviewMedia[]; bookingQuestions?: Array<{ id: string; code: string; label: string; type: string; required: boolean; helpText?: string | null; options?: unknown }>;
