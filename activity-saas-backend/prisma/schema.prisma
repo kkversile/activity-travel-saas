@@ -792,6 +792,7 @@ model User {
 model GlobalSetting {
   id        String   @id @default(uuid())
   tenantId  String?
+  adminId   String?
   tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   key       String
   value     Json     @default("{}")
@@ -800,6 +801,7 @@ model GlobalSetting {
 
   @@unique([tenantId, key])
   @@index([key])
+  @@index([adminId])
   @@map("global_settings")
 }
 
