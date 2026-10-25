@@ -12,7 +12,7 @@ import WizardNavigation from './WizardNavigation';
 import type { FulfilmentForm, RevisionForm, WizardSnapshot, WizardStep } from './types';
 import { emptyFulfilmentForm, emptyRevisionForm, splitList, toFulfilmentForm, toRevisionForm } from './types';
 
-type Props = { product?: Product | null; onDone: () => void; onChanged: () => void };
+type Props = { product?: Product | null; initialStep?: WizardStep; onDone: () => void; onChanged: () => void };
 
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -20,11 +20,11 @@ function errorMessage(error: unknown) {
   return message;
 }
 
-export default function ExperienceWizardModal({ product, onDone, onChanged }: Props) {
+export default function ExperienceWizardModal({ product, initialStep = 1, onDone, onChanged }: Props) {
   const [snapshot, setSnapshot] = useState<WizardSnapshot>({ product: product || null, revision: null, variants: product?.variants || [], schedules: [] });
   const [form, setForm] = useState<RevisionForm>({ ...emptyRevisionForm });
   const [fulfilment, setFulfilment] = useState<FulfilmentForm>({ ...emptyFulfilmentForm });
-  const [activeStep, setActiveStep] = useState<WizardStep>(1);
+  const [activeStep, setActiveStep] = useState<WizardStep>(initialStep);
   const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(Boolean(product?.id)); const [error, setError] = useState(''); const [dirty, setDirty] = useState(false); const [notice, setNotice] = useState(''); const [rejected, setRejected] = useState<ProductRevision | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null); const dialogRef = useRef<HTMLDivElement>(null); const dirtyRef = useRef(false); const busyRef = useRef(false); const reloadSequenceRef = useRef(0); const saveInFlightRef = useRef<Promise<boolean> | null>(null);
 
@@ -62,7 +62,7 @@ export default function ExperienceWizardModal({ product, onDone, onChanged }: Pr
       if (sequence === reloadSequenceRef.current) setLoading(false);
     }
   }
-  useEffect(() => { if (product?.id) void reload(product.id); else { closeRef.current?.focus(); } }, [product?.id]);
+  useEffect(() => { setActiveStep(initialStep); if (product?.id) void reload(product.id); else { closeRef.current?.focus(); } }, [product?.id, initialStep]);
   useEffect(() => { dirtyRef.current = dirty; busyRef.current = busy; }, [dirty, busy]);
   useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if (!dialogRef.current) return; if (event.key === 'Escape') { event.preventDefault(); void close(); return; } if (event.key !== 'Tab') return; const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')); if (!focusable.length) return; const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, [onDone]);
 
