@@ -24,7 +24,28 @@ export class CatalogueController {
   @Get('products/:id') @Permissions('product.view') get(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.get(user, id); }
   @Post('products') @ApiBody({ description: 'Creates a product and its first draft revision.', schema: { type: 'object', example: swaggerExamples.catalogue.createProduct } }) @Permissions('product.edit') create(@CurrentUser() user: AuthUser, @Body() dto: CreateProductDto) { return this.service.create(user, dto); }
   @Post('products/drafts') @Permissions('product.edit') createDraft(@CurrentUser() user: AuthUser, @Body() dto: CreateProductDraftDto) { return this.service.createDraft(user, dto); }
-  @Post('products/import/json') @ApiBody({ description: 'Creates a complete draft product from the downloaded VOYA JSON import sample. The import is not submitted for review.', schema: { type: 'object', additionalProperties: true, example: { Basic_Info: [{ product_key: 'MUNNAR_SUNRISE_SPICE', product_name: 'Munnar Sunrise Spice Garden Walk', type: 'ACTIVITY', sub_type: 'GUIDED TOUR', sub_category: 'Spice garden and guided nature walks', city: 'Munnar', state: 'Kerala', country: 'India', meeting_model: 'PICKUP_AVAILABLE', short_description: 'A guided sunrise walk through Munnar.', meeting_point: 'Munnar Spice Garden entrance', address: 'Munnar, Kerala, India', latitude: 10.086996, longitude: 77.060091 }], Experience: [{ product_key: 'MUNNAR_SUNRISE_SPICE', full_description: 'A guided sunrise walk through Munnar.' }], Options: [{ product_key: 'MUNNAR_SUNRISE_SPICE', option_code: 'SHARED', option_name: 'Shared walk' }], Rate_Plans: [{ product_key: 'MUNNAR_SUNRISE_SPICE', option_code: 'SHARED', rate_plan_code: 'RP-SHARED', rate_plan_name: 'Shared rate', valid_from: '2026-10-24', valid_to: '2027-10-24' }], Availability: [{ product_key: 'MUNNAR_SUNRISE_SPICE', option_code: 'SHARED', schedule_code: 'DAILY', schedule_name: 'Daily schedule', operating_model: 'MULTIPLE_SLOTS', timezone: 'Asia/Kolkata', effective_from: '2026-10-24', effective_to: '2027-10-24', operating_days: 'MON|TUE|WED|THU|FRI|SAT|SUN', capacity_unit: 'PERSON', default_capacity: 10, start_time: '06:30', end_time: '08:30', materialize: false }] } } }) @Permissions('product.edit') importJson(@CurrentUser() user: AuthUser, @Body() dto: ImportProductJsonDto) { return this.service.importJson(user, dto); }
+  @Post('products/import/json')
+  @ApiBody({
+    description: 'Creates a complete draft product from the downloaded VOYA JSON import sample. The import is not submitted for review. Required sections are Basic_Info, Experience, Options, Rate_Plans and Availability; the optional sections add media, booking questions and fulfilment details.',
+    schema: {
+      type: 'object',
+      required: ['Basic_Info', 'Experience', 'Options', 'Rate_Plans', 'Availability'],
+      properties: {
+        README: { type: 'array', items: { type: 'string' } },
+        Basic_Info: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        Experience: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        Options: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        Rate_Plans: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        Availability: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        Media: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        Booking_Questions: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        Fulfilment: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      },
+      example: swaggerExamples.catalogue.productImportJson,
+    },
+  })
+  @Permissions('product.edit')
+  importJson(@CurrentUser() user: AuthUser, @Body() dto: ImportProductJsonDto) { return this.service.importJson(user, dto); }
   @Get('products/:productId/readiness') @Permissions('product.view') readiness(@CurrentUser() user: AuthUser, @Param('productId') id: string) { return this.service.readiness(user, id); }
   @Post('products/:productId/revisions') @ApiBody({ description: 'Clone a published, rejected, or superseded revision. Replace the source ID with a revision ID from GET /api/products/:id.', schema: { type: 'object', example: swaggerExamples.catalogue.createRevision } }) @Permissions('product.edit') revision(@CurrentUser() user: AuthUser, @Param('productId') id: string, @Body() dto: CreateProductRevisionDto) { return this.service.createRevision(user, id, dto); }
   @Patch('product-revisions/:id') @ApiBody({ schema: { type: 'object', example: swaggerExamples.catalogue.updateRevision } }) @Permissions('product.edit') updateRevision(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateProductRevisionDto) { return this.service.updateRevision(user, id, dto); }

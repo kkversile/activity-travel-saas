@@ -1,3 +1,5 @@
+import { productImportJsonSample } from './product-import-sample';
+
 /**
  * Safe, reusable request examples used by Swagger UI.
  *
@@ -30,6 +32,7 @@ export const swaggerExamples = {
     },
   },
   catalogue: {
+    productImportJson: productImportJsonSample,
     createProduct: {
       productCode: `DEMO-SUNRISE-TREK-${swaggerDemoSuffix}`,
       initialRevision: {
