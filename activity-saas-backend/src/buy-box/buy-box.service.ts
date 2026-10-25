@@ -45,7 +45,7 @@ export class BuyBoxService {
   }
 
   private async getBox(id: string) {
-    const box: any = await this.prisma.buyBox.findUnique({ where: { id }, include: { experienceMaster: true, offers: { include: { product: { include: { currentRevision: true, tenant: { select: vendorSelect } } }, vendor: { select: vendorSelect }, bids: { where: { status: BuyBoxBidStatus.ACTIVE }, orderBy: { submittedAt: 'desc' } } } } } });
+    const box: any = await this.prisma.buyBox.findUnique({ where: { id }, include: { experienceMaster: { include: { products: { include: { currentRevision: true, tenant: { select: vendorSelect } } } } }, offers: { include: { product: { include: { currentRevision: true, tenant: { select: vendorSelect } } }, vendor: { select: vendorSelect }, bids: { where: { status: BuyBoxBidStatus.ACTIVE }, orderBy: { submittedAt: 'desc' } } } } } });
     if (!box) throw new NotFoundException('Buy Box not found');
     return box;
   }
@@ -54,7 +54,7 @@ export class BuyBoxService {
     const masters: any[] = await this.prisma.experienceMaster.findMany({ orderBy: { updatedAt: 'desc' }, include: { products: { include: { currentRevision: true, tenant: { select: vendorSelect } } }, buyBox: { include: { offers: { include: { product: { include: { currentRevision: true, tenant: { select: vendorSelect } } }, vendor: { select: vendorSelect }, bids: { where: { status: BuyBoxBidStatus.ACTIVE }, orderBy: { submittedAt: 'desc' } } } } } } } });
     return masters.map((master) => {
       const box = master.buyBox;
-      const offers = box?.offers?.map((offer: any) => this.offerView(offer)) || [];
+      const offers = box?.offers?.filter((offer: any) => offer.status === BuyBoxOfferStatus.ACTIVE).map((offer: any) => this.offerView(offer)).filter((offer: any) => offer.eligible) || [];
       const ranked = offers.filter((offer: any) => offer.eligible).sort((a: any, b: any) => (b.currentBid?.amount || 0) - (a.currentBid?.amount || 0));
       return { id: box?.id || null, experienceMasterId: master.id, canonicalName: master.canonicalName, status: box?.status || BuyBoxStatus.CLOSED, displayMode: box?.displayMode || ExperienceDisplayMode.SINGLE_OFFER, selectionPolicy: box?.selectionPolicy || BuyBoxSelectionPolicy.HIGHEST_BID, fallbackPolicy: box?.fallbackPolicy || OfferSelectionPolicy.CHEAPEST, currency: box?.currency || 'INR', minimumBidAmount: box?.minimumBidAmount == null ? null : Number(box.minimumBidAmount), minimumBidIncrement: box?.minimumBidIncrement == null ? null : Number(box.minimumBidIncrement), startsAt: box?.startsAt || null, endsAt: box?.endsAt || null, offerCount: offers.length, eligibleOfferCount: offers.filter((offer: any) => offer.eligible).length, winner: ranked[0] || null };
     });
@@ -62,16 +62,17 @@ export class BuyBoxService {
 
   async adminDetail(id: string) {
     const box = await this.getBox(id);
-    return { id: box.id, experienceMasterId: box.experienceMasterId, canonicalName: box.experienceMaster.canonicalName, status: box.status, displayMode: box.displayMode, selectionPolicy: box.selectionPolicy, fallbackPolicy: box.fallbackPolicy, currency: box.currency, minimumBidAmount: box.minimumBidAmount == null ? null : Number(box.minimumBidAmount), minimumBidIncrement: box.minimumBidIncrement == null ? null : Number(box.minimumBidIncrement), startsAt: box.startsAt, endsAt: box.endsAt, offers: box.offers.map((offer: any) => this.offerView(offer)) };
+    const eligibleProducts = box.experienceMaster.products.filter((product: any) => this.productState(product).eligible).map((product: any) => ({ id: product.id, productCode: product.productCode, name: product.currentRevision?.productName || product.productCode, vendorId: product.tenantId, vendorName: product.tenant?.vendorProfile?.legalBusinessName || product.tenant?.name || product.tenantId }));
+    return { id: box.id, experienceMasterId: box.experienceMasterId, canonicalName: box.experienceMaster.canonicalName, status: box.status, displayMode: box.displayMode, selectionPolicy: box.selectionPolicy, fallbackPolicy: box.fallbackPolicy, currency: box.currency, minimumBidAmount: box.minimumBidAmount == null ? null : Number(box.minimumBidAmount), minimumBidIncrement: box.minimumBidIncrement == null ? null : Number(box.minimumBidIncrement), startsAt: box.startsAt, endsAt: box.endsAt, eligibleProducts, offers: box.offers.filter((offer: any) => offer.status === BuyBoxOfferStatus.ACTIVE).map((offer: any) => this.offerView(offer)).filter((offer: any) => offer.eligible) };
   }
 
   async upsertAdmin(actor: AuthUser, dto: UpsertBuyBoxDto | UpdateBuyBoxDto, id?: string) {
     const masterId = id ? (await this.getBox(id)).experienceMasterId : (dto as UpsertBuyBoxDto).experienceMasterId;
-    const master = await this.prisma.experienceMaster.findUnique({ where: { id: masterId }, include: { products: { select: { id: true } } } });
+    const master = await this.prisma.experienceMaster.findUnique({ where: { id: masterId }, include: { products: { include: { currentRevision: true, tenant: { select: vendorSelect } } } } });
     if (!master) throw new NotFoundException('Experience master not found');
     const data: any = { status: dto.status, displayMode: dto.displayMode, selectionPolicy: dto.selectionPolicy, fallbackPolicy: dto.fallbackPolicy, currency: dto.currency?.trim().toUpperCase(), minimumBidAmount: dto.minimumBidAmount, minimumBidIncrement: dto.minimumBidIncrement, startsAt: dto.startsAt ? new Date(dto.startsAt) : undefined, endsAt: dto.endsAt ? new Date(dto.endsAt) : undefined, updatedById: actor.sub };
     Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
-    if (data.status === BuyBoxStatus.OPEN && master.products.length < 2) throw new ConflictException('Buy Box needs at least two linked vendor products');
+    if (data.status === BuyBoxStatus.OPEN && master.products.filter((product: any) => this.productState(product).eligible).length < 2) throw new ConflictException('Buy Box needs at least two eligible Live products with published revisions');
     const box: any = id ? await this.prisma.buyBox.update({ where: { id }, data }) : await this.prisma.buyBox.upsert({ where: { experienceMasterId: masterId }, update: data, create: { id: randomUUID(), experienceMasterId: masterId, status: data.status || BuyBoxStatus.CLOSED, displayMode: data.displayMode || ExperienceDisplayMode.SINGLE_OFFER, selectionPolicy: data.selectionPolicy || BuyBoxSelectionPolicy.HIGHEST_BID, fallbackPolicy: data.fallbackPolicy || OfferSelectionPolicy.CHEAPEST, currency: data.currency || 'INR', minimumBidAmount: data.minimumBidAmount, minimumBidIncrement: data.minimumBidIncrement, startsAt: data.startsAt, endsAt: data.endsAt, createdById: actor.sub, updatedById: actor.sub } });
     await this.audit.write(this.prisma, { actor, action: 'BUY_BOX_UPDATED', entityType: 'BuyBox', entityId: box.id, afterState: data });
     return this.adminDetail(box.id);
@@ -81,6 +82,7 @@ export class BuyBoxService {
     const box = await this.getBox(boxId);
     const product: any = await this.prisma.product.findFirst({ where: { id: dto.productId, experienceMasterId: box.experienceMasterId, deletedAt: null, tenant: { kind: TenantKind.VENDOR } }, include: { tenant: { select: vendorSelect }, currentRevision: true } });
     if (!product) throw new ConflictException('Product must be linked to this experience master');
+    if (!this.productState(product).eligible) throw new ConflictException('Only Live products with a published revision from a verified vendor can be added to a Buy Box');
     const existing: any = await this.prisma.buyBoxOffer.findUnique({ where: { buyBoxId_productId: { buyBoxId: boxId, productId: product.id } } });
     const offer: any = existing ? await this.prisma.buyBoxOffer.update({ where: { id: existing.id }, data: { status: BuyBoxOfferStatus.ACTIVE, manuallyEnabled: true } }) : await this.prisma.buyBoxOffer.create({ data: { id: randomUUID(), buyBoxId: boxId, productId: product.id, vendorId: product.tenantId } });
     await this.audit.write(this.prisma, { actor, action: 'BUY_BOX_OFFER_ADDED', entityType: 'BuyBox', entityId: boxId, afterState: { productId: product.id, vendorId: product.tenantId } });
