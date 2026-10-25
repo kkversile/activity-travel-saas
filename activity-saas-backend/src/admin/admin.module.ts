@@ -6,6 +6,7 @@ import { AdminService } from './admin.service';
 import { EligibilityModule } from '../eligibility/eligibility.module';
 import { BookingsModule } from '../bookings/bookings.module';
 import { DistributionModule } from '../distribution/distribution.module';
+import { ExperienceMatchingService } from '../experience-matching/experience-matching.service';
 
-@Module({ imports: [PrismaModule, AuthModule, EligibilityModule, BookingsModule, DistributionModule], controllers: [AdminController], providers: [AdminService] })
+@Module({ imports: [PrismaModule, AuthModule, EligibilityModule, BookingsModule, DistributionModule], controllers: [AdminController], providers: [AdminService, ExperienceMatchingService] })
 export class AdminModule {}

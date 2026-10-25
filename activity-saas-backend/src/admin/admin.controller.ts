@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -16,13 +16,15 @@ import { BookingExpiryService } from '../bookings/booking-expiry.service';
 import { BookingsService } from '../bookings/bookings.service';
 import { CancellationService } from '../bookings/cancellation.service';
 import { AdminCancellationListQueryDto, FinancialResolutionDto, OperationalCancellationDto, RefundConfirmDto, RefundFailDto } from '../bookings/cancellation.dto';
+import { CreateExperienceMasterDto, ExperienceProductSearchDto, LinkExperienceProductDto, UpdateExperienceMasterDto } from '../experience-matching/experience-matching.dto';
+import { ExperienceMatchingService } from '../experience-matching/experience-matching.service';
 
 @Controller('admin')
 @ApiTags('Administration')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class AdminController {
-  constructor(private readonly service: AdminService, private readonly eligibility: EligibilityService, private readonly bookings: BookingsService, private readonly expiry: BookingExpiryService, private readonly cancellations: CancellationService) {}
+  constructor(private readonly service: AdminService, private readonly eligibility: EligibilityService, private readonly bookings: BookingsService, private readonly expiry: BookingExpiryService, private readonly cancellations: CancellationService, private readonly matching: ExperienceMatchingService) {}
   @Get('platform-admins') @Roles(UserRole.SUPER_ADMIN) platformAdmins() { return this.service.platformAdmins(); }
   @Get('impersonation/targets') @Roles(UserRole.SUPER_ADMIN) impersonationTargets() { return this.service.impersonationTargets(); }
   @Post('platform-admins') @Roles(UserRole.SUPER_ADMIN) @ApiBody({ schema: { type: 'object', example: { fullName: 'Operations Admin', email: 'operations@voya.demo', password: 'ChangeMe@123' } } }) createAdmin(@CurrentUser() user: AuthUser, @Body() dto: CreateAdminDto) { return this.service.createAdmin(user, dto); }
@@ -46,6 +48,15 @@ export class AdminController {
   @Get('dashboard') @Permissions('audit.view') dashboard() { return this.service.dashboard(); }
   @Get('vendors') @Permissions('vendor.profile.view') vendors() { return this.service.vendors(); }
   @Get('products') @Permissions('product.view') products(@Query() query: AdminProductListQueryDto) { return this.service.products(query); }
+  @Get('experience-matching/products') @Permissions('product.view') matchingProducts(@Query() query: ExperienceProductSearchDto) { return this.matching.products(query); }
+  @Get('experience-matching/suggestions') @Permissions('product.view') matchingSuggestions() { return this.matching.suggestions(); }
+  @Get('experience-matching/masters') @Permissions('product.view') matchingMasters() { return this.matching.masters(); }
+  @Get('experience-matching/masters/:id') @Permissions('product.view') matchingDetail(@Param('id') id: string) { return this.matching.detail(id); }
+  @Post('experience-matching/masters') @Permissions('product.publish') createMatchingMaster(@CurrentUser() user: AuthUser, @Body() dto: CreateExperienceMasterDto) { return this.matching.createMaster(user, dto); }
+  @Patch('experience-matching/masters/:id') @Permissions('product.publish') updateMatchingMaster(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateExperienceMasterDto) { return this.matching.update(user, id, dto); }
+  @Post('experience-matching/masters/:id/products') @Permissions('product.publish') linkMatchingProduct(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: LinkExperienceProductDto) { return this.matching.link(user, id, dto); }
+  @Delete('experience-matching/masters/:id/products/:productId') @Permissions('product.publish') unlinkMatchingProduct(@CurrentUser() user: AuthUser, @Param('id') id: string, @Param('productId') productId: string) { return this.matching.unlink(user, id, productId); }
+  @Post('experience-matching/suggestions/:id/reject') @Permissions('product.publish') rejectMatchingSuggestion(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.matching.rejectSuggestion(user, id); }
   @Post('products/:id/deactivate') @Permissions('product.publish') deactivateProduct(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.deactivateProduct(user, id); }
   @Post('products/:id/archive') @Permissions('product.publish') archiveProduct(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.archiveProduct(user, id); }
   @Get('agents') @Permissions('agent.governance.view') agents() { return this.service.agents(); }

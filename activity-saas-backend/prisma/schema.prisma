@@ -434,6 +434,24 @@ enum ProductRevisionStatus {
   SUPERSEDED
 }
 
+enum ExperienceDisplayMode {
+  SINGLE_OFFER
+  ALL_OFFERS
+}
+
+enum OfferSelectionPolicy {
+  CHEAPEST
+  BALANCED
+  HIGHEST_COMMISSION
+  ADMIN_SELECTED
+}
+
+enum ProductMatchSuggestionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 enum VariantStatus {
   ACTIVE
   INACTIVE
@@ -994,27 +1012,32 @@ model VendorDocumentVersion {
 }
 
 model Product {
-  id                String                  @id @default(uuid())
-  tenantId          String
-  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productCode       String
-  sourceImportKey   String?
-  importFingerprint String?
+  id                   String                     @id @default(uuid())
+  tenantId             String
+  tenant               Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productCode          String
+  sourceImportKey      String?
+  importFingerprint    String?
   importIdempotencyKey String?
-  status            ProductStatus           @default(DRAFT)
-  deletedAt         DateTime?
-  deletedById       String?
-  currentRevisionId String?
-  currentRevision   ProductRevision?        @relation("CurrentProductRevision", fields: [currentRevisionId, id], references: [id, productId], onDelete: NoAction)
-  revisions         ProductRevision[]       @relation("ProductRevisions")
-  variants          ProductVariant[]
-  promotions        Promotion[]
-  pricingRules      PricingRule[]
-  bookings          Booking[]
-  commercialRules   CommercialRule[]
-  channelMappings   ProductChannelMapping[]
-  createdAt         DateTime                @default(now())
-  updatedAt         DateTime                @updatedAt
+  experienceMasterId   String?
+  status               ProductStatus              @default(DRAFT)
+  deletedAt            DateTime?
+  deletedById          String?
+  currentRevisionId    String?
+  currentRevision      ProductRevision?           @relation("CurrentProductRevision", fields: [currentRevisionId, id], references: [id, productId], onDelete: NoAction)
+  revisions            ProductRevision[]          @relation("ProductRevisions")
+  variants             ProductVariant[]
+  promotions           Promotion[]
+  pricingRules         PricingRule[]
+  bookings             Booking[]
+  commercialRules      CommercialRule[]
+  channelMappings      ProductChannelMapping[]
+  experienceMaster     ExperienceMaster?          @relation(fields: [experienceMasterId], references: [id], onDelete: SetNull)
+  offerPlacements      ExperienceOfferPlacement[]
+  matchSuggestionsFrom ProductMatchSuggestion[]   @relation("MatchSourceProduct")
+  matchSuggestionsTo   ProductMatchSuggestion[]   @relation("MatchCandidateProduct")
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
 
   @@unique([tenantId, productCode])
   @@unique([tenantId, sourceImportKey])
@@ -1022,6 +1045,66 @@ model Product {
   @@unique([tenantId, importIdempotencyKey])
   @@index([tenantId, status])
   @@index([tenantId, deletedAt])
+  @@index([experienceMasterId])
+}
+
+model ExperienceMaster {
+  id              String                     @id @default(uuid())
+  canonicalName   String
+  type            ProductType
+  subType         String?
+  cityName        String
+  stateName       String
+  countryName     String
+  displayMode     ExperienceDisplayMode      @default(SINGLE_OFFER)
+  selectionPolicy OfferSelectionPolicy       @default(CHEAPEST)
+  products        Product[]
+  placements      ExperienceOfferPlacement[]
+  suggestions     ProductMatchSuggestion[]
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+
+  @@index([canonicalName])
+  @@index([cityName, stateName, countryName])
+}
+
+model ExperienceOfferPlacement {
+  id                 String           @id @default(uuid())
+  experienceMasterId String
+  productId          String
+  placementType      String           @default("PREFERRED")
+  priority           Int              @default(0)
+  reason             String?
+  startsAt           DateTime?
+  endsAt             DateTime?
+  experienceMaster   ExperienceMaster @relation(fields: [experienceMasterId], references: [id], onDelete: Cascade)
+  product            Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([experienceMasterId, productId])
+  @@index([experienceMasterId, priority])
+}
+
+model ProductMatchSuggestion {
+  id                 String                       @id @default(uuid())
+  sourceProductId    String
+  candidateProductId String
+  experienceMasterId String?
+  fingerprint        String
+  confidence         Int                          @default(100)
+  status             ProductMatchSuggestionStatus @default(PENDING)
+  sourceProduct      Product                      @relation("MatchSourceProduct", fields: [sourceProductId], references: [id], onDelete: Cascade)
+  candidateProduct   Product                      @relation("MatchCandidateProduct", fields: [candidateProductId], references: [id], onDelete: Cascade)
+  experienceMaster   ExperienceMaster?            @relation(fields: [experienceMasterId], references: [id], onDelete: SetNull)
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+
+  @@unique([sourceProductId, candidateProductId])
+  @@index([status, createdAt])
+  @@index([fingerprint])
 }
 
 model ProductRevision {
