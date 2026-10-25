@@ -42,17 +42,13 @@ const importBool = (row: ImportJsonRow, key: string, fallback = false) => { cons
 const importNumber = (row: ImportJsonRow, key: string, fallback = 0) => { const value = Number(row[key]); return Number.isFinite(value) ? value : fallback; };
 const sourceNumber = (row: ImportJsonRow, key: string) => importText(row, key) ? importNumber(row, key) : undefined;
 const importDate = (row: ImportJsonRow, key: string) => { const value = importText(row, key); if (!value || Number.isNaN(new Date(value).valueOf())) throw new BadRequestException(`Invalid ${key} date in JSON import`); return value; };
-const importSections = ['Basic_Info', 'Experience', 'Options', 'Rate_Plans', 'Availability', 'Media', 'Booking_Questions', 'Fulfilment'] as const;
-const normalizedImportValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(normalizedImportValue).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => key !== 'product_key').sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, normalizedImportValue(item)]));
-  if (typeof value === 'string') return value.trim().toLowerCase();
-  return value;
-};
-const importContentFingerprint = (source: Record<string, unknown>) => fingerprint(Object.fromEntries(importSections.map((section) => {
-  const rows = Array.isArray(source[section]) ? source[section] as ImportJsonRow[] : [];
-  return [section, rows.map((row) => normalizedImportValue(row)).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))];
-})));
+const importContentFingerprint = (basic: ImportJsonRow) => fingerprint({
+  productName: importText(basic, 'product_name').toLowerCase(),
+  type: importText(basic, 'type').toUpperCase(),
+  city: importText(basic, 'city').toLowerCase(),
+  state: importText(basic, 'state').toLowerCase(),
+  country: importText(basic, 'country').toLowerCase(),
+});
 
 @Injectable()
 export class CatalogueService {
@@ -380,7 +376,7 @@ export class CatalogueService {
 
     const tenantId = requireTenant(user);
     const sourceImportKey = productKey.toUpperCase();
-    const importFingerprint = importContentFingerprint(source);
+    const importFingerprint = importContentFingerprint(basic);
     const stableIdempotencyKey = idempotencyKey?.trim() || undefined;
     if (stableIdempotencyKey) {
       const existingByIdempotency = await this.prisma.product.findFirst({ where: { tenantId, importIdempotencyKey: stableIdempotencyKey } });
