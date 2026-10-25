@@ -17,6 +17,7 @@ type Props = { product?: Product | null; initialStep?: WizardStep; onDone: () =>
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   if (error && typeof error === 'object' && 'status' in error && (error as { status?: number }).status === 409 && /revision changed in another session/i.test(message)) return 'This product changed in another session. Reload the draft and review the conflicting changes before saving again.';
+  if (/COMMERCIAL_VERSION_OVERLAP_REQUIRES_SPLIT|effective history|overlaps an existing bounded|same-start commercial version/i.test(message)) return 'These pricing dates overlap an existing version for this rate plan. A rate plan can have only one effective price at a time, and two versions cannot share the same start date. Choose a start date after the current version ends, or edit the existing version instead.';
   return message;
 }
 
@@ -64,10 +65,15 @@ export default function ExperienceWizardModal({ product, initialStep = 1, onDone
   }
   useEffect(() => { setActiveStep(initialStep); if (product?.id) void reload(product.id); else { closeRef.current?.focus(); } }, [product?.id, initialStep]);
   useEffect(() => { dirtyRef.current = dirty; busyRef.current = busy; }, [dirty, busy]);
+  useEffect(() => {
+    if (!error) return;
+    const frame = window.requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>('.experience-modal-body > .alert.error')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [error]);
   useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if (!dialogRef.current) return; if (event.key === 'Escape') { event.preventDefault(); void close(); return; } if (event.key !== 'Tab') return; const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')); if (!focusable.length) return; const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, [onDone]);
 
   const revision = snapshot.revision; const locked = Boolean(revision && revision.status !== 'DRAFT');
-  const onError = (message: string) => { setError(message); setNotice(''); };
+  const onError = (message: string) => { setError(errorMessage(message)); setNotice(''); };
   const onRevisionChange = <K extends keyof RevisionForm>(key: K, value: RevisionForm[K]) => { setForm((old) => ({ ...old, [key]: value })); setDirty(true); setNotice(''); };
   async function refresh() { if (snapshot.product?.id) await reload(snapshot.product.id, dirtyRef.current); }
   function revisionPayload() {
