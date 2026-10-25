@@ -242,6 +242,7 @@ export class CatalogueService {
     const created = await this.prisma.$transaction(async (tx) => {
       const product = await tx.product.create({ data: { tenantId, productCode: dto.productCode, status: ProductStatus.DRAFT } });
       const revision = await tx.productRevision.create({ data: { ...this.data(dto.initialRevision), productId: product.id, versionNumber: 1, createdById: user.sub } });
+      await tx.product.update({ where: { id: product.id }, data: { currentRevisionId: revision.id } });
       if (dto.initialRevision.fulfilmentPolicy) await tx.productFulfilmentPolicy.create({ data: { productRevisionId: revision.id, ...this.policyData(dto.initialRevision.fulfilmentPolicy) } });
       await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_CREATED', entityType: 'Product', entityId: product.id, afterState: { productCode: product.productCode, status: product.status } });
       return product;
@@ -308,6 +309,7 @@ export class CatalogueService {
         meetingPoint: dto.meetingPoint?.trim() || null,
         createdById: user.sub,
       } });
+      await tx.product.update({ where: { id: product.id }, data: { currentRevisionId: revision.id } });
       await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_DRAFT_CREATED', entityType: 'Product', entityId: product.id, afterState: { productCode: product.productCode, revisionId: revision.id, status: product.status } });
       return product;
     });
