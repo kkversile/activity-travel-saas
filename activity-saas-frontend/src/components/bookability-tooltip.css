@@ -43,3 +43,10 @@
 .bookability-tooltip-wrap:focus-within .bookability-tooltip {
   display: block;
 }
+
+/* Let the document own scrolling so the table does not create a second
+   vertical scrollbar when a tooltip opens near the bottom of the list. */
+.products-table-card,
+.products-table-scroll {
+  overflow: visible;
+}
