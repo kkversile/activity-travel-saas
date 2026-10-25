@@ -1,0 +1,45 @@
+.bookability-tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.bookability-tooltip-wrap > .table-status {
+  cursor: help;
+}
+
+.bookability-tooltip {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  left: 0;
+  display: none;
+  width: 290px;
+  padding: 12px 14px;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #fff;
+  color: #26354d;
+  box-shadow: 0 10px 24px rgba(16, 35, 61, .16);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.bookability-tooltip b {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.bookability-tooltip ul {
+  margin: 0;
+  padding-left: 17px;
+}
+
+.bookability-tooltip li + li {
+  margin-top: 4px;
+}
+
+.bookability-tooltip-wrap:hover .bookability-tooltip,
+.bookability-tooltip-wrap:focus-within .bookability-tooltip {
+  display: block;
+}
