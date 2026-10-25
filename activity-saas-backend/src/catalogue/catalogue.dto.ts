@@ -75,6 +75,24 @@ export class CreateProductDraftDto {
   @IsOptional() @IsString() meetingPoint?: string;
 }
 
+/**
+ * The JSON import deliberately keeps row fields open-ended. The import
+ * service validates the cross-sheet references and maps the row fields to the
+ * canonical catalogue APIs, while this DTO still rejects unknown top-level
+ * sections through the global ValidationPipe.
+ */
+export class ImportProductJsonDto {
+  @IsOptional() @IsArray() @IsString({ each: true }) README?: string[];
+  @IsOptional() @IsArray() @IsObject({ each: true }) Basic_Info?: Array<Record<string, unknown>>;
+  @IsOptional() @IsArray() @IsObject({ each: true }) Experience?: Array<Record<string, unknown>>;
+  @IsOptional() @IsArray() @IsObject({ each: true }) Options?: Array<Record<string, unknown>>;
+  @IsOptional() @IsArray() @IsObject({ each: true }) Rate_Plans?: Array<Record<string, unknown>>;
+  @IsOptional() @IsArray() @IsObject({ each: true }) Availability?: Array<Record<string, unknown>>;
+  @IsOptional() @IsArray() @IsObject({ each: true }) Media?: Array<Record<string, unknown>>;
+  @IsOptional() @IsArray() @IsObject({ each: true }) Booking_Questions?: Array<Record<string, unknown>>;
+  @IsOptional() @IsArray() @IsObject({ each: true }) Fulfilment?: Array<Record<string, unknown>>;
+}
+
 export class CreateProductRevisionDto {
   @IsOptional() @IsString() sourceRevisionId?: string;
 }

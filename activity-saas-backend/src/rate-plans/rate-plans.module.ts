@@ -9,5 +9,6 @@ import { CommercialModule } from '../commercial/commercial.module';
   imports: [AuthModule, CommercialModule],
   controllers: [RatePlansController],
   providers: [RatePlansService, RolesGuard],
+  exports: [RatePlansService],
 })
 export class RatePlansModule {}

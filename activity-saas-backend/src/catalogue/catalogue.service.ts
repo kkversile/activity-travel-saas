@@ -9,10 +9,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FilePurpose, FileVisibility } from '@prisma/client';
 import { StorageService } from '../storage/storage.service';
 import { validateFulfilmentPolicy } from '../fulfilment/fulfilment.types';
-import { ArchiveVariantDto, CreateProductDraftDto, CreateProductDto, CreateProductRevisionDto, ProductListingQueryDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, ProductRevisionDto, RejectProductRevisionDto, UpdateProductMediaRankDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
+import { ArchiveVariantDto, CreateProductDraftDto, CreateProductDto, CreateProductRevisionDto, ImportProductJsonDto, ProductListingQueryDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, ProductRevisionDto, RejectProductRevisionDto, UpdateProductMediaRankDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
 import { ProductReadinessService } from './product-readiness.service';
 import { CommercialService } from '../commercial/commercial.service';
 import { ChannelDistributionReadinessService } from '../distribution/channel-distribution-readiness.service';
+import { RatePlansService } from '../rate-plans/rate-plans.service';
+import { SchedulesService } from '../schedules/schedules.service';
+import { SessionMaterializerService } from '../schedules/session-materializer.service';
 
 const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, fulfilmentPolicy: true, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
 const variantInclude = { ratePlans: { include: { travellerRules: true, cancellationRules: { orderBy: { minDaysBefore: 'desc' as const } } }, orderBy: { createdAt: 'asc' as const } } };
@@ -30,10 +33,17 @@ const revisionCloneInclude = {
   },
 };
 const startOfToday = () => { const value = new Date(); value.setHours(0, 0, 0, 0); return value; };
+type ImportJsonRow = Record<string, unknown>;
+const importText = (row: ImportJsonRow, key: string) => { const value = row[key]; return value == null ? '' : String(value).trim(); };
+const importList = (row: ImportJsonRow, key: string) => { const value = row[key]; if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean); return importText(row, key).split('|').map((item) => item.trim()).filter(Boolean); };
+const importBool = (row: ImportJsonRow, key: string, fallback = false) => { const value = row[key]; if (typeof value === 'boolean') return value; const normalized = importText(row, key).toLowerCase(); return normalized ? ['true', 'yes', '1', 'y'].includes(normalized) : fallback; };
+const importNumber = (row: ImportJsonRow, key: string, fallback = 0) => { const value = Number(row[key]); return Number.isFinite(value) ? value : fallback; };
+const sourceNumber = (row: ImportJsonRow, key: string) => importText(row, key) ? importNumber(row, key) : undefined;
+const importDate = (row: ImportJsonRow, key: string) => { const value = importText(row, key); if (!value || Number.isNaN(new Date(value).valueOf())) throw new BadRequestException(`Invalid ${key} date in JSON import`); return value; };
 
 @Injectable()
 export class CatalogueService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly storage: StorageService, @Optional() private readonly readinessService?: ProductReadinessService, @Optional() private readonly commercial?: CommercialService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly storage: StorageService, @Optional() private readonly readinessService?: ProductReadinessService, @Optional() private readonly commercial?: CommercialService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService, @Optional() private readonly ratePlans?: RatePlansService, @Optional() private readonly schedules?: SchedulesService, @Optional() private readonly materializer?: SessionMaterializerService) {}
 
   private data(dto: ProductRevisionDto | UpdateProductRevisionDto): Prisma.ProductRevisionUncheckedCreateInput {
     const { faqs, sourcePayload, fulfilmentPolicy: _fulfilmentPolicy, ...rest } = dto as ProductRevisionDto;
@@ -248,6 +258,124 @@ export class CatalogueService {
       return product;
     });
     return this.get(user, created.id);
+  }
+
+  /**
+   * Server-side counterpart to the vendor JSON/Excel import. The request is
+   * intentionally orchestrated through the same catalogue services used by
+   * the UI so permissions, audit records, commercial versioning and schedule
+   * version checks stay consistent with normal product creation.
+   */
+  async importJson(user: AuthUser, dto: ImportProductJsonDto) {
+    if (!this.ratePlans || !this.schedules || !this.materializer || !this.commercial) throw new ConflictException('Product import services are not configured');
+
+    const source = dto as ImportProductJsonDto & Record<string, unknown>;
+    const basicRows = (source.Basic_Info ?? []) as ImportJsonRow[];
+    const experienceRows = (source.Experience ?? []) as ImportJsonRow[];
+    const options = (source.Options ?? []) as ImportJsonRow[];
+    const ratePlanRows = (source.Rate_Plans ?? []) as ImportJsonRow[];
+    const availability = (source.Availability ?? []) as ImportJsonRow[];
+    const mediaRows = (source.Media ?? []) as ImportJsonRow[];
+    const questionRows = (source.Booking_Questions ?? []) as ImportJsonRow[];
+    const fulfilmentRows = (source.Fulfilment ?? []) as ImportJsonRow[];
+    const issues: Array<{ section: string; row: number; message: string }> = [];
+    const issue = (section: string, row: number, message: string) => issues.push({ section, row, message });
+
+    if (basicRows.length !== 1) issue('Basic_Info', 3, 'Provide exactly one product row.');
+    if (experienceRows.length !== 1) issue('Experience', 3, 'Provide exactly one Experience row.');
+    if (!options.length) issue('Options', 3, 'Add at least one option.');
+    if (!ratePlanRows.length) issue('Rate_Plans', 3, 'Add at least one rate plan.');
+    if (!availability.length) issue('Availability', 3, 'Add at least one availability schedule.');
+    if (fulfilmentRows.length > 1) issue('Fulfilment', 4, 'Provide at most one Fulfilment row.');
+
+    const basic = basicRows[0] ?? {};
+    const experience = experienceRows[0] ?? {};
+    const productKey = importText(basic, 'product_key');
+    for (const [section, rows] of Object.entries({ Experience: experienceRows, Options: options, Rate_Plans: ratePlanRows, Availability: availability, Media: mediaRows, Booking_Questions: questionRows, Fulfilment: fulfilmentRows })) {
+      rows.forEach((row, index) => { const rowKey = importText(row, 'product_key'); if (productKey && rowKey && rowKey !== productKey) issue(section, index + 3, `product_key must be ${productKey}.`); });
+    }
+    ['product_key', 'product_name', 'type', 'sub_type', 'sub_category', 'city', 'state', 'country', 'meeting_model', 'short_description'].forEach((field) => { if (!importText(basic, field)) issue('Basic_Info', 3, `${field} is required.`); });
+    if (!importText(experience, 'full_description')) issue('Experience', 3, 'full_description is required.');
+
+    const optionCodes = new Set<string>();
+    options.forEach((row, index) => {
+      const code = importText(row, 'option_code');
+      if (!code) issue('Options', index + 3, 'option_code is required.');
+      else if (optionCodes.has(code)) issue('Options', index + 3, `Duplicate option_code: ${code}.`);
+      else optionCodes.add(code);
+      if (!importText(row, 'option_name')) issue('Options', index + 3, 'option_name is required.');
+    });
+    const ratePlanCodes = new Set<string>();
+    ratePlanRows.forEach((row, index) => {
+      const code = importText(row, 'rate_plan_code');
+      const optionCode = importText(row, 'option_code');
+      if (!code) issue('Rate_Plans', index + 3, 'rate_plan_code is required.');
+      else if (ratePlanCodes.has(code)) issue('Rate_Plans', index + 3, `Duplicate rate_plan_code: ${code}.`);
+      else ratePlanCodes.add(code);
+      if (!importText(row, 'rate_plan_name') || !importText(row, 'valid_from') || !importText(row, 'valid_to')) issue('Rate_Plans', index + 3, 'rate_plan_name, valid_from and valid_to are required.');
+      if (optionCode && !optionCodes.has(optionCode)) issue('Rate_Plans', index + 3, `Unknown option_code: ${optionCode}.`);
+    });
+    availability.forEach((row, index) => {
+      const optionCode = importText(row, 'option_code');
+      if (optionCode && !optionCodes.has(optionCode)) issue('Availability', index + 3, `Unknown option_code: ${optionCode}.`);
+      if (!importText(row, 'schedule_code') || !importText(row, 'effective_from') || !importText(row, 'effective_to')) issue('Availability', index + 3, 'schedule_code, effective_from and effective_to are required.');
+      if (!importList(row, 'operating_days').length) issue('Availability', index + 3, 'At least one operating day is required.');
+    });
+    mediaRows.forEach((row, index) => { if (!importText(row, 'external_url') && !importText(row, 'file_asset_id')) issue('Media', index + 3, 'Provide external_url or file_asset_id.'); });
+    questionRows.forEach((row, index) => { if (!importText(row, 'code') || !importText(row, 'label')) issue('Booking_Questions', index + 3, 'code and label are required.'); });
+    if (issues.length) throw new BadRequestException({ code: 'IMPORT_VALIDATION_FAILED', message: 'Fix the JSON import validation issues.', issues });
+
+    const created = await this.createDraft(user, {
+      productName: importText(basic, 'product_name'), type: importText(basic, 'type') as any, subType: importText(basic, 'sub_type'), subCategory: importText(basic, 'sub_category'), shortDescription: importText(basic, 'short_description'), cityName: importText(basic, 'city'), stateName: importText(basic, 'state'), countryName: importText(basic, 'country'), meetingModel: importText(basic, 'meeting_model') as any, meetingPoint: importText(basic, 'meeting_point'),
+    });
+    const loaded = await this.get(user, created.id);
+    const revision = loaded.revisions?.find((item: any) => item.status === ProductRevisionStatus.DRAFT) || loaded.currentRevision;
+    if (!revision) throw new ConflictException('The product draft was created but its working revision could not be loaded.');
+
+    const fulfilment = fulfilmentRows[0] ?? {};
+    await this.updateRevision(user, revision.id, {
+      productName: importText(basic, 'product_name'), type: importText(basic, 'type') as any, subType: importText(basic, 'sub_type'), subCategory: importText(basic, 'sub_category'), shortDescription: importText(basic, 'short_description'), description: importText(experience, 'full_description'), highlights: importList(experience, 'highlights'), importantInfo: importList(experience, 'important_information'), thingsToCarry: importList(experience, 'things_to_carry'), safetyMeasures: importList(experience, 'safety_measures'), terms: importList(experience, 'terms'), howToRedeem: importList(experience, 'how_to_redeem'), additionalInfo: importList(experience, 'additional_information'), labels: importList(basic, 'labels'), metaname: importText(experience, 'metaname') || undefined, cityName: importText(basic, 'city'), stateName: importText(basic, 'state'), countryName: importText(basic, 'country'), meetingModel: importText(basic, 'meeting_model') as any, meetingPoint: importText(basic, 'meeting_point') || undefined, address: importText(basic, 'address') || undefined, lat: sourceNumber(basic, 'latitude'), lon: sourceNumber(basic, 'longitude'), fulfilmentPolicy: { mode: importText(fulfilment, 'mode') || 'AUTO', requiredEvidenceKinds: [], evidenceMatchMode: 'ALL', reviewRequired: importBool(fulfilment, 'review_required'), operationsContactName: importText(fulfilment, 'operations_contact_name') || undefined, operationsContactPhone: importText(fulfilment, 'operations_contact_phone') || undefined, operationsContactEmail: importText(fulfilment, 'operations_contact_email') || undefined, emergencyContactName: importText(fulfilment, 'emergency_contact_name') || undefined, emergencyContactPhone: importText(fulfilment, 'emergency_contact_phone') || undefined, emergencyContactEmail: importText(fulfilment, 'emergency_contact_email') || undefined, voucherNotes: importList(fulfilment, 'voucher_notes') },
+    } as any);
+
+    for (const [index, row] of mediaRows.entries()) await this.addMedia(user, revision.id, { kind: importText(row, 'kind') || 'IMAGE', externalUrl: importText(row, 'external_url') || undefined, fileAssetId: importText(row, 'file_asset_id') || undefined, description: importText(row, 'description') || undefined, seoTitle: importText(row, 'seo_title') || undefined, seoDescription: importText(row, 'seo_description') || undefined, rank: importNumber(row, 'rank', index + 1) } as any);
+    for (const [index, row] of questionRows.entries()) await this.createBookingQuestion(user, revision.id, { code: importText(row, 'code'), label: importText(row, 'label'), helpText: importText(row, 'help_text') || undefined, type: importText(row, 'type') || 'TEXT', required: importBool(row, 'required'), options: Array.isArray(row.options) ? row.options : undefined, appliesPerTraveller: importBool(row, 'applies_per_traveller'), rank: importNumber(row, 'rank', index + 1) } as any);
+
+    const variants = new Map<string, any>();
+    const variantIds: string[] = [];
+    for (const row of options) {
+      const variant = await this.createVariant(user, created.id, { variantCode: importText(row, 'option_code'), name: importText(row, 'option_name'), description: importText(row, 'description') || undefined, durationMinutes: importNumber(row, 'duration_minutes', 0), privateShared: importText(row, 'sharing') || undefined, vehicleType: importText(row, 'vehicle_guide_type') || undefined, pickupIncluded: importBool(row, 'pickup_included'), pickupType: importText(row, 'pickup_type') || undefined, pickupInput: importText(row, 'pickup_instructions') || undefined, pickupTimings: importText(row, 'pickup_timings') || undefined, dropoffIncluded: importBool(row, 'dropoff_included'), dropoffTimings: importText(row, 'dropoff_timings') || undefined, mealIncluded: importBool(row, 'meal_included'), mealType: importText(row, 'meal_type') || undefined, menu: importList(row, 'menu'), mealVariety: importText(row, 'meal_variety') || undefined, pointsOfInterest: importList(row, 'points_of_interest'), inclusions: importList(row, 'inclusions'), exclusions: importList(row, 'exclusions'), suitableFor: importList(row, 'suitable_for') } as any);
+      variants.set(importText(row, 'option_code'), variant); variantIds.push(variant.id);
+    }
+
+    const ratePlans = new Map<string, any>();
+    const ratePlanIds: string[] = [];
+    for (const row of ratePlanRows) {
+      const variant = variants.get(importText(row, 'option_code'));
+      const pricingUnit = importText(row, 'pricing_unit') || 'PER_PERSON';
+      const travellers = pricingUnit === 'GROUP' ? [{ type: 'GROUP', displayName: 'Group', minCount: importNumber(row, 'group_min_count', 1), maxCount: importNumber(row, 'group_max_count', importNumber(row, 'max_pax', 99)) }] : [{ type: 'ADULT', displayName: 'Adult', minCount: importNumber(row, 'adult_min_count', 1), maxCount: importNumber(row, 'adult_max_count', importNumber(row, 'max_pax', 99)) }, ...(importText(row, 'child_price') ? [{ type: 'CHILD', displayName: 'Child', minCount: 0, maxCount: importNumber(row, 'child_max_count', importNumber(row, 'max_pax', 99)) }] : [])];
+      const plan = await this.ratePlans.create(user, variant.id, { ratePlanCode: importText(row, 'rate_plan_code'), name: importText(row, 'rate_plan_name'), description: importText(row, 'description') || undefined, currency: importText(row, 'currency') || 'INR', validFrom: importDate(row, 'valid_from'), validTo: importDate(row, 'valid_to'), minPax: importNumber(row, 'min_pax', 1), maxPax: importNumber(row, 'max_pax', 99), cutOffMinutes: importNumber(row, 'cutoff_minutes', 0), adultRequired: travellers.some((traveller) => traveller.type === 'ADULT' && traveller.minCount > 0), minAdultRequired: travellers.find((traveller) => traveller.type === 'ADULT')?.minCount || 0, travellerRules: travellers as any, cancellationRules: [{ minDaysBefore: 7, chargeValue: importNumber(row, 'cancel_7_days_pct', 0), chargeType: 'PERCENTAGE' }, { minDaysBefore: 3, maxDaysBefore: 6, chargeValue: importNumber(row, 'cancel_3_days_pct', 50), chargeType: 'PERCENTAGE' }, { minDaysBefore: 0, maxDaysBefore: 2, chargeValue: importNumber(row, 'cancel_0_days_pct', 100), chargeType: 'PERCENTAGE' }] } as any);
+      ratePlans.set(importText(row, 'rate_plan_code'), plan); ratePlanIds.push(plan.id);
+      const commercial = await this.commercial.createVersion(user, plan.id, { effectiveFrom: importDate(row, 'valid_from'), effectiveTo: importDate(row, 'valid_to'), supplierModel: (importText(row, 'supplier_model') || 'NET_RATE') as any, pricingUnit: pricingUnit as any, bookingMode: (importText(row, 'booking_mode') || 'INSTANT') as any, currency: importText(row, 'currency') || 'INR', supplierBaseAmount: String(importNumber(row, 'supplier_base_amount', 0)), travellerPrices: pricingUnit === 'GROUP' ? [] : [{ travellerType: 'ADULT', amount: String(importNumber(row, 'adult_price', 0)) }, ...(importText(row, 'child_price') ? [{ travellerType: 'CHILD', amount: String(importNumber(row, 'child_price', 0)) }] : []), ...(importText(row, 'senior_price') ? [{ travellerType: 'SENIOR', amount: String(importNumber(row, 'senior_price', 0)) }] : [])] } as any);
+      await this.commercial.activateVersion(user, commercial.id);
+    }
+
+    const scheduleIds: string[] = [];
+    for (const row of availability) {
+      const variant = variants.get(importText(row, 'option_code'));
+      let schedule: any = await this.schedules.create(user, variant.id, { scheduleCode: importText(row, 'schedule_code'), name: importText(row, 'schedule_name') || importText(row, 'schedule_code'), operatingModel: (importText(row, 'operating_model') || 'MULTIPLE_SLOTS') as any, timezone: importText(row, 'timezone') || 'Asia/Kolkata', effectiveFrom: importDate(row, 'effective_from'), effectiveTo: importDate(row, 'effective_to'), operatingDays: importList(row, 'operating_days'), capacityUnit: (importText(row, 'capacity_unit') || 'PERSON') as any, defaultCapacity: importNumber(row, 'default_capacity', 1), slots: [{ slotCode: importText(row, 'start_time'), startTime: importText(row, 'start_time'), endTime: importText(row, 'end_time'), rank: 0 }] } as any);
+      schedule = await this.schedules.activate(user, schedule.id, schedule.version);
+      for (const planRow of ratePlanRows.filter((item) => importText(item, 'option_code') === importText(row, 'option_code'))) {
+        const plan = ratePlans.get(importText(planRow, 'rate_plan_code')); if (!plan) continue;
+        await this.schedules.mapRatePlan(user, schedule.id, { ratePlanId: plan.id, expectedVersion: schedule.version });
+        schedule = (await this.schedules.list(user, variant.id)).find((item: any) => item.id === schedule.id);
+      }
+      if (!schedule) throw new ConflictException('Schedule could not be reloaded after rate-plan mapping.');
+      scheduleIds.push(schedule.id);
+      if (importBool(row, 'materialize', true)) await this.materializer.materialize(schedule.id, { dateFrom: importDate(row, 'effective_from'), dateTo: importDate(row, 'effective_to'), expectedVersion: schedule.version });
+    }
+
+    const product = await this.get(user, created.id);
+    return { productId: created.id, productCode: created.productCode, revisionId: revision.id, status: 'DRAFT', variantIds, ratePlanIds, scheduleIds, counts: { options: variantIds.length, ratePlans: ratePlanIds.length, schedules: scheduleIds.length, media: mediaRows.length, bookingQuestions: questionRows.length }, product };
   }
 
   async readiness(user: AuthUser, productId: string) {
