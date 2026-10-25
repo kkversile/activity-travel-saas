@@ -24,7 +24,7 @@ export class ExperienceMatchingService {
   private async refreshSuggestions() {
     const products: any[] = await this.prisma.product.findMany({ where: { deletedAt: null, status: { not: ProductStatus.ARCHIVED }, tenant: { kind: TenantKind.VENDOR } }, include: productInclude, orderBy: { id: 'asc' } });
     const groups = new Map<string, any[]>();
-    for (const item of products) { const key = fingerprint(item.currentRevision); const group = groups.get(key) ?? []; group.push(item); groups.set(key, group); }
+    for (const item of products) { if (!item.currentRevision) continue; const key = fingerprint(item.currentRevision); const group = groups.get(key) ?? []; group.push(item); groups.set(key, group); }
     for (const [key, group] of groups) {
       for (let left = 0; left < group.length; left += 1) for (let right = left + 1; right < group.length; right += 1) {
         if (group[left].tenantId === group[right].tenantId) continue;
