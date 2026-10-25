@@ -56,7 +56,6 @@ export default function RatesRulesStep({ snapshot, locked, onRefresh, onError }:
       <Field label="Which option is this for?" hint="The activity variant that customers will book."><select value={variantId} onChange={(e) => setVariantId(e.target.value)}>{variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.name} · {variant.variantCode}</option>)}</select></Field>
       <Field label="Plan name" hint="Use a name vendors and agents will understand."><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Standard Agent Price" /></Field>
       <Field label="Plan code" hint="Internal unique code."><input value={code} onChange={(e) => setCode(e.target.value)} placeholder="RP-STANDARD-01" /></Field>
-      <Field label="Currency"><select value={currency} onChange={(e) => setCurrency(e.target.value)}>{currencyOptions.map(([value, label]) => <option key={value} value={value}>{value} · {label}</option>)}</select></Field>
       <Field label="Currency" hint="Currency used for this plan."><select value={currency} onChange={(e) => setCurrency(e.target.value)}>{currencyOptions.map(([value, label]) => <option key={value} value={value}>{value} · {label}</option>)}</select></Field>
       <Field label="Selling starts"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
       <Field label="Selling ends"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
