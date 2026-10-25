@@ -97,19 +97,23 @@ export class BuyBoxService {
   async vendorOpportunities(user: AuthUser) {
     if (!user.tenantId) throw new ForbiddenException('Vendor tenant is required');
     const boxes: any[] = await this.prisma.buyBox.findMany({ where: { status: BuyBoxStatus.OPEN, offers: { some: { vendorId: user.tenantId, status: BuyBoxOfferStatus.ACTIVE } } }, include: { experienceMaster: true, offers: { where: { status: BuyBoxOfferStatus.ACTIVE }, include: { product: { include: { currentRevision: true, tenant: { select: vendorSelect } } }, vendor: { select: vendorSelect }, bids: { where: { status: BuyBoxBidStatus.ACTIVE }, orderBy: { submittedAt: 'desc' } } } } } });
-    return boxes.filter((box) => this.isOpen(box) && box.offers.filter((offer: any) => this.productState(offer.product).eligible).length > 1).map((box) => this.vendorOpportunity(box, user.tenantId as string));
+    return boxes
+      .filter((box) => this.isOpen(box) && box.offers.filter((offer: any) => this.productState(offer.product).eligible).length > 1)
+      .map((box) => this.vendorOpportunity(box, user.tenantId as string))
+      .filter(Boolean);
   }
 
   private vendorOpportunity(box: any, vendorId: string) {
     const eligible = box.offers.filter((offer: any) => this.productState(offer.product).eligible);
     const own = eligible.find((offer: any) => offer.vendorId === vendorId);
+    if (!own) return null;
     const allBids = eligible.map((offer: any) => this.currentBid(offer)).filter(Boolean).sort((a: any, b: any) => Number(b.amount) - Number(a.amount));
     const ownBid = own ? this.currentBid(own) : null;
     return { id: box.id, experienceMasterId: box.experienceMasterId, canonicalName: box.experienceMaster.canonicalName, displayMode: box.displayMode, selectionPolicy: box.selectionPolicy, currency: box.currency, status: box.status, startsAt: box.startsAt, endsAt: box.endsAt, product: { id: own.productId, name: own.product.currentRevision?.productName || own.product.productCode, productCode: own.product.productCode }, otherOfferCount: Math.max(0, eligible.length - 1), currentBid: ownBid ? { amount: Number(ownBid.amount), currency: ownBid.currency, submittedAt: ownBid.submittedAt, endsAt: ownBid.endsAt } : null, currentRank: ownBid ? allBids.findIndex((bid: any) => bid.id === ownBid.id) + 1 : null, minimumBidAmount: box.minimumBidAmount == null ? 0 : Number(box.minimumBidAmount), minimumBidIncrement: box.minimumBidIncrement == null ? 1 : Number(box.minimumBidIncrement) };
   }
 
   async vendorDetail(user: AuthUser, boxId: string) {
-    const items = await this.vendorOpportunities(user); const found = items.find((item) => item.id === boxId); if (!found) throw new NotFoundException('Buy Box opportunity not found'); return found;
+    const items = await this.vendorOpportunities(user); const found = items.find((item) => item && item.id === boxId); if (!found) throw new NotFoundException('Buy Box opportunity not found'); return found;
   }
 
   async submitBid(user: AuthUser, boxId: string, dto: SubmitBuyBoxBidDto) {
