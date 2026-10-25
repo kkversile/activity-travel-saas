@@ -10,7 +10,8 @@ import { RatePlansModule } from '../rate-plans/rate-plans.module';
 import { SchedulesModule } from '../schedules/schedules.module';
 import { CatalogueController } from './catalogue.controller';
 import { CatalogueService } from './catalogue.service';
+import { CatalogueEmailService } from './catalogue-email.service';
 import { ProductReadinessService } from './product-readiness.service';
 
-@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, CommercialModule, DistributionModule, RatePlansModule, SchedulesModule], controllers: [CatalogueController], providers: [CatalogueService, ProductReadinessService], exports: [CatalogueService, ProductReadinessService] })
+@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, CommercialModule, DistributionModule, RatePlansModule, SchedulesModule], controllers: [CatalogueController], providers: [CatalogueService, CatalogueEmailService, ProductReadinessService], exports: [CatalogueService, ProductReadinessService] })
 export class CatalogueModule {}

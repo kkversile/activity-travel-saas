@@ -17,6 +17,7 @@ import { ChannelDistributionReadinessService } from '../distribution/channel-dis
 import { RatePlansService } from '../rate-plans/rate-plans.service';
 import { SchedulesService } from '../schedules/schedules.service';
 import { SessionMaterializerService } from '../schedules/session-materializer.service';
+import { CatalogueEmailService } from './catalogue-email.service';
 
 const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, fulfilmentPolicy: true, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
 const variantInclude = { ratePlans: { include: { travellerRules: true, cancellationRules: { orderBy: { minDaysBefore: 'desc' as const } } }, orderBy: { createdAt: 'asc' as const } } };
@@ -52,7 +53,7 @@ const importContentFingerprint = (basic: ImportJsonRow) => fingerprint({
 
 @Injectable()
 export class CatalogueService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly storage: StorageService, @Optional() private readonly readinessService?: ProductReadinessService, @Optional() private readonly commercial?: CommercialService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService, @Optional() private readonly ratePlans?: RatePlansService, @Optional() private readonly schedules?: SchedulesService, @Optional() private readonly materializer?: SessionMaterializerService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly storage: StorageService, @Optional() private readonly readinessService?: ProductReadinessService, @Optional() private readonly commercial?: CommercialService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService, @Optional() private readonly ratePlans?: RatePlansService, @Optional() private readonly schedules?: SchedulesService, @Optional() private readonly materializer?: SessionMaterializerService, @Optional() private readonly catalogueEmail?: CatalogueEmailService) {}
 
   private data(dto: ProductRevisionDto | UpdateProductRevisionDto): Prisma.ProductRevisionUncheckedCreateInput {
     const { faqs, sourcePayload, fulfilmentPolicy: _fulfilmentPolicy, ...rest } = dto as ProductRevisionDto;
@@ -665,7 +666,7 @@ export class CatalogueService {
 
   async submitRevision(user: AuthUser, id: string) {
     const tenantId = requireTenant(user);
-    return this.prisma.$transaction(async (tx) => {
+    const submitted = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.productRevision.findFirst({ where: { id, product: { tenantId } } });
       if (!existing) throw new NotFoundException('Product revision not found');
       if (existing.status !== ProductRevisionStatus.DRAFT) throw new ConflictException(`Only DRAFT revisions can be submitted; current status is ${existing.status}`);
@@ -679,6 +680,8 @@ export class CatalogueService {
       await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_SUBMITTED', aggregateType: 'ProductRevision', aggregateId: id, payload: { productId: existing.productId, versionNumber: existing.versionNumber } });
       return tx.productRevision.findUniqueOrThrow({ where: { id } });
     });
+    await this.catalogueEmail?.notifySubmitted(submitted.id);
+    return submitted;
   }
 
   async withdrawRevision(user: AuthUser, id: string) {
@@ -789,7 +792,7 @@ export class CatalogueService {
   async review(user: AuthUser, id: string, decision: 'publish' | 'reject', dto?: RejectProductRevisionDto) {
     if (user.role !== UserRole.SUPER_ADMIN && user.role !== UserRole.ADMIN) throw new ConflictException('Only platform reviewers can review product revisions');
     if (decision === 'reject' && (!dto?.reason?.trim() || dto.reason.trim().length < 5)) throw new ConflictException('A rejection reason of at least 5 characters is required');
-    return this.prisma.$transaction(async (tx) => {
+    const reviewed = await this.prisma.$transaction(async (tx) => {
       const candidate = await tx.productRevision.findFirst({ where: { id, product: { tenant: { kind: 'VENDOR' } } }, include: { product: true } });
       if (!candidate) throw new NotFoundException('Product revision not found');
       if (candidate.status !== ProductRevisionStatus.UNDER_REVIEW) throw new ConflictException(`Only UNDER_REVIEW revisions can be reviewed; current status is ${candidate.status}`);
@@ -813,6 +816,8 @@ export class CatalogueService {
       }
       return tx.product.findUniqueOrThrow({ where: { id: candidate.productId }, include: { currentRevision: true } });
     });
+    await this.catalogueEmail?.notifyDecision(id, decision === 'publish' ? 'APPROVED' : 'REJECTED', decision === 'reject' ? dto?.reason ?? null : null);
+    return reviewed;
   }
 
   async listReview() {
