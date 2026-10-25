@@ -668,10 +668,28 @@ export class CatalogueService {
       if (product._count.bookings > 0) throw new ConflictException('Products with bookings cannot be deleted');
       if (product.revisions.some((revision: any) => [ProductRevisionStatus.PUBLISHED, ProductRevisionStatus.SUPERSEDED].includes(revision.status))) throw new ConflictException('A product with published history cannot be deleted');
       const deletedAt = new Date();
-      const updated = await tx.product.update({ where: { id }, data: { deletedAt, deletedById: user.sub } });
-      await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_DELETED', entityType: 'Product', entityId: id, beforeState: { status: product.status }, afterState: { deletedAt: deletedAt.toISOString() } });
-      await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_DELETED', aggregateType: 'Product', aggregateId: id, payload: { productCode: product.productCode } });
-      return { id, deletedAt };
+      const setting = await tx.globalSetting.findFirst({ where: { key: 'HARD_DELETE_DRAFT', tenantId }, select: { value: true, tenantId: true } })
+        || await tx.globalSetting.findFirst({ where: { key: 'HARD_DELETE_DRAFT', tenantId: null }, select: { value: true, tenantId: true } });
+      const configuredValue: any = setting?.value;
+      const hardDelete = setting ? configuredValue === true || configuredValue?.enabled === true : String(process.env.HARD_DELETE_DRAFT || '').toLowerCase() === 'true';
+      await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_DELETED', entityType: 'Product', entityId: id, beforeState: { status: product.status }, afterState: { deletedAt: hardDelete ? null : deletedAt.toISOString(), hardDelete } });
+      if (hardDelete) {
+        // Detach the composite current-revision pointer before the guarded delete.
+        // Referential-integrity failures are intentionally surfaced instead of
+        // partially deleting a draft graph.
+        await tx.product.update({ where: { id }, data: { currentRevisionId: null } });
+        try {
+          await tx.product.delete({ where: { id } });
+        } catch (error: any) {
+          if (error?.code === 'P2003') throw new ConflictException('Hard delete is blocked because this draft still has dependent catalogue records');
+          throw error;
+        }
+        await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_DELETED', aggregateType: 'Product', aggregateId: id, payload: { productCode: product.productCode, hardDelete: true } });
+        return { id, deletedAt: null, hardDeleted: true };
+      }
+      await tx.product.update({ where: { id }, data: { deletedAt, deletedById: user.sub } });
+      await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_DELETED', aggregateType: 'Product', aggregateId: id, payload: { productCode: product.productCode, hardDelete: false } });
+      return { id, deletedAt, hardDeleted: false };
     });
   }
 

@@ -722,6 +722,7 @@ model Tenant {
   fileAssets               FileAsset[]
   vendorDocuments          VendorDocument[]
   outboxEvents             OutboxEvent[]
+  globalSettings           GlobalSetting[]
   products                 Product[]
   resources                Resource[]
   agentGroupMembers        AgentGroupMember[]
@@ -786,6 +787,20 @@ model User {
   updatedAt                       DateTime                        @updatedAt
 
   @@index([tenantId, role])
+}
+
+model GlobalSetting {
+  id        String   @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  key       String
+  value     Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, key])
+  @@index([key])
+  @@map("global_settings")
 }
 
 model EmailAuthChallenge {
