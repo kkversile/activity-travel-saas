@@ -126,13 +126,13 @@ export class AdminService {
     const mapping = await this.distributionMappings.rate(actor, { channelId: channel.id, ratePlanId, externalRatePlanCode: current?.externalRatePlanCode || plan.ratePlanCode, status: enabled ? 'ACTIVE' as any : 'DISABLED' as any, ...(current ? { expectedVersion: current.version } : {}) });
     return { ...mapping, enabled: mapping.status === 'ACTIVE' };
   }
-  async dashboard() { const [vendors, pendingVendors, products, reviewProducts, bookings, pendingBookings] = await Promise.all([this.prisma.tenant.count({ where: { kind: TenantKind.VENDOR } }), this.prisma.vendorProfile.count({ where: { verificationStatus: VendorVerificationStatus.PENDING } }), this.prisma.product.count({ where: { tenant: { kind: TenantKind.VENDOR } } }), this.prisma.productRevision.count({ where: { product: { tenant: { kind: TenantKind.VENDOR } }, status: ProductRevisionStatus.UNDER_REVIEW } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR } } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR }, status: BookingStatus.PENDING } })]); return { vendors, pendingVendors, products, listings: products, reviewProducts, reviewActivities: reviewProducts, bookings, pendingBookings }; }
+  async dashboard() { const [vendors, pendingVendors, products, reviewProducts, bookings, pendingBookings] = await Promise.all([this.prisma.tenant.count({ where: { kind: TenantKind.VENDOR } }), this.prisma.vendorProfile.count({ where: { verificationStatus: VendorVerificationStatus.PENDING } }), this.prisma.product.count({ where: { tenant: { kind: TenantKind.VENDOR }, deletedAt: null } }), this.prisma.productRevision.count({ where: { product: { tenant: { kind: TenantKind.VENDOR }, deletedAt: null }, status: ProductRevisionStatus.UNDER_REVIEW } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR } } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR }, status: BookingStatus.PENDING } })]); return { vendors, pendingVendors, products, listings: products, reviewProducts, reviewActivities: reviewProducts, bookings, pendingBookings }; }
   vendors() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { id: true, email: true, fullName: true, active: true } }, _count: { select: { products: true, vendorBookings: true, payouts: true } } }, orderBy: { createdAt: 'desc' } }); }
   async products(query: { search?: string; vendorId?: string; status?: string; type?: string; page?: number; limit?: number }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
     const search = query.search?.trim();
-    const where: any = { tenant: { kind: TenantKind.VENDOR }, AND: [] };
+    const where: any = { tenant: { kind: TenantKind.VENDOR }, deletedAt: null, AND: [] };
     if (query.vendorId) where.tenantId = query.vendorId;
     if (search) where.AND.push({ OR: [
       { productCode: { contains: search, mode: 'insensitive' } },

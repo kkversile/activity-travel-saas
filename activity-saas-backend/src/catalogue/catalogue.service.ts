@@ -65,7 +65,7 @@ export class CatalogueService {
 
   private async product(user: AuthUser, id: string) {
     const tenantId = requireTenant(user);
-    const found = await this.prisma.product.findFirst({ where: { id, tenantId } });
+    const found = await this.prisma.product.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!found) throw new NotFoundException('Product not found');
     return found;
   }
@@ -76,7 +76,7 @@ export class CatalogueService {
 
   async list(user: AuthUser, query: ProductQueryDto) {
     const tenantId = requireTenant(user);
-    return this.prisma.product.findMany({ where: { tenantId, ...(query.search ? { productCode: { contains: query.search, mode: 'insensitive' } } : {}), ...(query.revisionStatus ? { revisions: { some: { status: query.revisionStatus } } } : {}) }, include: { currentRevision: true, revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW, ProductRevisionStatus.REJECTED] } }, orderBy: { versionNumber: 'desc' }, take: 1 }, _count: { select: { variants: true, bookings: true } } }, orderBy: { updatedAt: 'desc' } });
+    return this.prisma.product.findMany({ where: { tenantId, deletedAt: null, ...(query.search ? { productCode: { contains: query.search, mode: 'insensitive' } } : {}), ...(query.revisionStatus ? { revisions: { some: { status: query.revisionStatus } } } : {}) }, include: { currentRevision: true, revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW, ProductRevisionStatus.REJECTED] } }, orderBy: { versionNumber: 'desc' }, take: 1 }, _count: { select: { variants: true, bookings: true } } }, orderBy: { updatedAt: 'desc' } });
   }
 
   /**
@@ -89,7 +89,7 @@ export class CatalogueService {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
     const search = query.search?.trim();
-    const where: any = { tenantId };
+    const where: any = { tenantId, deletedAt: null };
     if (search) {
       where.OR = [
         { productCode: { contains: search, mode: 'insensitive' } },
@@ -106,6 +106,8 @@ export class CatalogueService {
     if (query.status === 'LIVE') where.AND = [...(where.AND || []), { status: ProductStatus.LIVE, currentRevision: { status: ProductRevisionStatus.PUBLISHED } }];
     if (query.status === 'REVIEW') where.AND = [...(where.AND || []), { revisions: { some: { status: ProductRevisionStatus.UNDER_REVIEW } } }];
     if (query.status === 'DRAFT') where.AND = [...(where.AND || []), { revisions: { some: { status: ProductRevisionStatus.DRAFT } } }];
+    if (query.status === 'SUSPENDED') where.AND = [...(where.AND || []), { status: ProductStatus.SUSPENDED }];
+    if (query.status === 'ARCHIVED') where.AND = [...(where.AND || []), { status: ProductStatus.ARCHIVED }];
 
     const revisionSelect = { id: true, versionNumber: true, status: true, productName: true, type: true, cityName: true, stateName: true, countryName: true, subCategory: true, updatedAt: true };
     const include: any = {
@@ -171,10 +173,19 @@ export class CatalogueService {
       ? await this.distributionReadiness.evaluate(product.id)
       : { channelCode: 'VOYA_AGENT', ready: false, status: 'PENDING', reasonCodes: ['CHANNEL_PRODUCT_NOT_MAPPED'] };
     const updatedAt = [product.updatedAt, published?.updatedAt, working?.updatedAt, rejected?.updatedAt].filter(Boolean).map((value: Date) => value.getTime()).reduce((max: number, value: number) => Math.max(max, value), 0);
+    const actions = displayStatus === 'UNDER_REVIEW'
+      ? ['OPEN', 'WITHDRAW']
+      : displayStatus === 'PUBLISHED'
+        ? ['OPEN', 'DEACTIVATE']
+        : displayStatus === 'SUSPENDED'
+          ? ['OPEN', 'REACTIVATE', 'ARCHIVE']
+          : displayStatus === 'ARCHIVED'
+            ? ['OPEN', 'REACTIVATE']
+            : ['OPEN', 'EDIT', 'SUBMIT', 'DELETE'];
     return {
       id: product.id, productCode: product.productCode, experienceName: display?.productName || 'Untitled product', destination: [display?.cityName, display?.stateName].filter(Boolean).join(', ') || null,
       optionCount: displayVariants.length, productStatus: product.status, displayStatus, currentRevisionId: product.currentRevisionId || null, workingRevisionId: working?.id || null, workingRevisionStatus: working?.status || null,
-      updatedAt: new Date(updatedAt || Date.now()).toISOString(), bookability: readiness, distribution, quality: { score: null, status: 'NOT_SCORED' }, action: displayStatus === 'NEEDS_CHANGES' ? 'FIX' : 'OPEN',
+      updatedAt: new Date(updatedAt || Date.now()).toISOString(), bookability: readiness, distribution, quality: { score: null, status: 'NOT_SCORED' }, action: displayStatus === 'NEEDS_CHANGES' ? 'FIX' : 'OPEN', actions,
     };
   }
 
@@ -219,7 +230,7 @@ export class CatalogueService {
 
   async get(user: AuthUser, id: string) {
     await this.product(user, id);
-    const result: any = await this.prisma.product.findFirstOrThrow({ where: { id }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] }, fulfilmentPolicy: true } }, revisions: { orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] }, fulfilmentPolicy: true } }, variants: { where: { status: { not: VariantStatus.ARCHIVED } }, include: variantInclude }, _count: { select: { variants: true, bookings: true } } } });
+    const result: any = await this.prisma.product.findFirstOrThrow({ where: { id, tenantId: requireTenant(user), deletedAt: null }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] }, fulfilmentPolicy: true } }, revisions: { orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] }, fulfilmentPolicy: true } }, variants: { where: { status: { not: VariantStatus.ARCHIVED } }, include: variantInclude }, _count: { select: { variants: true, bookings: true } } } });
     const selectedRevision = result.revisions.find((revision: any) => revision.status === ProductRevisionStatus.DRAFT || revision.status === ProductRevisionStatus.UNDER_REVIEW) || result.currentRevision || result.revisions.find((revision: any) => revision.status === ProductRevisionStatus.REJECTED);
     result.variants = (result.variants || []).filter((variant: any) => !selectedRevision || variant.revisionId === selectedRevision.id || (!variant.revisionId && result.currentRevisionId === selectedRevision.id));
     return result;
@@ -610,6 +621,57 @@ export class CatalogueService {
       await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_REVISION_SUBMITTED', entityType: 'ProductRevision', entityId: id, beforeState: { status: existing.status }, afterState: { status: ProductRevisionStatus.UNDER_REVIEW } });
       await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_SUBMITTED', aggregateType: 'ProductRevision', aggregateId: id, payload: { productId: existing.productId, versionNumber: existing.versionNumber } });
       return tx.productRevision.findUniqueOrThrow({ where: { id } });
+    });
+  }
+
+  async withdrawRevision(user: AuthUser, id: string) {
+    const tenantId = requireTenant(user);
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.productRevision.findFirst({ where: { id, product: { tenantId, deletedAt: null } }, select: { id: true, productId: true, status: true, versionNumber: true } });
+      if (!existing) throw new NotFoundException('Product revision not found');
+      if (existing.status !== ProductRevisionStatus.UNDER_REVIEW) throw new ConflictException(`Only UNDER_REVIEW revisions can be withdrawn; current status is ${existing.status}`);
+      const changed = await tx.productRevision.updateMany({ where: { id, status: ProductRevisionStatus.UNDER_REVIEW }, data: { status: ProductRevisionStatus.DRAFT, submittedAt: null, reviewedAt: null, reviewedById: null } });
+      if (changed.count !== 1) throw new ConflictException('Revision changed in another session');
+      await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_REVISION_WITHDRAWN', entityType: 'ProductRevision', entityId: id, beforeState: { status: ProductRevisionStatus.UNDER_REVIEW }, afterState: { status: ProductRevisionStatus.DRAFT } });
+      await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_SUBMISSION_WITHDRAWN', aggregateType: 'ProductRevision', aggregateId: id, payload: { productId: existing.productId, versionNumber: existing.versionNumber } });
+      return tx.productRevision.findUniqueOrThrow({ where: { id } });
+    });
+  }
+
+  private async changeVendorProductStatus(user: AuthUser, id: string, action: 'deactivate' | 'archive' | 'reactivate') {
+    const tenantId = requireTenant(user);
+    return this.prisma.$transaction(async (tx) => {
+      const product: any = await tx.product.findFirst({ where: { id, tenantId, deletedAt: null }, include: { currentRevision: { select: { status: true } } } });
+      if (!product) throw new NotFoundException('Product not found');
+      const allowedStatuses: ProductStatus[] = action === 'deactivate' ? [ProductStatus.LIVE] : action === 'archive' ? [ProductStatus.SUSPENDED] : [ProductStatus.SUSPENDED, ProductStatus.ARCHIVED];
+      if (!allowedStatuses.includes(product.status)) throw new ConflictException(`Cannot ${action} a product in ${product.status} status`);
+      if (action === 'reactivate' && product.currentRevision?.status !== ProductRevisionStatus.PUBLISHED) throw new ConflictException('A published revision is required before reactivating this product');
+      const next = action === 'deactivate' ? ProductStatus.SUSPENDED : action === 'archive' ? ProductStatus.ARCHIVED : ProductStatus.LIVE;
+      const updated = await tx.product.update({ where: { id }, data: { status: next } });
+      const actionName = action === 'deactivate' ? 'PRODUCT_DEACTIVATED' : action === 'archive' ? 'PRODUCT_ARCHIVED' : 'PRODUCT_REACTIVATED';
+      await this.audit.write(tx, { actor: user, tenantId, action: actionName, entityType: 'Product', entityId: id, beforeState: { status: product.status }, afterState: { status: next } });
+      await this.outbox.enqueue(tx, { tenantId, eventType: actionName, aggregateType: 'Product', aggregateId: id, payload: { fromStatus: product.status, toStatus: next } });
+      return updated;
+    });
+  }
+
+  async deactivate(user: AuthUser, id: string) { return this.changeVendorProductStatus(user, id, 'deactivate'); }
+  async archive(user: AuthUser, id: string) { return this.changeVendorProductStatus(user, id, 'archive'); }
+  async reactivate(user: AuthUser, id: string) { return this.changeVendorProductStatus(user, id, 'reactivate'); }
+
+  async deleteDraft(user: AuthUser, id: string) {
+    const tenantId = requireTenant(user);
+    return this.prisma.$transaction(async (tx) => {
+      const product: any = await tx.product.findFirst({ where: { id, tenantId, deletedAt: null }, select: { id: true, status: true, productCode: true, _count: { select: { bookings: true } }, revisions: { select: { status: true } } } });
+      if (!product) throw new NotFoundException('Product not found');
+      if (product.status !== ProductStatus.DRAFT) throw new ConflictException('Only draft products can be deleted');
+      if (product._count.bookings > 0) throw new ConflictException('Products with bookings cannot be deleted');
+      if (product.revisions.some((revision: any) => [ProductRevisionStatus.PUBLISHED, ProductRevisionStatus.SUPERSEDED].includes(revision.status))) throw new ConflictException('A product with published history cannot be deleted');
+      const deletedAt = new Date();
+      const updated = await tx.product.update({ where: { id }, data: { deletedAt, deletedById: user.sub } });
+      await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_DELETED', entityType: 'Product', entityId: id, beforeState: { status: product.status }, afterState: { deletedAt: deletedAt.toISOString() } });
+      await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_DELETED', aggregateType: 'Product', aggregateId: id, payload: { productCode: product.productCode } });
+      return { id, deletedAt };
     });
   }
 

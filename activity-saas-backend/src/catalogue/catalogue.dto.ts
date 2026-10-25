@@ -115,11 +115,11 @@ export class ProductQueryDto {
   @IsOptional() @IsString() search?: string;
 }
 
-export type ListingStatusFilter = 'LIVE' | 'REVIEW' | 'DRAFT';
+export type ListingStatusFilter = 'LIVE' | 'REVIEW' | 'DRAFT' | 'SUSPENDED' | 'ARCHIVED';
 
 export class ProductListingQueryDto {
   @IsOptional() @IsString() search?: string;
-  @IsOptional() @IsEnum(['LIVE', 'REVIEW', 'DRAFT'] as const) status?: ListingStatusFilter;
+  @IsOptional() @IsEnum(['LIVE', 'REVIEW', 'DRAFT', 'SUSPENDED', 'ARCHIVED'] as const) status?: ListingStatusFilter;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 25;
 }

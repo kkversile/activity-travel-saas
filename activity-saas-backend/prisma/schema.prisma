@@ -985,6 +985,8 @@ model Product {
   importFingerprint String?
   importIdempotencyKey String?
   status            ProductStatus           @default(DRAFT)
+  deletedAt         DateTime?
+  deletedById       String?
   currentRevisionId String?
   currentRevision   ProductRevision?        @relation("CurrentProductRevision", fields: [currentRevisionId, id], references: [id, productId], onDelete: NoAction)
   revisions         ProductRevision[]       @relation("ProductRevisions")
@@ -1002,6 +1004,7 @@ model Product {
   @@unique([tenantId, importFingerprint])
   @@unique([tenantId, importIdempotencyKey])
   @@index([tenantId, status])
+  @@index([tenantId, deletedAt])
 }
 
 model ProductRevision {
