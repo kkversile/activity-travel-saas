@@ -254,9 +254,43 @@ export class CatalogueService {
 
   async createDraft(user: AuthUser, dto: CreateProductDraftDto, identity?: ImportIdentity) {
     const tenantId = requireTenant(user);
+    let draftIdentity = identity;
+    if (dto.importMode) {
+      const importFingerprint = fingerprint({
+        productName: dto.productName.trim().toLowerCase(),
+        type: String(dto.type).toUpperCase(),
+        city: (dto.cityName || '').trim().toLowerCase(),
+        state: (dto.stateName || '').trim().toLowerCase(),
+        country: (dto.countryName || '').trim().toLowerCase(),
+      });
+      const sourceImportKey = dto.sourceImportKey?.trim().toUpperCase() || `FINGERPRINT-${importFingerprint}`;
+      const existingByKey = await this.prisma.product.findFirst({ where: { tenantId, sourceImportKey } });
+      if (existingByKey) await this.importExistingProduct(user, existingByKey.id, 'product_key');
+      const existingByFingerprint = await this.prisma.product.findFirst({ where: { tenantId, importFingerprint } });
+      if (existingByFingerprint) await this.importExistingProduct(user, existingByFingerprint.id, 'content_fingerprint');
+      const existingLegacyByFingerprint = await this.prisma.product.findFirst({
+        where: {
+          tenantId,
+          deletedAt: null,
+          importFingerprint: null,
+          revisions: {
+            some: {
+              productName: { equals: dto.productName.trim(), mode: 'insensitive' },
+              type: dto.type,
+              cityName: { equals: (dto.cityName || '').trim(), mode: 'insensitive' },
+              stateName: { equals: (dto.stateName || '').trim(), mode: 'insensitive' },
+              countryName: { equals: (dto.countryName || '').trim(), mode: 'insensitive' },
+            },
+          },
+        },
+        select: { id: true },
+      });
+      if (existingLegacyByFingerprint) await this.importExistingProduct(user, existingLegacyByFingerprint.id, 'content_fingerprint_legacy');
+      draftIdentity = { sourceImportKey, importFingerprint };
+    }
     const productCode = `PRD-${randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
     const created = await this.prisma.$transaction(async (tx) => {
-      const product = await tx.product.create({ data: { tenantId, productCode, status: ProductStatus.DRAFT, ...(identity ?? {}) } });
+      const product = await tx.product.create({ data: { tenantId, productCode, status: ProductStatus.DRAFT, ...(draftIdentity ?? {}) } });
       const revision = await tx.productRevision.create({ data: {
         productId: product.id,
         versionNumber: 1,

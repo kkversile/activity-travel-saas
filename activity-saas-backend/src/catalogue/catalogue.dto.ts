@@ -73,6 +73,9 @@ export class CreateProductDraftDto {
   @IsOptional() @IsString() countryName?: string;
   @IsOptional() @IsEnum(MeetingModel) meetingModel?: MeetingModel;
   @IsOptional() @IsString() meetingPoint?: string;
+  /** Only the browser workbook/JSON importer sets these fields. */
+  @IsOptional() @IsBoolean() importMode?: boolean;
+  @IsOptional() @IsString() sourceImportKey?: string;
 }
 
 /**

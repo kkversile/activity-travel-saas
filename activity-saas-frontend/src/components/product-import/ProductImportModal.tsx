@@ -13,7 +13,7 @@ function numeric(row: Record<string, unknown>, key: string, fallback = 0) { retu
 async function importWorkbook(model: ImportWorkbookModel, onProgress: (value: string) => void) {
   const basic = model.basic;
   onProgress('Creating the product draft…');
-  const created = await api.request<Product>('/products/drafts', { method: 'POST', body: JSON.stringify({ productName: rowValue(basic, 'product_name'), type: rowValue(basic, 'type'), subType: rowValue(basic, 'sub_type'), subCategory: rowValue(basic, 'sub_category'), shortDescription: rowValue(basic, 'short_description'), cityName: rowValue(basic, 'city'), stateName: rowValue(basic, 'state'), countryName: rowValue(basic, 'country'), meetingModel: rowValue(basic, 'meeting_model'), meetingPoint: rowValue(basic, 'meeting_point') }) });
+  const created = await api.request<Product>('/products/drafts', { method: 'POST', body: JSON.stringify({ productName: rowValue(basic, 'product_name'), type: rowValue(basic, 'type'), subType: rowValue(basic, 'sub_type'), subCategory: rowValue(basic, 'sub_category'), shortDescription: rowValue(basic, 'short_description'), cityName: rowValue(basic, 'city'), stateName: rowValue(basic, 'state'), countryName: rowValue(basic, 'country'), meetingModel: rowValue(basic, 'meeting_model'), meetingPoint: rowValue(basic, 'meeting_point'), importMode: true, sourceImportKey: rowValue(basic, 'product_key') }) });
   const loaded = await api.request<Product>(`/products/${created.id}`);
   const revision = loaded.revisions?.find((item) => item.status === 'DRAFT') || loaded.currentRevision;
   if (!revision) throw new Error('The product draft was created but its working revision could not be loaded.');
