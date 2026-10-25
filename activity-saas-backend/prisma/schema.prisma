@@ -452,6 +452,32 @@ enum ProductMatchSuggestionStatus {
   REJECTED
 }
 
+enum BuyBoxStatus {
+  CLOSED
+  OPEN
+  SUSPENDED
+}
+
+enum BuyBoxOfferStatus {
+  ACTIVE
+  PAUSED
+  REMOVED
+}
+
+enum BuyBoxBidStatus {
+  ACTIVE
+  OUTBID
+  EXPIRED
+  WITHDRAWN
+}
+
+enum BuyBoxSelectionPolicy {
+  CHEAPEST
+  HIGHEST_BID
+  BALANCED
+  ADMIN_SELECTED
+}
+
 enum VariantStatus {
   ACTIVE
   INACTIVE
@@ -742,6 +768,8 @@ model Tenant {
   outboxEvents             OutboxEvent[]
   globalSettings           GlobalSetting[]
   products                 Product[]
+  buyBoxOffers             BuyBoxOffer[]                         @relation("BuyBoxOfferVendor")
+  buyBoxBids               BuyBoxBid[]                           @relation("BuyBoxBidVendor")
   resources                Resource[]
   agentGroupMembers        AgentGroupMember[]
   commercialRulesAsVendor  CommercialRule[]                         @relation("CommercialRuleVendor")
@@ -1034,6 +1062,7 @@ model Product {
   channelMappings      ProductChannelMapping[]
   experienceMaster     ExperienceMaster?          @relation(fields: [experienceMasterId], references: [id], onDelete: SetNull)
   offerPlacements      ExperienceOfferPlacement[]
+  buyBoxOffers         BuyBoxOffer[]
   matchSuggestionsFrom ProductMatchSuggestion[]   @relation("MatchSourceProduct")
   matchSuggestionsTo   ProductMatchSuggestion[]   @relation("MatchCandidateProduct")
   createdAt            DateTime                   @default(now())
@@ -1061,6 +1090,7 @@ model ExperienceMaster {
   products        Product[]
   placements      ExperienceOfferPlacement[]
   suggestions     ProductMatchSuggestion[]
+  buyBox          BuyBox?
   createdById     String?
   updatedById     String?
   createdAt       DateTime                   @default(now())
@@ -1068,6 +1098,64 @@ model ExperienceMaster {
 
   @@index([canonicalName])
   @@index([cityName, stateName, countryName])
+}
+
+model BuyBox {
+  id                    String              @id @default(uuid())
+  experienceMasterId   String              @unique
+  status                BuyBoxStatus       @default(CLOSED)
+  displayMode           ExperienceDisplayMode @default(SINGLE_OFFER)
+  selectionPolicy       BuyBoxSelectionPolicy @default(HIGHEST_BID)
+  fallbackPolicy        OfferSelectionPolicy @default(CHEAPEST)
+  currency              String              @default("INR")
+  minimumBidAmount      Decimal?            @db.Decimal(12, 2)
+  minimumBidIncrement   Decimal?            @db.Decimal(12, 2)
+  startsAt              DateTime?
+  endsAt                DateTime?
+  createdById           String?
+  updatedById           String?
+  experienceMaster      ExperienceMaster   @relation(fields: [experienceMasterId], references: [id], onDelete: Cascade)
+  offers                BuyBoxOffer[]
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  @@index([status, startsAt, endsAt])
+}
+
+model BuyBoxOffer {
+  id                  String             @id @default(uuid())
+  buyBoxId            String
+  productId           String
+  vendorId            String
+  status              BuyBoxOfferStatus  @default(ACTIVE)
+  manuallyEnabled     Boolean            @default(true)
+  buyBox              BuyBox             @relation(fields: [buyBoxId], references: [id], onDelete: Cascade)
+  product             Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  vendor              Tenant             @relation("BuyBoxOfferVendor", fields: [vendorId], references: [id], onDelete: Cascade)
+  bids                BuyBoxBid[]
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@unique([buyBoxId, productId])
+  @@index([vendorId, status])
+  @@index([buyBoxId, status])
+}
+
+model BuyBoxBid {
+  id                String          @id @default(uuid())
+  buyBoxOfferId     String
+  vendorId          String
+  amount            Decimal         @db.Decimal(12, 2)
+  currency          String          @default("INR")
+  status            BuyBoxBidStatus @default(ACTIVE)
+  startsAt          DateTime?
+  endsAt            DateTime?
+  submittedAt      DateTime        @default(now())
+  buyBoxOffer       BuyBoxOffer     @relation(fields: [buyBoxOfferId], references: [id], onDelete: Cascade)
+  vendor            Tenant          @relation("BuyBoxBidVendor", fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([buyBoxOfferId, status, submittedAt])
+  @@index([vendorId, status])
 }
 
 model ExperienceOfferPlacement {

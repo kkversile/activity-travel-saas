@@ -8,12 +8,13 @@ import { MarketplaceRankingService } from './marketplace-ranking.service';
 import { DemandObservationService } from '../demand/demand-observation.service';
 import { ChannelEligibilityService } from '../distribution/channel-eligibility.service';
 import { channelPublishedCapacity } from '../distribution/distribution-math';
+import { BuyBoxService } from '../buy-box/buy-box.service';
 
 type SearchOptions = { productId?: string };
 
 @Injectable()
 export class MarketplaceService {
-  constructor(private readonly prisma: PrismaService, private readonly eligibility: EligibilityService, private readonly ranking: MarketplaceRankingService, private readonly observations: DemandObservationService = null as any, @Optional() private readonly channelEligibility?: ChannelEligibilityService) {}
+  constructor(private readonly prisma: PrismaService, private readonly eligibility: EligibilityService, private readonly ranking: MarketplaceRankingService, @Optional() private readonly buyBox: BuyBoxService = null as any, private readonly observations: DemandObservationService = null as any, @Optional() private readonly channelEligibility?: ChannelEligibilityService) {}
 
   private validatePriceCurrency(dto: MarketplaceSearchDto) {
     if ((dto.priceMin != null || dto.priceMax != null) && !dto.currency) throw new BadRequestException('MARKETPLACE_PRICE_CURRENCY_REQUIRED');
@@ -55,7 +56,7 @@ export class MarketplaceService {
     if ('privateShared' in s && s.privateShared) variantWhere.privateShared = { equals: s.privateShared, mode: 'insensitive' };
     if ('pickupIncluded' in s && s.pickupIncluded !== undefined) variantWhere.pickupIncluded = s.pickupIncluded;
     const where = { status: RatePlanStatus.ACTIVE, validFrom: { lte: serviceDate }, validTo: { gt: serviceDate }, channelMappings: { some: { status: 'ACTIVE', enabled: true, channel: { code: 'VOYA_AGENT', active: true } } }, variant: { ...variantWhere, product: { ...(options.productId ? { id: options.productId } : {}), status: ProductStatus.LIVE, currentRevision: revisionWhere, tenant: { kind: TenantKind.VENDOR, vendorProfile: { verificationStatus: 'VERIFIED' } } } }, scheduleMappings: { some: { active: true, scheduleTemplate: { status: 'ACTIVE', effectiveFrom: { lte: serviceDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: serviceDate } }], sessions: { some: { serviceDate, status: 'OPEN', archivedAt: null } } } } } };
-    const include = { travellerRules: true, channelMappings: { where: { status: 'ACTIVE', enabled: true, channel: { code: 'VOYA_AGENT', active: true } }, include: { channel: true, inventoryRule: true } }, variant: { include: { product: { include: { experienceMaster: { include: { placements: true } }, currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } } } } } } } }, scheduleMappings: { where: { active: true }, include: { scheduleTemplate: { include: { sessions: { where: { serviceDate, status: 'OPEN', archivedAt: null } } } } } } };
+    const include = { travellerRules: true, channelMappings: { where: { status: 'ACTIVE', enabled: true, channel: { code: 'VOYA_AGENT', active: true } }, include: { channel: true, inventoryRule: true } }, variant: { include: { product: { include: { experienceMaster: { include: { placements: true, buyBox: { include: { offers: { include: { bids: { where: { status: 'ACTIVE' }, orderBy: { submittedAt: 'desc' } } } } } } } }, currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } } } } } } } }, scheduleMappings: { where: { active: true }, include: { scheduleTemplate: { include: { sessions: { where: { serviceDate, status: 'OPEN', archivedAt: null } } } } } } };
     const plans: any[] = []; const pageSize = 100; let cursor: string | undefined;
     do {
       const page: any[] = await this.prisma.ratePlan.findMany({ where, include, orderBy: { id: 'asc' }, take: pageSize, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) } as any);
@@ -123,10 +124,14 @@ export class MarketplaceService {
     const output: any[] = [];
     for (const group of groups.values()) {
       const master = group[0].product.experienceMaster;
-      if (!master || master.displayMode === 'ALL_OFFERS') { output.push(...group); continue; }
+      const buyBoxPolicy = this.buyBox?.selectionPolicy(master);
+      const showAll = this.buyBox?.shouldShowAll(master) ?? (master?.displayMode === 'ALL_OFFERS');
+      const buyBoxSorted = (items: any[]) => [...items].sort((a, b) => { const bidA = this.buyBox?.activeBidAmount(master, a.product.id) ?? -1; const bidB = this.buyBox?.activeBidAmount(master, b.product.id) ?? -1; return bidB - bidA || Number(a.offer.price?.finalAmount ?? Number.POSITIVE_INFINITY) - Number(b.offer.price?.finalAmount ?? Number.POSITIVE_INFINITY); });
+      if (!master || showAll) { output.push(...(buyBoxPolicy === 'HIGHEST_BID' ? buyBoxSorted(group) : group)); continue; }
       const placementPriority = (item: any) => master.placements?.find((placement: any) => placement.productId === item.product.id)?.priority ?? 0;
       const selected = [...group].sort((a, b) => {
         if (master.selectionPolicy === 'ADMIN_SELECTED' && placementPriority(a) !== placementPriority(b)) return placementPriority(b) - placementPriority(a);
+        if (buyBoxPolicy === 'HIGHEST_BID') { const bidA = this.buyBox?.activeBidAmount(master, a.product.id) ?? -1; const bidB = this.buyBox?.activeBidAmount(master, b.product.id) ?? -1; if (bidA !== bidB) return bidB - bidA; }
         if (master.selectionPolicy === 'HIGHEST_COMMISSION' && a._commissionScore !== b._commissionScore) return b._commissionScore - a._commissionScore;
         if (master.selectionPolicy === 'BALANCED' && a._ranking.score !== b._ranking.score) return b._ranking.score - a._ranking.score;
         return Number(a.offer.price?.finalAmount ?? Number.POSITIVE_INFINITY) - Number(b.offer.price?.finalAmount ?? Number.POSITIVE_INFINITY);

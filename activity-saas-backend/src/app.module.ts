@@ -29,6 +29,7 @@ import { QualityModule } from './quality/quality.module';
 import { DemandModule } from './demand/demand.module';
 import { DistributionModule } from './distribution/distribution.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
+import { BuyBoxModule } from './buy-box/buy-box.module';
 
 function validateEnvironment(config: Record<string, unknown>) {
   const databaseUrl = String(config.DATABASE_URL ?? '');
@@ -72,6 +73,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     DemandModule,
     DistributionModule,
     OnboardingModule,
+    BuyBoxModule,
   ],
   controllers: [AppController],
   providers: [CorrelationIdMiddleware],
