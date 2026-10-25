@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
-import { ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { ApiBody, ApiConsumes, ApiHeader, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -25,6 +25,7 @@ export class CatalogueController {
   @Post('products') @ApiBody({ description: 'Creates a product and its first draft revision.', schema: { type: 'object', example: swaggerExamples.catalogue.createProduct } }) @Permissions('product.edit') create(@CurrentUser() user: AuthUser, @Body() dto: CreateProductDto) { return this.service.create(user, dto); }
   @Post('products/drafts') @Permissions('product.edit') createDraft(@CurrentUser() user: AuthUser, @Body() dto: CreateProductDraftDto) { return this.service.createDraft(user, dto); }
   @Post('products/import/json')
+  @ApiHeader({ name: 'Idempotency-Key', required: false, description: 'Optional stable key for safe retries. Reusing it with a different payload returns a conflict.' })
   @ApiBody({
     description: 'Creates a complete draft product from the downloaded VOYA JSON import sample. The import is not submitted for review. Required sections are Basic_Info, Experience, Options, Rate_Plans and Availability; the optional sections add media, booking questions and fulfilment details.',
     schema: {
@@ -45,7 +46,7 @@ export class CatalogueController {
     },
   })
   @Permissions('product.edit')
-  importJson(@CurrentUser() user: AuthUser, @Body() dto: ImportProductJsonDto) { return this.service.importJson(user, dto); }
+  importJson(@CurrentUser() user: AuthUser, @Headers('idempotency-key') idempotencyKey: string | undefined, @Body() dto: ImportProductJsonDto) { return this.service.importJson(user, dto, idempotencyKey); }
   @Get('products/:productId/readiness') @Permissions('product.view') readiness(@CurrentUser() user: AuthUser, @Param('productId') id: string) { return this.service.readiness(user, id); }
   @Post('products/:productId/revisions') @ApiBody({ description: 'Clone a published, rejected, or superseded revision. Replace the source ID with a revision ID from GET /api/products/:id.', schema: { type: 'object', example: swaggerExamples.catalogue.createRevision } }) @Permissions('product.edit') revision(@CurrentUser() user: AuthUser, @Param('productId') id: string, @Body() dto: CreateProductRevisionDto) { return this.service.createRevision(user, id, dto); }
   @Patch('product-revisions/:id') @ApiBody({ schema: { type: 'object', example: swaggerExamples.catalogue.updateRevision } }) @Permissions('product.edit') updateRevision(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateProductRevisionDto) { return this.service.updateRevision(user, id, dto); }

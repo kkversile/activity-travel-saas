@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { fingerprint } from '../bookings/booking-fingerprint';
 import { Prisma, ProductRevisionStatus, ProductStatus, ScheduleStatus, SessionStatus, UserRole, VariantStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
@@ -34,12 +35,24 @@ const revisionCloneInclude = {
 };
 const startOfToday = () => { const value = new Date(); value.setHours(0, 0, 0, 0); return value; };
 type ImportJsonRow = Record<string, unknown>;
+type ImportIdentity = { sourceImportKey: string; importFingerprint: string; importIdempotencyKey?: string };
 const importText = (row: ImportJsonRow, key: string) => { const value = row[key]; return value == null ? '' : String(value).trim(); };
 const importList = (row: ImportJsonRow, key: string) => { const value = row[key]; if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean); return importText(row, key).split('|').map((item) => item.trim()).filter(Boolean); };
 const importBool = (row: ImportJsonRow, key: string, fallback = false) => { const value = row[key]; if (typeof value === 'boolean') return value; const normalized = importText(row, key).toLowerCase(); return normalized ? ['true', 'yes', '1', 'y'].includes(normalized) : fallback; };
 const importNumber = (row: ImportJsonRow, key: string, fallback = 0) => { const value = Number(row[key]); return Number.isFinite(value) ? value : fallback; };
 const sourceNumber = (row: ImportJsonRow, key: string) => importText(row, key) ? importNumber(row, key) : undefined;
 const importDate = (row: ImportJsonRow, key: string) => { const value = importText(row, key); if (!value || Number.isNaN(new Date(value).valueOf())) throw new BadRequestException(`Invalid ${key} date in JSON import`); return value; };
+const importSections = ['Basic_Info', 'Experience', 'Options', 'Rate_Plans', 'Availability', 'Media', 'Booking_Questions', 'Fulfilment'] as const;
+const normalizedImportValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(normalizedImportValue).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => key !== 'product_key').sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, normalizedImportValue(item)]));
+  if (typeof value === 'string') return value.trim().toLowerCase();
+  return value;
+};
+const importContentFingerprint = (source: Record<string, unknown>) => fingerprint(Object.fromEntries(importSections.map((section) => {
+  const rows = Array.isArray(source[section]) ? source[section] as ImportJsonRow[] : [];
+  return [section, rows.map((row) => normalizedImportValue(row)).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))];
+})));
 
 @Injectable()
 export class CatalogueService {
@@ -232,11 +245,11 @@ export class CatalogueService {
     return this.get(user, created.id);
   }
 
-  async createDraft(user: AuthUser, dto: CreateProductDraftDto) {
+  async createDraft(user: AuthUser, dto: CreateProductDraftDto, identity?: ImportIdentity) {
     const tenantId = requireTenant(user);
     const productCode = `PRD-${randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
     const created = await this.prisma.$transaction(async (tx) => {
-      const product = await tx.product.create({ data: { tenantId, productCode, status: ProductStatus.DRAFT } });
+      const product = await tx.product.create({ data: { tenantId, productCode, status: ProductStatus.DRAFT, ...(identity ?? {}) } });
       const revision = await tx.productRevision.create({ data: {
         productId: product.id,
         versionNumber: 1,
@@ -260,13 +273,53 @@ export class CatalogueService {
     return this.get(user, created.id);
   }
 
+  private async importExistingProduct(user: AuthUser, productId: string, matchedBy: string) {
+    const product: any = await this.get(user, productId);
+    const revision = product.revisions?.find((item: any) => [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW].includes(item.status)) || product.currentRevision || product.revisions?.[0] || null;
+    throw new ConflictException({
+      code: 'PRODUCT_IMPORT_DUPLICATE',
+      message: 'This product has already been imported by this vendor.',
+      matchedBy,
+      existingProduct: {
+        productId: product.id,
+        productCode: product.productCode,
+        productName: revision?.productName || product.productCode,
+        status: product.status,
+        revisionStatus: revision?.status || null,
+      },
+      actions: ['Open the existing product', 'Replace the existing draft', 'Create a new revision'],
+    });
+  }
+
+  private async importIdempotencyReplay(user: AuthUser, productId: string) {
+    const product: any = await this.get(user, productId);
+    const revision = product.revisions?.find((item: any) => [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW].includes(item.status)) || product.currentRevision || product.revisions?.[0] || null;
+    const variants = product.variants || [];
+    return {
+      productId: product.id,
+      productCode: product.productCode,
+      revisionId: revision?.id || null,
+      status: 'DRAFT',
+      duplicate: true,
+      idempotencyReplay: true,
+      counts: {
+        options: variants.length,
+        ratePlans: variants.reduce((total: number, variant: any) => total + (variant.ratePlans?.length || 0), 0),
+        schedules: variants.reduce((total: number, variant: any) => total + (variant.schedules?.length || 0), 0),
+        media: revision?.media?.length || 0,
+        bookingQuestions: revision?.bookingQuestions?.length || 0,
+      },
+      product,
+    };
+  }
+
   /**
    * Server-side counterpart to the vendor JSON/Excel import. The request is
    * intentionally orchestrated through the same catalogue services used by
    * the UI so permissions, audit records, commercial versioning and schedule
    * version checks stay consistent with normal product creation.
    */
-  async importJson(user: AuthUser, dto: ImportProductJsonDto) {
+  async importJson(user: AuthUser, dto: ImportProductJsonDto, idempotencyKey?: string) {
     if (!this.ratePlans || !this.schedules || !this.materializer || !this.commercial) throw new ConflictException('Product import services are not configured');
 
     const source = dto as ImportProductJsonDto & Record<string, unknown>;
@@ -325,9 +378,37 @@ export class CatalogueService {
     questionRows.forEach((row, index) => { if (!importText(row, 'code') || !importText(row, 'label')) issue('Booking_Questions', index + 3, 'code and label are required.'); });
     if (issues.length) throw new BadRequestException({ code: 'IMPORT_VALIDATION_FAILED', message: 'Fix the JSON import validation issues.', issues });
 
-    const created = await this.createDraft(user, {
-      productName: importText(basic, 'product_name'), type: importText(basic, 'type') as any, subType: importText(basic, 'sub_type'), subCategory: importText(basic, 'sub_category'), shortDescription: importText(basic, 'short_description'), cityName: importText(basic, 'city'), stateName: importText(basic, 'state'), countryName: importText(basic, 'country'), meetingModel: importText(basic, 'meeting_model') as any, meetingPoint: importText(basic, 'meeting_point'),
-    });
+    const tenantId = requireTenant(user);
+    const sourceImportKey = productKey.toUpperCase();
+    const importFingerprint = importContentFingerprint(source);
+    const stableIdempotencyKey = idempotencyKey?.trim() || undefined;
+    if (stableIdempotencyKey) {
+      const existingByIdempotency = await this.prisma.product.findFirst({ where: { tenantId, importIdempotencyKey: stableIdempotencyKey } });
+      if (existingByIdempotency) {
+        if (existingByIdempotency.importFingerprint !== importFingerprint) throw new ConflictException({ code: 'IDEMPOTENCY_KEY_REUSED', message: 'Idempotency-Key was already used for a different product import.' });
+        return this.importIdempotencyReplay(user, existingByIdempotency.id);
+      }
+    }
+    const existingByKey = await this.prisma.product.findFirst({ where: { tenantId, sourceImportKey } });
+    if (existingByKey) await this.importExistingProduct(user, existingByKey.id, 'product_key');
+    const existingByFingerprint = await this.prisma.product.findFirst({ where: { tenantId, importFingerprint } });
+    if (existingByFingerprint) await this.importExistingProduct(user, existingByFingerprint.id, 'content_fingerprint');
+
+    let created: any;
+    try {
+      created = await this.createDraft(user, {
+        productName: importText(basic, 'product_name'), type: importText(basic, 'type') as any, subType: importText(basic, 'sub_type'), subCategory: importText(basic, 'sub_category'), shortDescription: importText(basic, 'short_description'), cityName: importText(basic, 'city'), stateName: importText(basic, 'state'), countryName: importText(basic, 'country'), meetingModel: importText(basic, 'meeting_model') as any, meetingPoint: importText(basic, 'meeting_point'),
+      }, { sourceImportKey, importFingerprint, ...(stableIdempotencyKey ? { importIdempotencyKey: stableIdempotencyKey } : {}) });
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        const concurrent = stableIdempotencyKey
+          ? await this.prisma.product.findFirst({ where: { tenantId, importIdempotencyKey: stableIdempotencyKey } })
+          : await this.prisma.product.findFirst({ where: { tenantId, sourceImportKey } });
+        if (concurrent?.importFingerprint === importFingerprint && stableIdempotencyKey) return this.importIdempotencyReplay(user, concurrent.id);
+        if (concurrent) await this.importExistingProduct(user, concurrent.id, stableIdempotencyKey ? 'idempotency_key' : 'product_key');
+      }
+      throw error;
+    }
     const loaded = await this.get(user, created.id);
     const revision = loaded.revisions?.find((item: any) => item.status === ProductRevisionStatus.DRAFT) || loaded.currentRevision;
     if (!revision) throw new ConflictException('The product draft was created but its working revision could not be loaded.');

@@ -981,6 +981,9 @@ model Product {
   tenantId          String
   tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productCode       String
+  sourceImportKey   String?
+  importFingerprint String?
+  importIdempotencyKey String?
   status            ProductStatus           @default(DRAFT)
   currentRevisionId String?
   currentRevision   ProductRevision?        @relation("CurrentProductRevision", fields: [currentRevisionId, id], references: [id, productId], onDelete: NoAction)
@@ -995,6 +998,9 @@ model Product {
   updatedAt         DateTime                @updatedAt
 
   @@unique([tenantId, productCode])
+  @@unique([tenantId, sourceImportKey])
+  @@unique([tenantId, importFingerprint])
+  @@unique([tenantId, importIdempotencyKey])
   @@index([tenantId, status])
 }
 
