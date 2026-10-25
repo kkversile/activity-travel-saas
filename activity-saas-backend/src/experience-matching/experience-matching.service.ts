@@ -42,7 +42,7 @@ export class ExperienceMatchingService {
   }
 
   private productSummary(row: any) {
-    const r = row.currentRevision; return { id: row.id, productCode: row.productCode, name: r?.productName || row.productCode, type: r?.type, subType: r?.subType, destination: [r?.cityName, r?.stateName, r?.countryName].filter(Boolean).join(', '), vendor: { id: row.tenant.id, name: row.tenant.vendorProfile?.legalBusinessName || row.tenant.name }, status: row.status, experienceMasterId: row.experienceMasterId || null };
+    const r = row.currentRevision; return { id: row.id, productCode: row.productCode, name: r?.productName || row.productCode, type: r?.type, subType: r?.subType, cityName: r?.cityName || null, stateName: r?.stateName || null, countryName: r?.countryName || null, destination: [r?.cityName, r?.stateName, r?.countryName].filter(Boolean).join(', '), vendor: { id: row.tenant.id, name: row.tenant.vendorProfile?.legalBusinessName || row.tenant.name }, status: row.status, experienceMasterId: row.experienceMasterId || null };
   }
 
   async suggestions() {

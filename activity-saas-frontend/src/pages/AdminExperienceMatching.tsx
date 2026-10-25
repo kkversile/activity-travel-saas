@@ -8,6 +8,9 @@ type Product = {
   name: string;
   type: string;
   subType?: string;
+  cityName?: string | null;
+  stateName?: string | null;
+  countryName?: string | null;
   destination: string;
   vendor: { id: string; name: string };
   status: string;
@@ -21,6 +24,15 @@ type Master = {
   selectionPolicy: 'CHEAPEST' | 'BALANCED' | 'HIGHEST_COMMISSION' | 'ADMIN_SELECTED';
   products: Product[];
 };
+
+const normalize = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+const scoreFields = [
+  { key: 'name', label: 'Product name', weight: 40 },
+  { key: 'type', label: 'Type', weight: 15 },
+  { key: 'cityName', label: 'City', weight: 15 },
+  { key: 'stateName', label: 'State', weight: 15 },
+  { key: 'countryName', label: 'Country', weight: 15 },
+] as const;
 
 export default function AdminExperienceMatching() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -69,6 +81,11 @@ export default function AdminExperienceMatching() {
   const productB = products.find((item) => item.id === selectedProductB);
   const differentVendors = Boolean(productA && productB && productA.vendor.id !== productB.vendor.id);
   const pairReady = Boolean(productA && productB && differentVendors);
+  const matchScore = useMemo(() => {
+    if (!productA || !productB) return null;
+    const fields = scoreFields.map((field) => ({ ...field, matched: normalize(productA[field.key]) === normalize(productB[field.key]) && Boolean(normalize(productA[field.key])) }));
+    return { score: fields.reduce((total, field) => total + (field.matched ? field.weight : 0), 0), fields };
+  }, [productA, productB]);
   const productsA = useMemo(() => filteredProducts(searchA, vendorA, selectedProductB), [products, searchA, vendorA, selectedProductB]);
   const productsB = useMemo(() => filteredProducts(searchB, vendorB, selectedProductA), [products, searchB, vendorB, selectedProductA]);
 
@@ -122,6 +139,7 @@ export default function AdminExperienceMatching() {
         <div className="matching-pair-card"><h3>Product B</h3><div className="form-grid two"><Field label="Vendor B"><select value={vendorB} onChange={(e) => { setVendorB(e.target.value); setSelectedProductB(''); }}><option value="">Select vendor</option>{vendorOptions}</select></Field><Field label="Search Product B"><input value={searchB} onChange={(e) => setSearchB(e.target.value)} placeholder="Name or product code" /></Field></div><div className="matching-product-picker matching-product-picker-single">{productsB.map((item) => <button type="button" className={`matching-product-option ${selectedProductB === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setSelectedProductB(item.id)}><b>{item.name}</b><small>{item.vendor.name} · {item.destination}</small>{item.experienceMasterId && <em>Already linked</em>}</button>)}</div>{productB && <div className="matching-selected-product"><b>Selected:</b> {productB.name} · {productB.vendor.name}</div>}</div>
       </div>
       {productA && productB && !differentVendors && <div className="alert warning">Select products from two different vendors. Linking two products from the same vendor is not allowed.</div>}
+      {pairReady && matchScore && <div className={`matching-score-card ${matchScore.score >= 80 ? 'strong' : matchScore.score >= 50 ? 'possible' : 'weak'}`}><div><h3>Match score: {matchScore.score}%</h3><p>Calculated from the same identity fields used for automatic suggestions.</p></div><div className="matching-score-fields">{matchScore.fields.map((field) => <span className={field.matched ? 'matched' : 'unmatched'} key={field.key}>{field.matched ? '✓' : '×'} {field.label} ({field.weight}%)</span>)}</div></div>}
       <div className="form-grid two matching-master-choice"><Field label="Experience master"><select value={selectedMaster} onChange={(e) => setSelectedMaster(e.target.value)}><option value="">Create a new master from Product A</option>{masters.map((master) => <option key={master.id} value={master.id}>{master.canonicalName} ({master.products.length} offers)</option>)}</select></Field></div>
       <div className="experience-footer-actions"><button className="btn" disabled={busy || !pairReady || Boolean(selectedMaster)} onClick={() => void createMasterAndLinkPair()}>Create master and link both</button><button className="btn primary" disabled={busy || !pairReady || !selectedMaster} onClick={() => void linkPairToMaster()}>Link both products</button></div>
     </Panel>
