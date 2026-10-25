@@ -800,8 +800,9 @@ export class CatalogueService {
         await this.audit.write(tx, { actor: user, tenantId: candidate.product.tenantId, action: 'PRODUCT_REVISION_REJECTED', entityType: 'ProductRevision', entityId: id, reason: dto!.reason, beforeState: { status: candidate.status }, afterState: { status: ProductRevisionStatus.REJECTED } });
         await this.outbox.enqueue(tx, { tenantId: candidate.product.tenantId, eventType: 'PRODUCT_REJECTED', aggregateType: 'ProductRevision', aggregateId: id, payload: { productId: candidate.productId, reason: dto!.reason.trim() } });
       } else {
-        if (candidate.product.currentRevisionId) {
-          const superseded = await tx.productRevision.updateMany({ where: { id: candidate.product.currentRevisionId, productId: candidate.productId, status: ProductRevisionStatus.PUBLISHED }, data: { status: ProductRevisionStatus.SUPERSEDED } });
+        const currentPublished = await tx.productRevision.findFirst({ where: { productId: candidate.productId, status: ProductRevisionStatus.PUBLISHED }, orderBy: { versionNumber: 'desc' }, select: { id: true } });
+        if (currentPublished) {
+          const superseded = await tx.productRevision.updateMany({ where: { id: currentPublished.id, productId: candidate.productId, status: ProductRevisionStatus.PUBLISHED }, data: { status: ProductRevisionStatus.SUPERSEDED } });
           if (superseded.count !== 1) throw new ConflictException('Current published revision changed in another session');
         }
         const changed = await tx.productRevision.updateMany({ where: { id, productId: candidate.productId, status: ProductRevisionStatus.UNDER_REVIEW }, data: { status: ProductRevisionStatus.PUBLISHED, reviewedAt: new Date(), reviewedById: user.sub, rejectionReason: null } });
