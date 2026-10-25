@@ -659,6 +659,43 @@ export class CatalogueService {
   async archive(user: AuthUser, id: string) { return this.changeVendorProductStatus(user, id, 'archive'); }
   async reactivate(user: AuthUser, id: string) { return this.changeVendorProductStatus(user, id, 'reactivate'); }
 
+  private async hardDeleteDraftGraph(tx: Prisma.TransactionClient, productId: string) {
+    const variants = await tx.productVariant.findMany({ where: { productId }, select: { id: true } });
+    const variantIds = variants.map((item) => item.id);
+    const ratePlans = variantIds.length ? await tx.ratePlan.findMany({ where: { variantId: { in: variantIds } }, select: { id: true } }) : [];
+    const ratePlanIds = ratePlans.map((item) => item.id);
+    const schedules = variantIds.length ? await tx.scheduleTemplate.findMany({ where: { variantId: { in: variantIds } }, select: { id: true } }) : [];
+    const scheduleIds = schedules.map((item) => item.id);
+    const sessions = scheduleIds.length ? await tx.serviceSession.findMany({ where: { scheduleTemplateId: { in: scheduleIds } }, select: { id: true } }) : [];
+    const sessionIds = sessions.map((item) => item.id);
+
+    // Delete only records owned by this draft graph. Shared channels, resources,
+    // users, tenants and file assets are deliberately left intact.
+    if (sessionIds.length) {
+      await tx.sessionResourceAllocation.deleteMany({ where: { sessionId: { in: sessionIds } } });
+      await tx.inventoryAllocation.deleteMany({ where: { inventoryState: { sessionId: { in: sessionIds } } } });
+      await tx.inventoryHold.deleteMany({ where: { inventoryState: { sessionId: { in: sessionIds } } } });
+      await tx.inventoryState.deleteMany({ where: { sessionId: { in: sessionIds } } });
+      await tx.serviceSession.deleteMany({ where: { id: { in: sessionIds } } });
+    }
+    if (scheduleIds.length) {
+      await tx.scheduleException.deleteMany({ where: { scheduleTemplateId: { in: scheduleIds } } });
+      await tx.scheduleResourceRequirement.deleteMany({ where: { scheduleTemplateId: { in: scheduleIds } } });
+      await tx.ratePlanSchedule.deleteMany({ where: { scheduleTemplateId: { in: scheduleIds } } });
+      await tx.scheduleSlotTemplate.deleteMany({ where: { scheduleTemplateId: { in: scheduleIds } } });
+      await tx.scheduleTemplate.deleteMany({ where: { id: { in: scheduleIds } } });
+    }
+    if (ratePlanIds.length) {
+      // Commercial versions are draft-owned; booking economics would be blocked
+      // by the booking guard above and therefore cannot be removed here.
+      await tx.ratePlanCommercialVersion.deleteMany({ where: { ratePlanId: { in: ratePlanIds } } });
+      await tx.ratePlan.deleteMany({ where: { id: { in: ratePlanIds } } });
+    }
+    if (variantIds.length) await tx.productVariant.deleteMany({ where: { id: { in: variantIds } } });
+    await tx.productRevision.deleteMany({ where: { productId } });
+    await tx.product.delete({ where: { id: productId } });
+  }
+
   async deleteDraft(user: AuthUser, id: string) {
     const tenantId = requireTenant(user);
     return this.prisma.$transaction(async (tx) => {
@@ -674,12 +711,11 @@ export class CatalogueService {
       const hardDelete = setting ? configuredValue === true || configuredValue?.enabled === true : String(process.env.HARD_DELETE_DRAFT || '').toLowerCase() === 'true';
       await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_DELETED', entityType: 'Product', entityId: id, beforeState: { status: product.status }, afterState: { deletedAt: hardDelete ? null : deletedAt.toISOString(), hardDelete } });
       if (hardDelete) {
-        // Detach the composite current-revision pointer before the guarded delete.
-        // Referential-integrity failures are intentionally surfaced instead of
-        // partially deleting a draft graph.
+        // Detach the composite current-revision pointer before deleting the
+        // vendor-owned draft graph. Shared catalogue records are not touched.
         await tx.product.update({ where: { id }, data: { currentRevisionId: null } });
         try {
-          await tx.product.delete({ where: { id } });
+          await this.hardDeleteDraftGraph(tx, id);
         } catch (error: any) {
           if (error?.code === 'P2003') throw new ConflictException('Hard delete is blocked because this draft still has dependent catalogue records');
           throw error;
