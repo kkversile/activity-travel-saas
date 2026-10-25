@@ -22,7 +22,7 @@ export default function CommercialEditor({ plan, onRefresh, setError }: { plan: 
     if (supplierModel === 'COMMISSIONABLE' && !/^\d+(\.\d{1,4})?$/.test(commission.trim())) return 'Supplier commission percentage must be a valid number.';
     if (bookingMode !== 'INSTANT' && (!sla.trim() || !/^\d+$/.test(sla.trim()) || Number(sla) < 1)) return 'Enter the vendor response time in minutes.';
     if (pricingUnit === 'PER_PERSON') {
-      const configuredTypes = plan.travellerRules.map((rule) => rule.type).filter((type): type is typeof travellerTypes[number] => travellerTypes.includes(type as typeof travellerTypes[number]));
+      const configuredTypes = plan.travellerRules.filter((rule) => rule.maxCount > 0).map((rule) => rule.type).filter((type): type is typeof travellerTypes[number] => travellerTypes.includes(type as typeof travellerTypes[number]));
       const requiredTypes = configuredTypes.length ? configuredTypes : travellerTypes.filter((type) => prices[type].trim());
       const missing = requiredTypes.filter((type) => !prices[type].trim());
       if (missing.length) return `Enter a price for ${missing.map((type) => type[0] + type.slice(1).toLowerCase()).join(', ')}.`;
