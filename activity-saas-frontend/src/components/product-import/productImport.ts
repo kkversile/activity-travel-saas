@@ -66,6 +66,18 @@ export function createSampleWorkbook() {
   return workbook;
 }
 
+export function createSampleImportJson() {
+  return {
+    README: [
+      'VOYA vendor product import template',
+      'Edit the demo rows, keep the section names and field names, then upload this JSON from Products.',
+      'The upload creates a DRAFT product. Review it in the normal six-step wizard and submit it manually.',
+      'List fields use | as the separator. Boolean values use true or false. Dates use YYYY-MM-DD.',
+    ],
+    ...Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, demoRows[sheet] || []])),
+  };
+}
+
 function sheetRows(workbook: XLSX.WorkBook, name: string): ImportRow[] {
   const sheet = workbook.Sheets[name];
   if (!sheet) return [];
@@ -77,18 +89,16 @@ function list(row: ImportRow, key: string) { return text(row, key).split('|').ma
 function bool(row: ImportRow, key: string, fallback = false) { const value = text(row, key).toLowerCase(); return value ? ['true', 'yes', '1', 'y'].includes(value) : fallback; }
 function number(row: ImportRow, key: string, fallback?: number) { const value = Number(row[key]); return Number.isFinite(value) ? value : fallback; }
 
-export function parseProductWorkbook(buffer: ArrayBuffer): { model: ImportWorkbookModel | null; issues: ImportIssue[] } {
+function validateImportRows(rows: Record<string, ImportRow[]>): { model: ImportWorkbookModel | null; issues: ImportIssue[] } {
   const issues: ImportIssue[] = [];
-  let workbook: XLSX.WorkBook;
-  try { workbook = XLSX.read(buffer, { type: 'array', cellDates: false }); } catch { return { model: null, issues: [{ sheet: 'Workbook', row: 1, message: 'The file is not a readable Excel workbook.' }] }; }
-  const basicRows = sheetRows(workbook, 'Basic_Info');
-  const experienceRows = sheetRows(workbook, 'Experience');
-  const options = sheetRows(workbook, 'Options');
-  const ratePlans = sheetRows(workbook, 'Rate_Plans');
-  const availability = sheetRows(workbook, 'Availability');
-  const media = sheetRows(workbook, 'Media');
-  const bookingQuestions = sheetRows(workbook, 'Booking_Questions');
-  const fulfilmentRows = sheetRows(workbook, 'Fulfilment');
+  const basicRows = rows.Basic_Info || [];
+  const experienceRows = rows.Experience || [];
+  const options = rows.Options || [];
+  const ratePlans = rows.Rate_Plans || [];
+  const availability = rows.Availability || [];
+  const media = rows.Media || [];
+  const bookingQuestions = rows.Booking_Questions || [];
+  const fulfilmentRows = rows.Fulfilment || [];
   if (basicRows.length !== 1) issues.push({ sheet: 'Basic_Info', row: 3, message: 'Provide exactly one product row.' });
   const basic = basicRows[0] || {};
   const key = text(basic, 'product_key');
@@ -109,6 +119,25 @@ export function parseProductWorkbook(buffer: ArrayBuffer): { model: ImportWorkbo
   availability.forEach((row, index) => { if (!optionCodes.has(text(row, 'option_code'))) issues.push({ sheet: 'Availability', row: index + 3, message: `Unknown option_code: ${text(row, 'option_code')}.` }); if (!text(row, 'schedule_code') || !text(row, 'effective_from') || !text(row, 'effective_to')) issues.push({ sheet: 'Availability', row: index + 3, message: 'schedule_code, effective_from and effective_to are required.' }); if (!list(row, 'operating_days').length) issues.push({ sheet: 'Availability', row: index + 3, message: 'At least one operating day is required.' }); });
   if (issues.length) return { model: null, issues };
   return { model: { basic, experience: experienceRows[0], options, ratePlans, availability, media, bookingQuestions, fulfilment: fulfilmentRows[0] || {} }, issues };
+}
+
+export function parseProductWorkbook(buffer: ArrayBuffer): { model: ImportWorkbookModel | null; issues: ImportIssue[] } {
+  let workbook: XLSX.WorkBook;
+  try { workbook = XLSX.read(buffer, { type: 'array', cellDates: false }); } catch { return { model: null, issues: [{ sheet: 'Workbook', row: 1, message: 'The file is not a readable Excel workbook.' }] }; }
+  return validateImportRows(Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, sheetRows(workbook, sheet)])));
+}
+
+function jsonRows(value: unknown, sheet: string): ImportRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((row): row is ImportRow => Boolean(row) && typeof row === 'object' && !Array.isArray(row));
+}
+
+export function parseProductJson(text: string): { model: ImportWorkbookModel | null; issues: ImportIssue[] } {
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { return { model: null, issues: [{ sheet: 'JSON', row: 1, message: 'The file is not valid JSON.' }] }; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { model: null, issues: [{ sheet: 'JSON', row: 1, message: 'The JSON root must be an object containing the import sections.' }] };
+  const source = parsed as Record<string, unknown>;
+  return validateImportRows(Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, jsonRows(source[sheet], sheet)])));
 }
 
 export function normalizeImportRow(row: ImportRow) {
