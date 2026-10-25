@@ -11,6 +11,10 @@ type CommercialResponse = { readiness: { ready: boolean; reasonCodes: string[]; 
 
 function optionDescription(options: readonly (readonly [string, string, string])[], value: string) { return options.find(([key]) => key === value)?.[2] || ''; }
 function travellerLabel(type: string) { return type[0] + type.slice(1).toLowerCase(); }
+function dateInputValue(value?: string | null) { return value ? value.slice(0, 10) : ''; }
+function nextDate(value: string) { const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); }
+function dateStart(value: string) { return new Date(`${value}T00:00:00.000Z`).toISOString(); }
+function dateEnd(value: string) { return new Date(`${value}T23:59:59.999Z`).toISOString(); }
 
 export default function CommercialEditor({ plan, onRefresh, setError }: { plan: RatePlan; onRefresh: () => void; setError: (value: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -20,6 +24,8 @@ export default function CommercialEditor({ plan, onRefresh, setError }: { plan: 
   const [supplierModel, setSupplierModel] = useState('NET_RATE');
   const [pricingUnit, setPricingUnit] = useState('PER_PERSON');
   const [bookingMode, setBookingMode] = useState('INSTANT');
+  const [effectiveFrom, setEffectiveFrom] = useState(dateInputValue(plan.validFrom));
+  const [effectiveTo, setEffectiveTo] = useState(dateInputValue(plan.validTo));
   const [sla, setSla] = useState('');
   const [amount, setAmount] = useState('0');
   const [commission, setCommission] = useState('');
@@ -33,6 +39,9 @@ export default function CommercialEditor({ plan, onRefresh, setError }: { plan: 
       const result = await api.request<CommercialResponse>(`/rate-plans/${plan.id}/commercial`);
       setData(result);
       const draft = result.readiness.draftVersion;
+      const active = result.readiness.activeVersion;
+      setEffectiveFrom(dateInputValue(draft?.effectiveFrom || (active?.effectiveTo ? nextDate(active.effectiveTo) : new Date().toISOString())));
+      setEffectiveTo(dateInputValue(draft?.effectiveTo || plan.validTo));
       if (draft) {
         setSupplierModel(draft.supplierModel || 'NET_RATE');
         setPricingUnit(draft.pricingUnit || 'PER_PERSON');
@@ -51,6 +60,8 @@ export default function CommercialEditor({ plan, onRefresh, setError }: { plan: 
 
   function validatePricing() {
     const errors: Record<string, string> = {};
+    if (!effectiveFrom) errors.effectiveFrom = 'Selling start date is required.';
+    if (effectiveFrom && effectiveTo && new Date(`${effectiveTo}T00:00:00.000Z`) <= new Date(`${effectiveFrom}T00:00:00.000Z`)) errors.effectiveTo = 'Selling end date must be after the start date.';
     if (!amount.trim()) errors.amount = 'Supplier base amount is required.';
     else if (!/^\d+(\.\d{1,4})?$/.test(amount.trim())) errors.amount = 'Enter a valid amount.';
     if (supplierModel === 'COMMISSIONABLE' && !commission.trim()) errors.commission = 'Commission percentage is required.';
@@ -76,7 +87,7 @@ export default function CommercialEditor({ plan, onRefresh, setError }: { plan: 
     setBusy(true);
     try {
       const draft = data?.readiness.draftVersion;
-      const payload = { effectiveFrom: draft?.effectiveFrom || new Date().toISOString(), effectiveTo: draft?.effectiveTo || plan.validTo, supplierModel, pricingUnit, bookingMode, confirmationSlaMinutes: bookingMode === 'INSTANT' || !sla ? undefined : Number(sla), supplierBaseAmount: amount.trim(), supplierCommissionPercent: commission.trim() || undefined, currency: plan.currency, travellerPrices: pricingUnit === 'PER_PERSON' ? travellerTypes.filter((type) => prices[type].trim()).map((type) => ({ travellerType: type, amount: prices[type].trim() })) : [] };
+      const payload = { effectiveFrom: dateStart(effectiveFrom), effectiveTo: effectiveTo ? dateEnd(effectiveTo) : undefined, supplierModel, pricingUnit, bookingMode, confirmationSlaMinutes: bookingMode === 'INSTANT' || !sla ? undefined : Number(sla), supplierBaseAmount: amount.trim(), supplierCommissionPercent: commission.trim() || undefined, currency: plan.currency, travellerPrices: pricingUnit === 'PER_PERSON' ? travellerTypes.filter((type) => prices[type].trim()).map((type) => ({ travellerType: type, amount: prices[type].trim() })) : [] };
       const version = draft ? await api.request<CommercialVersion>(`/rate-plan-commercial-versions/${draft.id}`, { method: 'PATCH', body: JSON.stringify(payload) }) : await api.request<CommercialVersion>(`/rate-plans/${plan.id}/commercial/versions`, { method: 'POST', body: JSON.stringify(payload) });
       if (activate) await api.request(`/rate-plan-commercial-versions/${version.id}/activate`, { method: 'POST' });
       setOpen(false);
@@ -97,6 +108,7 @@ export default function CommercialEditor({ plan, onRefresh, setError }: { plan: 
     {readiness?.reasonCodes?.length ? <div className="commercial-readiness" title={`Internal readiness codes: ${readiness.reasonCodes.join(', ')}`}><b>{readinessSummary(readiness.reasonCodes)}</b><span>{readinessExplanation(readiness.reasonCodes)}</span></div> : null}
     <button className="btn small" onClick={toggleEditor}>{open ? 'Close pricing editor' : 'Edit pricing details'}</button>
     {open && <div className="commercial-editor">
+      <div className="commercial-subcard commercial-effective-dates"><b className="commercial-subtitle">Effective selling dates</b><small className="commercial-help">Set when this pricing version applies. For a replacement, start it after the current version ends.</small><div className="form-grid two"><Field label="Selling starts *" error={fieldErrors.effectiveFrom}><input className={fieldErrors.effectiveFrom ? 'input-error' : ''} aria-invalid={Boolean(fieldErrors.effectiveFrom)} type="date" value={effectiveFrom} onChange={(e) => { setEffectiveFrom(e.target.value); clearFieldError('effectiveFrom'); }} /></Field><Field label="Selling ends" error={fieldErrors.effectiveTo}><input className={fieldErrors.effectiveTo ? 'input-error' : ''} aria-invalid={Boolean(fieldErrors.effectiveTo)} type="date" value={effectiveTo} onChange={(e) => { setEffectiveTo(e.target.value); clearFieldError('effectiveTo'); }} /></Field></div>{readiness?.activeVersion && <small className="commercial-help">Current active version: {dateInputValue(readiness.activeVersion.effectiveFrom)} to {dateInputValue(readiness.activeVersion.effectiveTo) || 'open-ended'}.</small>}</div>
       <div className="commercial-section-heading"><span>1</span><div><b>Pricing setup</b><small>Choose how the supplier price is calculated.</small></div></div>
       <div className="form-grid three">
         <Field label="Supplier price model" hint={optionDescription(supplierModels, supplierModel)}><select value={supplierModel} onChange={(e) => setSupplierModel(e.target.value)}>{supplierModels.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
