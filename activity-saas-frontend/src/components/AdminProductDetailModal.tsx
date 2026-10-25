@@ -12,7 +12,7 @@ export type AdminProductDetail = {
   cityName: string; stateName: string; countryName: string; address?: string | null; lat?: string | number | null; lon?: string | number | null; submittedAt?: string | null;
   media?: ReviewMedia[]; bookingQuestions?: Array<{ id: string; code: string; label: string; type: string; required: boolean; helpText?: string | null }>;
   fulfilmentPolicy?: { mode?: string | null; reviewRequired: boolean; operationsContactName?: string | null; operationsContactPhone?: string | null; operationsContactEmail?: string | null; voucherNotes: string[] } | null;
-  variants?: ReviewVariant[]; product: { productCode: string; status?: string; tenant: { name: string; vendorProfile?: { legalBusinessName?: string | null; verificationStatus?: string | null } | null }; variants: ReviewVariant[] };
+  variants?: ReviewVariant[]; product: { id?: string; productCode: string; status?: string; tenant: { name: string; vendorProfile?: { legalBusinessName?: string | null; verificationStatus?: string | null } | null }; variants: ReviewVariant[] };
 };
 
 const display = (value: string | null | undefined) => value?.replaceAll('_', ' ') || '—';
