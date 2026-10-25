@@ -400,6 +400,27 @@ export class CatalogueService {
     if (existingByKey) await this.importExistingProduct(user, existingByKey.id, 'product_key');
     const existingByFingerprint = await this.prisma.product.findFirst({ where: { tenantId, importFingerprint } });
     if (existingByFingerprint) await this.importExistingProduct(user, existingByFingerprint.id, 'content_fingerprint');
+    // Products created before import identity was introduced have no stored
+    // fingerprint. Compare their canonical revision fields as a compatibility
+    // fallback so old imports cannot be duplicated by a new workbook/JSON file.
+    const existingLegacyByFingerprint = await this.prisma.product.findFirst({
+      where: {
+        tenantId,
+        deletedAt: null,
+        importFingerprint: null,
+        revisions: {
+          some: {
+            productName: { equals: importText(basic, 'product_name'), mode: 'insensitive' },
+            type: importText(basic, 'type') as any,
+            cityName: { equals: importText(basic, 'city'), mode: 'insensitive' },
+            stateName: { equals: importText(basic, 'state'), mode: 'insensitive' },
+            countryName: { equals: importText(basic, 'country'), mode: 'insensitive' },
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (existingLegacyByFingerprint) await this.importExistingProduct(user, existingLegacyByFingerprint.id, 'content_fingerprint_legacy');
 
     let created: any;
     try {
