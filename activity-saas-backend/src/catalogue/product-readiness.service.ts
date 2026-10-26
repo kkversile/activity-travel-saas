@@ -50,7 +50,15 @@ export class ProductReadinessService {
           include: {
             ratePlans: {
               where: { status: 'ACTIVE' },
-              include: { travellerRules: true, cancellationRules: true },
+              include: {
+                travellerRules: true,
+                cancellationRules: true,
+                commercialVersions: {
+                  where: { status: { in: ['ACTIVE', 'DRAFT'] } },
+                  orderBy: { versionNumber: 'desc' },
+                  take: 1,
+                },
+              },
             },
             schedules: {
               where: { status: ScheduleStatus.ACTIVE, archivedAt: null },
@@ -91,6 +99,14 @@ export class ProductReadinessService {
     const ratesReasons: string[] = [];
     const activePlans = variants.flatMap((variant) => variant.ratePlans || []);
     if (!activePlans.length) ratesReasons.push('RATE_PLAN_MISSING');
+    const visitorPricingEnabled = Boolean((revision?.sourcePayload as any)?.hasDifferentialVisitorPricing);
+    if (visitorPricingEnabled && activePlans.some((plan: any) => {
+      const version = plan.commercialVersions?.[0];
+      const visitorPrices = (version?.sourcePayload as any)?.visitorPrices;
+      return !Array.isArray(visitorPrices) || visitorPrices.length === 0;
+    })) {
+      ratesReasons.push('VISITOR_PRICES_MISSING');
+    }
     const availabilityReasons: string[] = [];
     const activeSchedules = variants.flatMap((variant) => variant.schedules || []);
     if (!activeSchedules.length) availabilityReasons.push('SCHEDULE_MISSING');

@@ -1,6 +1,6 @@
 import { ChannelContractStatus, ChannelInventoryExposureMode, ChannelMappingStatus, DistributionCapability, DistributionChannelType, DistributionEventType, TravellerType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Matches, Max, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Matches, Max, Min, ValidateNested } from 'class-validator';
 
 export class CreateChannelDto { @IsString() @Matches(/^[A-Z0-9_\-]{2,80}$/) code!: string; @IsString() name!: string; @IsEnum(DistributionChannelType) type!: DistributionChannelType; @IsOptional() @IsString() description?: string; @IsOptional() @IsBoolean() active?: boolean; }
 export class UpdateChannelDto { @IsOptional() @IsString() name?: string; @IsOptional() @IsEnum(DistributionChannelType) type?: DistributionChannelType; @IsOptional() @IsString() description?: string; @IsOptional() @IsBoolean() active?: boolean; @IsOptional() @IsBoolean() confirmDisable?: boolean; @IsOptional() @IsInt() @Min(1) expectedVersion?: number; }
@@ -14,5 +14,5 @@ export class CreateCredentialDto { @IsUUID() channelId!: string; @IsString() nam
 export class EventsQueryDto { @IsOptional() @IsString() cursor?: string; @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 50; }
 export class AvailabilityQueryDto { @IsString() externalProductCode!: string; @IsOptional() @IsString() externalVariantCode?: string; @IsString() externalRatePlanCode!: string; @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'dateFrom must use YYYY-MM-DD' }) dateFrom!: string; @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'dateTo must use YYYY-MM-DD' }) dateTo!: string; }
 export class QuoteTravellerDto { @IsEnum(TravellerType) type!: TravellerType; @Type(() => Number) @IsInt() @Min(0) quantity!: number; }
-export class QuoteDto { @IsString() externalRatePlanCode!: string; @IsUUID() sessionId!: string; @ValidateNested({ each: true }) @Type(() => QuoteTravellerDto) travellers!: QuoteTravellerDto[]; @Type(() => Number) @IsInt() @Min(1) units = 1; @IsOptional() @IsString() currency?: string; }
+export class QuoteDto { @IsString() externalRatePlanCode!: string; @IsUUID() sessionId!: string; @ValidateNested({ each: true }) @Type(() => QuoteTravellerDto) travellers!: QuoteTravellerDto[]; @Type(() => Number) @IsInt() @Min(1) units = 1; @IsOptional() @IsString() currency?: string; @IsOptional() @IsIn(['INDIAN', 'FOREIGN']) visitorCategory?: 'INDIAN' | 'FOREIGN'; @IsOptional() @IsBoolean() visitorEligibilityVerified?: boolean; }
 export const capabilityValues = Object.values(DistributionCapability);

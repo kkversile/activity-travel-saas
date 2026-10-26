@@ -1,7 +1,7 @@
 import { AgentCommercialModel, BookingMode, CommercialRuleKind, CommercialScopeType, CommercialStackingMode, PricingUnit, SupplierCommercialModel, TaxMode, TravellerType, VoyaRevenueModel } from '@prisma/client';
 import { PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsDateString, IsEnum, IsInt, IsObject, IsOptional, IsString, Matches, Max, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, Max, Min, ValidateNested } from 'class-validator';
 
 const DECIMAL = /^\d+(\.\d{1,4})?$/;
 export class TravellerPriceDto { @IsEnum(TravellerType) travellerType!: TravellerType; @IsString() @Matches(DECIMAL) amount!: string; }
@@ -14,7 +14,7 @@ export class CreateCommercialRuleVersionDto { @IsDateString() effectiveFrom!: st
 export class CreateAgentGroupDto { @IsString() code!: string; @IsString() name!: string; }
 export class AgentGroupMemberDto { @IsString() agentTenantId!: string; }
 export class QuoteTravellerDto { @IsEnum(TravellerType) travellerType!: TravellerType; @Type(() => Number) @IsInt() @Min(0) quantity!: number; }
-export class QuoteDto { @IsString() ratePlanId!: string; @IsDateString() serviceDate!: string; @Type(() => Number) @IsInt() @Min(1) units = 1; @IsArray() @ValidateNested({ each: true }) @Type(() => QuoteTravellerDto) travellers!: QuoteTravellerDto[]; @IsOptional() @IsString() agentTenantId?: string; @IsOptional() @IsString() channel?: string; }
+export class QuoteDto { @IsString() ratePlanId!: string; @IsDateString() serviceDate!: string; @Type(() => Number) @IsInt() @Min(1) units = 1; @IsArray() @ValidateNested({ each: true }) @Type(() => QuoteTravellerDto) travellers!: QuoteTravellerDto[]; @IsOptional() @IsString() slotCode?: string; @IsOptional() @IsIn(['INDIAN', 'FOREIGN']) visitorCategory?: 'INDIAN' | 'FOREIGN'; @IsOptional() @IsBoolean() visitorEligibilityVerified?: boolean; @IsOptional() @IsString() agentTenantId?: string; @IsOptional() @IsString() channel?: string; }
 export type VoyaRevenueRuleConfig = { model: VoyaRevenueModel; fixedAmount?: string; percent?: string };
 export type AgentCommercialRuleConfig = { model: AgentCommercialModel; markupAmount?: string; commissionPercent?: string; price?: string };
 export type TaxRuleConfig = { mode: TaxMode; rate: string; taxableBase: 'AGENT_PRE_TAX' | 'SUPPLIER_BASIS' | 'VENDOR_PAYABLE' | 'EXPLICIT_BASE'; explicitBase?: string; accountableParty: 'VENDOR' | 'VOYA' | 'AGENT' | 'NONE'; roundingPolicy: 'HALF_UP' | 'HALF_EVEN' | 'DOWN' | 'UP' };

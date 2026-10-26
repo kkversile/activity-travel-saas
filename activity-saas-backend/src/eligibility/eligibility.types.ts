@@ -11,6 +11,8 @@ export type EligibilityInput = {
   skipAgentGovernance?: boolean;
   skipChannelGovernance?: boolean;
   now?: Date;
+  visitorCategory?: 'INDIAN' | 'FOREIGN';
+  visitorEligibilityVerified?: boolean;
 };
 export type GateStatus = 'PASS' | 'FAIL' | 'NOT_EVALUATED';
 export type EligibilityGate = { gate: string; status: GateStatus; code?: string; message: string; details?: Record<string, unknown> };
@@ -58,6 +60,8 @@ export const REASON_MESSAGES: Record<string, string> = {
   MINIMUM_ADULTS_NOT_MET: 'The minimum adult count was not met.',
   TRAVELLER_COUNT_INVALID: 'The requested traveller mix is not supported by the rate plan.',
   COMMERCIAL_NOT_READY: 'The commercial quote is not ready.',
+  VISITOR_CATEGORY_NOT_CONFIGURED: 'The selected visitor category has no configured price.',
+  VISITOR_ELIGIBILITY_VERIFICATION_REQUIRED: 'Visitor eligibility verification is required before quoting this price.',
   AGENT_COMMERCIAL_UNCONFIGURED: 'No agent commercial terms are configured.',
   AGENT_ELIGIBILITY_UNCONFIGURED: 'No agent eligibility rule is configured.',
   AGENT_COMMERCIAL_DENIED: 'The agent is denied by the commercial eligibility rule.',

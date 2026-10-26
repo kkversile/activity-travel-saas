@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { fingerprint } from '../bookings/booking-fingerprint';
-import { Prisma, ProductRevisionStatus, ProductStatus, ScheduleStatus, SessionStatus, UserRole, VariantStatus } from '@prisma/client';
+import { BookingMode, CapacityUnit, OperatingModel, Prisma, ProductRevisionStatus, ProductStatus, PricingUnit, ScheduleStatus, SessionStatus, SupplierCommercialModel, TravellerType, UserRole, VariantStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FilePurpose, FileVisibility } from '@prisma/client';
 import { StorageService } from '../storage/storage.service';
 import { validateFulfilmentPolicy } from '../fulfilment/fulfilment.types';
-import { ArchiveVariantDto, CreateProductDraftDto, CreateProductDto, CreateProductRevisionDto, ImportProductJsonDto, ProductListingQueryDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, ProductRevisionDto, RejectProductRevisionDto, UpdateProductMediaRankDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
+import { ActivityPricesAvailabilityDto, ArchiveVariantDto, CreateProductDraftDto, CreateProductDto, CreateProductRevisionDto, ImportProductJsonDto, ProductListingQueryDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, ProductRevisionDto, RejectProductRevisionDto, UpdateProductCurrencyDto, UpdateProductMediaRankDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
 import { ProductReadinessService } from './product-readiness.service';
 import { CommercialService } from '../commercial/commercial.service';
 import { ChannelDistributionReadinessService } from '../distribution/channel-distribution-readiness.service';
@@ -18,6 +18,7 @@ import { RatePlansService } from '../rate-plans/rate-plans.service';
 import { SchedulesService } from '../schedules/schedules.service';
 import { SessionMaterializerService } from '../schedules/session-materializer.service';
 import { CatalogueEmailService } from './catalogue-email.service';
+import { sameActivityRange, splitActivityPriceHistory, type ActivityPriceHistoryRange } from './activity-pricing-history';
 
 const revisionInclude = { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' as const } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' as const }, { code: 'asc' as const }] }, fulfilmentPolicy: true, product: { select: { id: true, tenantId: true, productCode: true, status: true, currentRevisionId: true } } };
 const variantInclude = { ratePlans: { include: { travellerRules: true, cancellationRules: { orderBy: { minDaysBefore: 'desc' as const } } }, orderBy: { createdAt: 'asc' as const } } };
@@ -50,6 +51,50 @@ const importContentFingerprint = (basic: ImportJsonRow) => fingerprint({
   state: importText(basic, 'state').toLowerCase(),
   country: importText(basic, 'country').toLowerCase(),
 });
+const normalizedDays = (values?: string[]) => (values || []).map((day) => day.trim().toUpperCase()).filter(Boolean);
+const normalizedSlotCodes = (values?: string[]) => (values || []).map((slot) => slot.trim()).filter(Boolean);
+const dateOnly = (value: string) => new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+const dateRangeDays = (from: Date, to: Date, days?: string[]) => {
+  const selected = new Set(normalizedDays(days));
+  let count = 0;
+  for (let cursor = new Date(from); cursor < to; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const code = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][cursor.getUTCDay()];
+    if (!selected.size || selected.has(code)) count += 1;
+  }
+  return count;
+};
+const dateRangesOverlap = (leftFrom: Date, leftTo: Date, rightFrom: Date, rightTo: Date) => leftFrom < rightTo && rightFrom < leftTo;
+const isProtectedLegacyRatePlan = (plan: any) => {
+  const payload = (plan?.sourcePayload || {}) as Record<string, unknown>;
+  return Boolean(
+    payload.specialContract ||
+    payload.agentSpecific ||
+    payload.promotional ||
+    payload.protectedFromActivityEditor ||
+    (plan?.channelMappings || []).some((mapping: any) => mapping.status === 'ACTIVE' || mapping.enabled === true),
+  );
+};
+export const buildActivityEditorSourcePayload = (latestSourcePayload: Record<string, any>, visitorPricingEnabled: boolean | undefined, option: any, bookingRulesSnapshot?: any) => {
+  const sourcePayload = { ...latestSourcePayload };
+  if (visitorPricingEnabled === false) {
+    delete sourcePayload.visitorPrices;
+    delete sourcePayload.visitorEligibilityBasis;
+    delete sourcePayload.visitorVerificationMode;
+  } else if (option.visitorPrices?.length) {
+    sourcePayload.visitorPrices = option.visitorPrices;
+    sourcePayload.visitorEligibilityBasis = option.visitorEligibilityBasis || 'RESIDENCY';
+    sourcePayload.visitorVerificationMode = option.visitorVerificationMode || 'NONE';
+  }
+  return {
+    ...sourcePayload,
+    createdFromActivityEditor: true,
+    pricingTimezone: option.timezone || sourcePayload.pricingTimezone || 'UTC',
+    pricingDays: normalizedDays(option.pricingDays),
+    pricingSlotCodes: normalizedSlotCodes(option.pricingSlotCodes),
+    ...(option.maxPassengersPerResource ? { maxPassengersPerResource: option.maxPassengersPerResource } : {}),
+    ...(bookingRulesSnapshot ? { bookingRules: bookingRulesSnapshot } : {}),
+  };
+};
 
 @Injectable()
 export class CatalogueService {
@@ -233,7 +278,13 @@ export class CatalogueService {
     await this.product(user, id);
     const result: any = await this.prisma.product.findFirstOrThrow({ where: { id, tenantId: requireTenant(user), deletedAt: null }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] }, fulfilmentPolicy: true } }, revisions: { orderBy: { versionNumber: 'desc' }, include: { media: { where: { archivedAt: null }, orderBy: { rank: 'asc' } }, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] }, fulfilmentPolicy: true } }, variants: { where: { status: { not: VariantStatus.ARCHIVED } }, include: variantInclude }, _count: { select: { variants: true, bookings: true } } } });
     const selectedRevision = result.revisions.find((revision: any) => revision.status === ProductRevisionStatus.DRAFT || revision.status === ProductRevisionStatus.UNDER_REVIEW) || result.currentRevision || result.revisions.find((revision: any) => revision.status === ProductRevisionStatus.REJECTED);
-    result.variants = (result.variants || []).filter((variant: any) => !selectedRevision || variant.revisionId === selectedRevision.id || (!variant.revisionId && result.currentRevisionId === selectedRevision.id));
+    const allVariants = result.variants || [];
+    const revisionVariants = allVariants.filter((variant: any) => !selectedRevision || variant.revisionId === selectedRevision.id || (!variant.revisionId && result.currentRevisionId === selectedRevision.id));
+    // Older catalogue rows may have been created before revisionId was populated
+    // or may still point at a superseded draft. Do not make a real product look
+    // like it has no options in the shared Create/Edit wizard; the active option
+    // records are still the canonical source for that product.
+    result.variants = revisionVariants.length || !allVariants.length ? revisionVariants : allVariants;
     return result;
   }
 
@@ -241,7 +292,7 @@ export class CatalogueService {
     const tenantId = requireTenant(user);
     if (!dto.initialRevision) throw new BadRequestException('initialRevision is required');
     const created = await this.prisma.$transaction(async (tx) => {
-      const product = await tx.product.create({ data: { tenantId, productCode: dto.productCode, status: ProductStatus.DRAFT } });
+      const product = await tx.product.create({ data: { tenantId, productCode: dto.productCode, currency: dto.currency?.trim().toUpperCase() || 'INR', status: ProductStatus.DRAFT } });
       const revision = await tx.productRevision.create({ data: { ...this.data(dto.initialRevision), productId: product.id, versionNumber: 1, createdById: user.sub } });
       await tx.product.update({ where: { id: product.id }, data: { currentRevisionId: revision.id } });
       if (dto.initialRevision.fulfilmentPolicy) await tx.productFulfilmentPolicy.create({ data: { productRevisionId: revision.id, ...this.policyData(dto.initialRevision.fulfilmentPolicy) } });
@@ -292,7 +343,7 @@ export class CatalogueService {
     }
     const productCode = `PRD-${randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`;
     const created = await this.prisma.$transaction(async (tx) => {
-      const product = await tx.product.create({ data: { tenantId, productCode, status: ProductStatus.DRAFT, ...(draftIdentity ?? {}) } });
+      const product = await tx.product.create({ data: { tenantId, productCode, currency: dto.currency?.trim().toUpperCase() || 'INR', status: ProductStatus.DRAFT, ...(draftIdentity ?? {}) } });
       const revision = await tx.productRevision.create({ data: {
         productId: product.id,
         versionNumber: 1,
@@ -315,6 +366,16 @@ export class CatalogueService {
       return product;
     });
     return this.get(user, created.id);
+  }
+
+  async updateCurrency(user: AuthUser, productId: string, dto: UpdateProductCurrencyDto) {
+    const tenantId = requireTenant(user);
+    const currency = dto.currency.trim().toUpperCase();
+    const product = await this.prisma.product.findFirst({ where: { id: productId, tenantId, deletedAt: null }, select: { id: true, status: true } });
+    if (!product) throw new NotFoundException('Product not found');
+    if (product.status !== ProductStatus.DRAFT) throw new ConflictException('Product currency can only be changed while the product is a draft');
+    const updated = await this.prisma.product.update({ where: { id: productId }, data: { currency } });
+    return { productId: updated.id, currency: updated.currency };
   }
 
   private async importExistingProduct(user: AuthUser, productId: string, matchedBy: string) {
@@ -789,6 +850,45 @@ export class CatalogueService {
     });
   }
 
+  /**
+   * Publish the simplified editor's pending commercial history atomically with
+   * the product revision. Existing active versions are split instead of being
+   * overwritten so booking snapshots keep their original version identity.
+   */
+  private async activateActivityEditorVersions(tx: any, productId: string, actorId: string, tenantId: string) {
+    if (!tx.ratePlanCommercialVersion?.findMany) return;
+    const pending: any[] = await tx.ratePlanCommercialVersion.findMany({
+      where: { status: 'DRAFT', ratePlan: { variant: { productId } } },
+      include: { travellerPrices: true },
+      orderBy: [{ ratePlanId: 'asc' }, { effectiveFrom: 'asc' }, { versionNumber: 'asc' }],
+    });
+    for (const candidate of pending.filter((version) => (version.sourcePayload as any)?.createdFromActivityEditor === true)) {
+      if (!candidate.supplierModel || !candidate.pricingUnit || candidate.supplierBaseAmount == null || !candidate.bookingMode || (candidate.pricingUnit === 'PER_PERSON' && !candidate.travellerPrices?.length)) {
+        throw new ConflictException({ code: 'PRODUCT_COMMERCIAL_NOT_READY', message: 'Complete the prices and booking rules before approving this activity.' });
+      }
+      const from = new Date(candidate.effectiveFrom);
+      const to = candidate.effectiveTo ? new Date(candidate.effectiveTo) : null;
+      const overlapping: any[] = await tx.ratePlanCommercialVersion.findMany({ where: { ratePlanId: candidate.ratePlanId, status: 'ACTIVE', effectiveFrom: { lt: to || new Date('9999-12-31') }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: from } }] }, include: { travellerPrices: true } });
+      for (const old of overlapping) {
+        const oldFrom = new Date(old.effectiveFrom);
+        const oldTo = old.effectiveTo ? new Date(old.effectiveTo) : null;
+        if (oldFrom < from) {
+          await tx.ratePlanCommercialVersion.update({ where: { id: old.id }, data: { effectiveTo: from } });
+          if (to && (!oldTo || oldTo > to)) {
+            const latest = await tx.ratePlanCommercialVersion.findFirst({ where: { ratePlanId: old.ratePlanId }, orderBy: { versionNumber: 'desc' }, select: { versionNumber: true } });
+            await tx.ratePlanCommercialVersion.create({ data: { ratePlanId: old.ratePlanId, versionNumber: (latest?.versionNumber || 0) + 1, status: 'ACTIVE', effectiveFrom: to, effectiveTo: oldTo, supplierModel: old.supplierModel, currency: old.currency, pricingUnit: old.pricingUnit, supplierBaseAmount: old.supplierBaseAmount, supplierCommissionPercent: old.supplierCommissionPercent, bookingMode: old.bookingMode, confirmationSlaMinutes: old.confirmationSlaMinutes, sourcePayload: old.sourcePayload as Prisma.InputJsonValue, createdById: old.createdById, activatedById: old.activatedById, travellerPrices: old.travellerPrices?.length ? { create: old.travellerPrices.map((price: any) => ({ travellerType: price.travellerType, amount: price.amount })) } : undefined } });
+          }
+        } else if (to && (!oldTo || oldTo > to)) {
+          await tx.ratePlanCommercialVersion.update({ where: { id: old.id }, data: { effectiveFrom: to } });
+        } else {
+          await tx.ratePlanCommercialVersion.update({ where: { id: old.id }, data: { status: 'RETIRED' } });
+        }
+      }
+      await tx.ratePlanCommercialVersion.update({ where: { id: candidate.id }, data: { status: 'ACTIVE', activatedById: actorId } });
+      await this.audit.write(tx, { actor: { sub: actorId, role: UserRole.ADMIN } as any, tenantId, action: 'ACTIVITY_EDITOR_COMMERCIAL_VERSION_ACTIVATED', entityType: 'RatePlanCommercialVersion', entityId: candidate.id, afterState: { productId, ratePlanId: candidate.ratePlanId, effectiveFrom: from, effectiveTo: to } });
+    }
+  }
+
   async review(user: AuthUser, id: string, decision: 'publish' | 'reject', dto?: RejectProductRevisionDto) {
     if (user.role !== UserRole.SUPER_ADMIN && user.role !== UserRole.ADMIN) throw new ConflictException('Only platform reviewers can review product revisions');
     if (decision === 'reject' && (!dto?.reason?.trim() || dto.reason.trim().length < 5)) throw new ConflictException('A rejection reason of at least 5 characters is required');
@@ -803,6 +903,7 @@ export class CatalogueService {
         await this.audit.write(tx, { actor: user, tenantId: candidate.product.tenantId, action: 'PRODUCT_REVISION_REJECTED', entityType: 'ProductRevision', entityId: id, reason: dto!.reason, beforeState: { status: candidate.status }, afterState: { status: ProductRevisionStatus.REJECTED } });
         await this.outbox.enqueue(tx, { tenantId: candidate.product.tenantId, eventType: 'PRODUCT_REJECTED', aggregateType: 'ProductRevision', aggregateId: id, payload: { productId: candidate.productId, reason: dto!.reason.trim() } });
       } else {
+        await this.activateActivityEditorVersions(tx, candidate.productId, user.sub, candidate.product.tenantId);
         const currentPublished = await tx.productRevision.findFirst({ where: { productId: candidate.productId, status: ProductRevisionStatus.PUBLISHED }, orderBy: { versionNumber: 'desc' }, select: { id: true } });
         if (currentPublished) {
           const superseded = await tx.productRevision.updateMany({ where: { id: currentPublished.id, productId: candidate.productId, status: ProductRevisionStatus.PUBLISHED }, data: { status: ProductRevisionStatus.SUPERSEDED } });
@@ -890,6 +991,319 @@ export class CatalogueService {
     return { productId: product.id, ...revision, product: { id: product.id, productCode: product.productCode, status: product.status, tenant: product.tenant, variants: product.variants.filter((variant: any) => !variant.revisionId || variant.revisionId === revision.id) } };
   }
   async variants(user: AuthUser, productId: string) { const product = await this.prisma.product.findFirst({ where: { id: productId, tenantId: requireTenant(user) }, select: { currentRevisionId: true, revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW, ProductRevisionStatus.REJECTED] } }, orderBy: { versionNumber: 'desc' }, select: { id: true, status: true } } } }); if (!product) throw new NotFoundException('Product not found'); const revision = product.revisions.find((item) => item.status === ProductRevisionStatus.DRAFT || item.status === ProductRevisionStatus.UNDER_REVIEW) || product.revisions.find((item) => item.status === ProductRevisionStatus.REJECTED) || { id: product.currentRevisionId }; return this.prisma.productVariant.findMany({ where: { productId, status: { not: VariantStatus.ARCHIVED }, ...(revision?.id ? { OR: [{ revisionId: revision.id }, { revisionId: null, product: { currentRevisionId: revision.id } }] } : {}) }, include: variantInclude, orderBy: { createdAt: 'asc' } }); }
+
+  private activityPriceInput(dto: ActivityPricesAvailabilityDto) {
+    const errors: string[] = [];
+    const seen = new Set<string>();
+    for (const [index, option] of (dto.options || []).entries()) {
+      if (seen.has(option.variantId)) errors.push(`options[${index}]: each option can be included only once`);
+      seen.add(option.variantId);
+      const from = new Date(option.effectiveFrom || new Date().toISOString().slice(0, 10));
+      const to = new Date(option.effectiveTo || new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10));
+      if (to <= from) errors.push(`options[${index}]: selling end must be after selling start (the end date is exclusive)`);
+      const prices = option.travellerPrices || [];
+      if (option.pricingUnit === PricingUnit.PER_PERSON && !prices.length) errors.push(`options[${index}]: add at least one traveller price for per-traveller pricing`);
+      if (option.pricingUnit !== PricingUnit.PER_PERSON && !option.supplierBaseAmount) errors.push(`options[${index}]: add a base amount for this pricing basis`);
+      if (option.pricingUnit === PricingUnit.PER_UNIT && option.maxPassengersPerResource == null) errors.push(`options[${index}]: add maximum passengers per resource for per-resource pricing`);
+      if (option.availability?.capacityScope === 'RESOURCE_POOL' && option.availability.capacityUnit !== CapacityUnit.UNIT) errors.push(`options[${index}]: resource-pool capacity requires Resources / vehicles capacity unit`);
+      if (option.availability?.capacityScope === 'SESSION_SHARED' && option.availability.capacityUnit === CapacityUnit.UNIT) errors.push(`options[${index}]: resources / vehicles capacity must use resource-pool capacity`);
+      if (option.minPax && option.maxPax && option.maxPax < option.minPax) errors.push(`options[${index}]: maximum travellers must be at least the minimum`);
+      const validDays = new Set(['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']);
+      if (option.pricingDays?.some((day) => !validDays.has(day.toUpperCase()))) errors.push(`options[${index}]: pricing days must be MON through SUN`);
+      if (option.pricingDays && new Set(normalizedDays(option.pricingDays)).size !== option.pricingDays.length) errors.push(`options[${index}]: pricing days cannot contain duplicates`);
+      if (option.pricingSlotCodes && new Set(normalizedSlotCodes(option.pricingSlotCodes)).size !== option.pricingSlotCodes.length) errors.push(`options[${index}]: pricing slots cannot contain duplicates`);
+      if (option.confirmationSlaMinutes != null && option.confirmationSlaMinutes < 1) errors.push(`options[${index}]: confirmation SLA must be at least one minute`);
+      if (option.bookingMode && option.bookingMode !== BookingMode.INSTANT && option.confirmationSlaMinutes == null) errors.push(`options[${index}]: add a confirmation SLA for non-instant booking`);
+      for (const rule of option.cancellationRules || []) {
+        if (rule.maxDaysBefore != null && rule.maxDaysBefore < rule.minDaysBefore) errors.push(`options[${index}]: cancellation rule maximum days must be at least the minimum`);
+        if (Number(rule.chargeValue) < 0) errors.push(`options[${index}]: cancellation charges cannot be negative`);
+      }
+      for (const visitorPrice of option.visitorPrices || []) {
+        if (!Number.isFinite(Number(visitorPrice.foreign)) || !Number.isFinite(Number(visitorPrice.indian)) || Number(visitorPrice.foreign) < 0 || Number(visitorPrice.indian) < 0) errors.push(`options[${index}]: visitor prices must be valid non-negative amounts`);
+      }
+      if (dto.hasDifferentialVisitorPricing) {
+        const visitorPrices = option.visitorPrices || [];
+        const adult = visitorPrices.find((price) => price.travellerType === TravellerType.ADULT);
+        if (!adult || adult.indian === '' || adult.foreign === '') errors.push(`options[${index}]: add both Indian and foreign adult prices or turn off visitor pricing`);
+      }
+      if (option.availability?.operatingModel && ['FIXED_SLOT', 'MULTIPLE_SLOTS'].includes(option.availability.operatingModel) && !option.availability.slots?.length) errors.push(`options[${index}]: add at least one time slot for slot-based availability`);
+      if (option.availability?.effectiveTo && option.availability.effectiveFrom && new Date(option.availability.effectiveTo) < new Date(option.availability.effectiveFrom)) errors.push(`options[${index}]: availability end must be on or after availability start`);
+      if (option.availability?.updateCapacity && option.availability.defaultCapacity == null) errors.push(`options[${index}]: enter a capacity before selecting Also update capacity`);
+    }
+    if (!dto.options?.length) errors.push('Add pricing for at least one option.');
+    return errors;
+  }
+
+  async previewActivityPricesAvailability(user: AuthUser, productId: string, dto: ActivityPricesAvailabilityDto) {
+    const product = await this.product(user, productId);
+    const errors = this.activityPriceInput(dto);
+    const variants = await this.prisma.productVariant.findMany({ where: { productId, status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, select: { id: true, variantCode: true, name: true } });
+    const allowed = new Set(variants.map((variant) => variant.id));
+    for (const option of dto.options || []) if (!allowed.has(option.variantId)) errors.push(`Option ${option.variantId} does not belong to this product.`);
+    const ratePlanClient: any = (this.prisma as any).ratePlan;
+    const existing: any[] = errors.length === 0 && ratePlanClient?.findMany ? await ratePlanClient.findMany({ where: { variantId: { in: variants.map((variant) => variant.id) }, status: 'ACTIVE' }, include: { cancellationRules: { orderBy: { minDaysBefore: 'desc' } }, commercialVersions: { where: { status: { in: ['DRAFT', 'ACTIVE'] } }, include: { travellerPrices: true }, orderBy: { effectiveFrom: 'asc' } } }, orderBy: { createdAt: 'asc' } }).catch(() => []) : [];
+    const existingVersions = existing.flatMap((plan: any) => (plan.commercialVersions || []).map((version: any) => ({ ...version, ratePlan: { variantId: plan.variantId, ratePlanCode: plan.ratePlanCode, name: plan.name, sourcePayload: plan.sourcePayload, cancellationRules: plan.cancellationRules || [] } })));
+    const affectedDates = (dto.options || []).reduce((total, option) => { const from = dateOnly(option.effectiveFrom || new Date().toISOString().slice(0, 10)); const to = dateOnly(option.effectiveTo || new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10)); return total + dateRangeDays(from, to, option.pricingDays); }, 0);
+    const previousRates = existingVersions.map((version: any) => ({ variantId: version.ratePlan.variantId, ratePlanCode: version.ratePlan.ratePlanCode, ratePlanName: version.ratePlan.name, effectiveFrom: version.effectiveFrom, effectiveTo: version.effectiveTo, pricingUnit: version.pricingUnit, supplierBaseAmount: version.supplierBaseAmount, bookingMode: version.bookingMode, cancellationRules: version.ratePlan?.cancellationRules || [], travellerPrices: version.travellerPrices, visitorPrices: (version.sourcePayload as any)?.visitorPrices || [], pricingDays: (version.sourcePayload as any)?.pricingDays || [], pricingSlotCodes: (version.sourcePayload as any)?.pricingSlotCodes || [] }));
+    const proposedRates = (dto.options || []).map((option) => ({ variantId: option.variantId, effectiveFrom: option.effectiveFrom || null, effectiveTo: option.effectiveTo || null, pricingUnit: option.pricingUnit, supplierBaseAmount: option.supplierBaseAmount || null, bookingMode: option.bookingMode || BookingMode.INSTANT, cancellationRules: option.cancellationRules || [], travellerPrices: option.travellerPrices || [], visitorPrices: option.visitorPrices || [], pricingDays: normalizedDays(option.pricingDays), pricingSlotCodes: normalizedSlotCodes(option.pricingSlotCodes) }));
+    const historyConflicts = (dto.options || []).flatMap((option) => {
+      const from = dateOnly(option.effectiveFrom || new Date().toISOString().slice(0, 10));
+      const to = dateOnly(option.effectiveTo || new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10));
+      return existingVersions.filter((version: any) => {
+        const editorOwned = String(version.ratePlan.ratePlanCode || '').startsWith('ACTIVITY-') || (version.ratePlan.sourcePayload as any)?.createdFromActivityEditor === true || (version.sourcePayload as any)?.createdFromActivityEditor === true;
+        return editorOwned && version.ratePlan.variantId === option.variantId && dateRangesOverlap(from, to, new Date(version.effectiveFrom), version.effectiveTo ? new Date(version.effectiveTo) : new Date('9999-12-31'));
+      }).map((version: any) => ({ type: 'EFFECTIVE_HISTORY_OVERLAP', variantId: option.variantId, existingVersionId: version.id, existingVersionNumber: version.versionNumber, existingEffectiveFrom: version.effectiveFrom, existingEffectiveTo: version.effectiveTo, resolution: 'SPLIT_EXISTING_HISTORY', message: `This update overlaps existing editor pricing ${String(version.effectiveFrom).slice(0, 10)} to ${version.effectiveTo ? String(version.effectiveTo).slice(0, 10) : 'open-ended'}; the save will split the surrounding history without changing protected contracts or booking snapshots.` }));
+    });
+    const conflicts = [...errors.filter((error) => /overlap|version|capacity/i.test(error)).map((message) => ({ type: 'VALIDATION', message })), ...historyConflicts];
+    return { productId: product.id, valid: errors.length === 0, errors, summary: { optionCount: dto.options?.length || 0, affectedDates, dateRange: dto.options?.[0] ? `${dto.options[0].effectiveFrom || 'today'} to ${dto.options[0].effectiveTo || 'one year'} (exclusive)` : null, availabilityCount: (dto.options || []).filter((option) => Boolean(option.availability)).length, existingRateCount: existingVersions.length }, previousRates, proposedRates, unchangedFields: ['special and contract rate plans', 'confirmed booking snapshots'], conflicts, inventoryWarnings: (dto.options || []).filter((option) => option.availability?.updateCapacity).map((option) => ({ variantId: option.variantId, message: 'Capacity is checked against held and confirmed inventory during save.' })), options: (dto.options || []).map((option) => ({ variantId: option.variantId, pricingUnit: option.pricingUnit, travellerPrices: option.travellerPrices?.length || 0, visitorPrices: option.visitorPrices?.length || 0, hasAvailability: Boolean(option.availability), pricingDays: normalizedDays(option.pricingDays), pricingSlotCodes: normalizedSlotCodes(option.pricingSlotCodes), effectiveDateCount: dateRangeDays(dateOnly(option.effectiveFrom || new Date().toISOString().slice(0, 10)), dateOnly(option.effectiveTo || new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10)), option.pricingDays) })) };
+  }
+
+  async activityPricesAvailability(user: AuthUser, productId: string) {
+    await this.product(user, productId);
+    const variants: any[] = await this.prisma.productVariant.findMany({
+      where: { productId, status: { not: VariantStatus.ARCHIVED }, archivedAt: null },
+      include: {
+        ratePlans: {
+          where: { status: 'ACTIVE' },
+          include: {
+            commercialVersions: { where: { status: { in: ['DRAFT', 'ACTIVE'] } }, include: { travellerPrices: true }, orderBy: { versionNumber: 'desc' } },
+            cancellationRules: { orderBy: { minDaysBefore: 'desc' } },
+            channelMappings: { where: { status: 'ACTIVE' }, select: { status: true, enabled: true } },
+            scheduleMappings: { where: { active: true }, include: { scheduleTemplate: { include: { slotTemplates: { where: { archivedAt: null }, orderBy: { rank: 'asc' } } } } } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return {
+      productId,
+      options: variants.map((variant) => ({
+        variantId: variant.id,
+        variantCode: variant.variantCode,
+        name: variant.name,
+        ratePlans: (() => {
+          const editorPlan = variant.ratePlans.find((candidate: any) => candidate.ratePlanCode?.startsWith('ACTIVITY-') || (candidate.sourcePayload as any)?.createdFromActivityEditor === true);
+          const compatiblePlan = (editorPlan && !isProtectedLegacyRatePlan(editorPlan)) || (!editorPlan && variant.ratePlans.length === 1 && !isProtectedLegacyRatePlan(variant.ratePlans[0]))
+            ? (editorPlan || variant.ratePlans[0])
+            : null;
+          const ordered = compatiblePlan ? [compatiblePlan, ...variant.ratePlans.filter((candidate: any) => candidate.id !== compatiblePlan.id)] : variant.ratePlans;
+          return ordered.map((plan: any) => ({
+          id: plan.id,
+          code: plan.ratePlanCode,
+          name: plan.name,
+           editable: plan.id === compatiblePlan?.id,
+           advanced: plan.id !== compatiblePlan?.id,
+           protected: isProtectedLegacyRatePlan(plan),
+           cancellationRules: plan.cancellationRules,
+          currency: plan.currency,
+          pricingUnit: plan.unitType,
+          validFrom: plan.validFrom,
+          validTo: plan.validTo,
+          versions: plan.commercialVersions.map((version: any) => ({
+            id: version.id,
+            versionNumber: version.versionNumber,
+            status: version.status,
+            effectiveFrom: version.effectiveFrom,
+            effectiveTo: version.effectiveTo,
+            supplierBaseAmount: version.supplierBaseAmount,
+            bookingMode: version.bookingMode,
+            sourcePayload: version.sourcePayload,
+            minPax: plan.minPax,
+            maxPax: plan.maxPax,
+            cutOffMinutes: plan.cutOffMinutes,
+            travellerPrices: version.travellerPrices,
+          })),
+          schedules: plan.scheduleMappings.map((mapping: any) => mapping.scheduleTemplate),
+          }));
+        })(),
+      })),
+    };
+  }
+
+  /**
+   * The simplified editor writes the same canonical records as the detailed
+   * wizard. Its generated plan/schedule codes are deliberately namespaced so
+   * vendor-created special contracts are never overwritten by a bulk save.
+   */
+  async applyActivityPricesAvailability(user: AuthUser, productId: string, dto: ActivityPricesAvailabilityDto, idempotencyKey?: string) {
+    const tenantId = requireTenant(user);
+    if (!idempotencyKey?.trim()) throw new BadRequestException({ code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key is required for a prices and availability save.' });
+    const product = await this.product(user, productId);
+    const errors = this.activityPriceInput(dto);
+    if (errors.length) throw new BadRequestException({ code: 'ACTIVITY_PRICES_INVALID', message: 'Fix the highlighted prices and availability fields.', details: errors });
+    const key = idempotencyKey.trim();
+    const payloadFingerprint = fingerprint(dto);
+    const materializationRequests: Array<{ scheduleId: string; dateFrom: Date; dateTo: Date; expectedVersion: number; status: ScheduleStatus }> = [];
+    const response = await this.prisma.$transaction(async (tx) => {
+      const prior = await tx.activityPriceApplyRequest.findUnique({ where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: key } } });
+      if (prior) {
+        if (prior.payloadFingerprint !== payloadFingerprint) throw new ConflictException({ code: 'IDEMPOTENCY_KEY_REUSED', message: 'Use a new Idempotency-Key when the prices or availability have changed.' });
+        return prior.responsePayload || { productId, saved: [], replayed: true, message: 'The same save was already applied.' };
+      }
+      const variants = await tx.productVariant.findMany({ where: { productId, status: { not: VariantStatus.ARCHIVED }, archivedAt: null } });
+      const byId = new Map(variants.map((variant) => [variant.id, variant]));
+      if (dto.hasDifferentialVisitorPricing !== undefined) {
+        const draftRevision = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.DRAFT }, orderBy: { versionNumber: 'desc' } });
+        if (draftRevision) {
+          const sourcePayload = ((draftRevision.sourcePayload || {}) as Record<string, unknown>);
+          await tx.productRevision.update({ where: { id: draftRevision.id }, data: { sourcePayload: { ...sourcePayload, hasDifferentialVisitorPricing: dto.hasDifferentialVisitorPricing } as Prisma.InputJsonValue } });
+        }
+      }
+      const result: Array<{ variantId: string; ratePlanId: string; commercialVersionId: string; scheduleId?: string; commercialVersionIds?: string[] }> = [];
+      for (const option of dto.options) {
+        const variant: any = byId.get(option.variantId);
+        if (!variant) throw new NotFoundException(`Product option ${option.variantId} not found`);
+        const safeCode = variant.variantCode.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toUpperCase().slice(0, 35) || variant.id.slice(0, 8).toUpperCase();
+        let planCode = `ACTIVITY-${safeCode}`;
+        const effectiveFrom = new Date(option.effectiveFrom || new Date().toISOString().slice(0, 10));
+        const effectiveTo = new Date(option.effectiveTo || new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10));
+        const travellerPrices = option.travellerPrices || [];
+        const baseAmount = option.supplierBaseAmount || travellerPrices[0]?.amount;
+        const unitType = option.pricingUnit === PricingUnit.PER_PERSON ? 'per_person' : option.pricingUnit === PricingUnit.PER_BOOKING ? 'per_booking' : option.pricingUnit === PricingUnit.GROUP ? 'group' : 'per_unit';
+        const travellerRules = travellerPrices.map((price) => ({ type: price.travellerType, displayName: price.travellerType[0] + price.travellerType.slice(1).toLowerCase(), minCount: price.travellerType === TravellerType.ADULT ? 1 : 0, maxCount: 99 }));
+         let plan: any = await tx.ratePlan.findFirst({ where: { variantId: variant.id, ratePlanCode: planCode }, include: { cancellationRules: true, commercialVersions: { where: { status: { in: ['DRAFT', 'ACTIVE'] } }, orderBy: { versionNumber: 'desc' } } } });
+        if (plan && (plan.sourcePayload as any)?.createdFromActivityEditor !== true) {
+          planCode = `ACTIVITY-${safeCode}-EDITOR`;
+           plan = await tx.ratePlan.findFirst({ where: { variantId: variant.id, ratePlanCode: planCode }, include: { cancellationRules: true, commercialVersions: { where: { status: { in: ['DRAFT', 'ACTIVE'] } }, orderBy: { versionNumber: 'desc' } } } });
+        }
+        if (!plan) {
+           const legacyCandidates: any[] = await tx.ratePlan.findMany({ where: { variantId: variant.id, status: 'ACTIVE' }, include: { cancellationRules: true, commercialVersions: { where: { status: { in: ['DRAFT', 'ACTIVE'] } }, orderBy: { versionNumber: 'desc' } }, channelMappings: { where: { status: 'ACTIVE' }, select: { status: true, enabled: true } } }, orderBy: { createdAt: 'asc' } });
+          if (legacyCandidates.length === 1) {
+            if (isProtectedLegacyRatePlan(legacyCandidates[0])) throw new ConflictException({ code: 'LEGACY_RATE_PLAN_REVIEW_REQUIRED', message: `Option ${variant.name} has a protected or channel-mapped rate plan. Select its standard editable offer in advanced pricing before using the simplified editor.` });
+            plan = legacyCandidates[0];
+          }
+          else if (legacyCandidates.length > 1) throw new ConflictException({ code: 'MULTIPLE_LEGACY_RATE_PLANS', message: `Option ${variant.name} has multiple existing rate plans. Choose the standard offer in advanced pricing before using the simplified editor.` });
+        }
+         const cancellationData = option.cancellationRules?.map((rule) => ({ minDaysBefore: rule.minDaysBefore, maxDaysBefore: rule.maxDaysBefore, chargeValue: rule.chargeValue, chargeType: rule.chargeType }));
+         const previousCancellationRules = (plan?.cancellationRules || []).map((rule: any) => ({ minDaysBefore: rule.minDaysBefore, maxDaysBefore: rule.maxDaysBefore, chargeValue: rule.chargeValue?.toString?.() ?? String(rule.chargeValue), chargeType: rule.chargeType }));
+         const planFrom = plan?.validFrom && plan.validFrom < effectiveFrom ? plan.validFrom : effectiveFrom;
+         const planTo = !plan?.validTo || plan.validTo > effectiveTo ? (plan?.validTo || null) : effectiveTo;
+        const planData: any = { validFrom: planFrom, validTo: planTo, currency: option.currency || plan?.currency || product.currency || 'INR', unitType, basePrice: baseAmount || plan?.basePrice || 0, minPax: variant.minPax ?? option.minPax ?? plan?.minPax ?? 1, maxPax: variant.maxPax ?? option.maxPax ?? plan?.maxPax ?? 99, cutOffMinutes: variant.cutOffMinutes ?? option.cutOffMinutes ?? plan?.cutOffMinutes ?? 0, ...(option.bookingMode ? { instantConfirmation: option.bookingMode === BookingMode.INSTANT } : {}), sourcePayload: { ...((plan?.sourcePayload as any) || {}), createdFromActivityEditor: true } };
+        if (!plan) {
+          plan = await tx.ratePlan.create({ data: { variantId: variant.id, ratePlanCode: planCode, name: `Activity price · ${variant.name}`, status: 'ACTIVE', ...planData, adultRequired: travellerPrices.some((price) => price.travellerType === TravellerType.ADULT), minAdultRequired: travellerPrices.some((price) => price.travellerType === TravellerType.ADULT) ? 1 : 0, travellerRules: travellerRules.length ? { create: travellerRules } : undefined, cancellationRules: cancellationData?.length ? { create: cancellationData } : undefined } as any });
+          await this.audit.write(tx, { actor: user, tenantId, action: 'RATEPLAN_CREATED_FROM_ACTIVITY_EDITOR', entityType: 'RatePlan', entityId: plan.id, afterState: { ratePlanCode: plan.ratePlanCode, variantId: variant.id } });
+        } else {
+          plan = await tx.ratePlan.update({ where: { id: plan.id }, data: planData });
+          await tx.travellerRule.deleteMany({ where: { ratePlanId: plan.id } });
+          if (travellerRules.length) await tx.travellerRule.createMany({ data: travellerRules.map((rule) => ({ ...rule, ratePlanId: plan.id })) });
+          if (cancellationData) { await tx.cancellationRule.deleteMany({ where: { ratePlanId: plan.id } }); if (cancellationData.length) await tx.cancellationRule.createMany({ data: cancellationData.map((rule) => ({ ...rule, ratePlanId: plan.id })) }); }
+        }
+
+         const editableVersions: any[] = await tx.ratePlanCommercialVersion.findMany({ where: { ratePlanId: plan.id, status: { in: ['DRAFT', 'ACTIVE'] } }, include: { travellerPrices: true }, orderBy: [{ effectiveFrom: 'asc' }, { versionNumber: 'asc' }] });
+         const editorDrafts = editableVersions.filter((version) => version.status === 'DRAFT');
+         const editorHistory = editableVersions.filter((version) => (version.sourcePayload as any)?.createdFromActivityEditor === true || plan.sourcePayload?.createdFromActivityEditor === true);
+        const knownVersions = (plan.commercialVersions || []) as any[];
+        const latestKnownVersion = Math.max(0, ...knownVersions.map((version) => Number(version.versionNumber || 0)));
+        if (option.expectedVersion != null) {
+          const latest = editorDrafts.reduce((max, version) => Math.max(max, version.versionNumber), latestKnownVersion);
+          if (latest !== option.expectedVersion) throw new ConflictException({ code: 'ACTIVITY_PRICES_VERSION_CONFLICT', message: 'This option changed in another session. Reload the activity and retry.' });
+        }
+         const latestEditable = [...editableVersions].sort((a, b) => Number(b.versionNumber || 0) - Number(a.versionNumber || 0))[0];
+         const bookingRulesSnapshot = option.bookingMode !== undefined || option.confirmationSlaMinutes !== undefined || option.cancellationRules !== undefined
+           ? { bookingMode: option.bookingMode || latestEditable?.bookingMode || BookingMode.INSTANT, confirmationSlaMinutes: option.confirmationSlaMinutes ?? latestEditable?.confirmationSlaMinutes ?? null, cancellationRules: option.cancellationRules || [] }
+           : undefined;
+         const latestSourcePayload = { ...((latestEditable?.sourcePayload as any) || {}) };
+         const candidateData = { effectiveFrom, effectiveTo, supplierModel: option.supplierModel || latestEditable?.supplierModel || SupplierCommercialModel.NET_RATE, currency: option.currency || latestEditable?.currency || plan.currency || product.currency || 'INR', pricingUnit: option.pricingUnit, supplierBaseAmount: baseAmount ?? latestEditable?.supplierBaseAmount, supplierCommissionPercent: option.supplierCommissionPercent ?? latestEditable?.supplierCommissionPercent, bookingMode: option.bookingMode || latestEditable?.bookingMode || BookingMode.INSTANT, confirmationSlaMinutes: option.confirmationSlaMinutes ?? latestEditable?.confirmationSlaMinutes, sourcePayload: buildActivityEditorSourcePayload(latestSourcePayload, dto.hasDifferentialVisitorPricing, option, bookingRulesSnapshot) };
+         const history: ActivityPriceHistoryRange<any>[] = editorHistory.map((version) => ({ effectiveFrom: version.effectiveFrom, effectiveTo: version.effectiveTo || effectiveTo, value: { kind: 'existing', version } }));
+        const desired = splitActivityPriceHistory(history, { effectiveFrom, effectiveTo, value: { kind: 'candidate', option, data: candidateData } });
+        const used = new Set<string>();
+        let latestNumber = Math.max(latestKnownVersion, ...editableVersions.map((version: any) => Number(version.versionNumber || 0)));
+        const versionIds: string[] = [];
+        let candidateVersion: any;
+        for (const range of desired) {
+           const existing = editorDrafts.find((version) => !used.has(version.id) && sameActivityRange(version, range));
+          const value = range.value?.kind === 'existing' ? range.value.version : null;
+           const preservedRules = value && value.status === 'ACTIVE' && previousCancellationRules.length && !(value.sourcePayload as any)?.bookingRules ? { bookingRules: { cancellationRules: previousCancellationRules } } : {};
+           const data: any = value ? { effectiveFrom: range.effectiveFrom, effectiveTo: range.effectiveTo, supplierModel: value.supplierModel, currency: value.currency, pricingUnit: value.pricingUnit, supplierBaseAmount: value.supplierBaseAmount, supplierCommissionPercent: value.supplierCommissionPercent, bookingMode: value.bookingMode, confirmationSlaMinutes: value.confirmationSlaMinutes, sourcePayload: { ...(value.sourcePayload as any || {}), ...preservedRules } } : { ...candidateData, effectiveFrom: range.effectiveFrom, effectiveTo: range.effectiveTo };
+          let version: any;
+          if (existing) {
+            used.add(existing.id);
+            await tx.ratePlanTravellerPrice.deleteMany({ where: { commercialVersionId: existing.id } });
+            version = await tx.ratePlanCommercialVersion.update({ where: { id: existing.id }, data: { ...data, status: 'DRAFT', travellerPrices: value ? (value.travellerPrices?.length ? { create: value.travellerPrices.map((price: any) => ({ travellerType: price.travellerType, amount: price.amount })) } : undefined) : (travellerPrices.length ? { create: travellerPrices.map((price) => ({ travellerType: price.travellerType, amount: price.amount })) } : undefined) } });
+          } else {
+            latestNumber += 1;
+            const prices = value?.travellerPrices || travellerPrices;
+            version = await tx.ratePlanCommercialVersion.create({ data: { ratePlanId: plan.id, versionNumber: latestNumber, status: 'DRAFT', createdById: user.sub, ...data, travellerPrices: prices.length ? { create: prices.map((price: any) => ({ travellerType: price.travellerType, amount: price.amount })) } : undefined } });
+          }
+          versionIds.push(version.id);
+          if (range.value?.kind === 'candidate') candidateVersion = version;
+        }
+         for (const version of editorDrafts.filter((item) => !used.has(item.id))) await tx.ratePlanCommercialVersion.update({ where: { id: version.id }, data: { status: 'RETIRED' } });
+        const version = candidateVersion || await tx.ratePlanCommercialVersion.findFirstOrThrow({ where: { id: versionIds[0] } });
+        await this.audit.write(tx, { actor: user, tenantId, action: 'ACTIVITY_PRICES_AVAILABILITY_SAVED', entityType: 'RatePlanCommercialVersion', entityId: version.id, afterState: { productId, variantId: variant.id, ratePlanId: plan.id, versionIds, effectiveFrom, effectiveTo } });
+        await this.outbox.enqueue(tx, { tenantId, eventType: 'ACTIVITY_PRICES_AVAILABILITY_SAVED', aggregateType: 'Product', aggregateId: productId, payload: { variantId: variant.id, ratePlanId: plan.id, commercialVersionId: version.id, versionIds } });
+        await this.outbox.enqueue(tx, { tenantId, eventType: 'ACTIVITY_PRICES_PROJECTIONS_INVALIDATE', aggregateType: 'Product', aggregateId: productId, payload: { variantId: variant.id, ratePlanId: plan.id, commercialVersionIds: versionIds, reason: 'ACTIVITY_PRICES_AVAILABILITY_SAVED' } });
+        let scheduleId: string | undefined;
+        const availability: any = option.availability;
+        if (availability) {
+          const scheduleCode = availability.scheduleCode?.trim() || `ACTIVITY-${safeCode}`;
+          const scheduleFrom = new Date(availability.effectiveFrom || effectiveFrom);
+          const scheduleTo = availability.effectiveTo ? new Date(availability.effectiveTo) : effectiveTo;
+          let schedule: any = await tx.scheduleTemplate.findFirst({ where: { variantId: variant.id, scheduleCode }, include: { slotTemplates: { where: { archivedAt: null } } } });
+          const capacityUnit = availability.capacityUnit || CapacityUnit.PERSON;
+          const capacityScope = availability.capacityScope || (capacityUnit === CapacityUnit.UNIT ? 'RESOURCE_POOL' : 'SESSION_SHARED');
+          const capacitySourcePayload = { createdFromActivityEditor: true, capacityScope, capacitySemantics: capacityScope === 'RESOURCE_POOL' ? 'Capacity is a resource/vehicle pool; passenger limits are enforced per resource.' : 'One shared inventory pool per service session across traveller categories.' };
+          if (!schedule) schedule = await tx.scheduleTemplate.create({ data: { variantId: variant.id, scheduleCode, name: availability.name?.trim() || `${variant.name} availability`, status: 'DRAFT', operatingModel: availability.operatingModel || (availability.slots?.length ? OperatingModel.MULTIPLE_SLOTS : OperatingModel.DATE_CAPACITY), timezone: availability.timezone || 'Asia/Kolkata', effectiveFrom: scheduleFrom, effectiveTo: scheduleTo, operatingDays: availability.operatingDays?.length ? availability.operatingDays.map((day: string) => day.toUpperCase()) : ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'], capacityUnit, defaultCapacity: availability.defaultCapacity, sourcePayload: capacitySourcePayload, slotTemplates: availability.slots?.length ? { create: availability.slots.map((slot: any, index: number) => ({ slotCode: slot.slotCode.trim(), label: slot.label?.trim() || null, startTime: slot.startTime, endTime: slot.endTime || null, rank: index })) } : undefined } as any });
+          else {
+            const structuralChange = availability.effectiveFrom !== undefined || availability.effectiveTo !== undefined || availability.operatingModel !== undefined || availability.timezone !== undefined || availability.operatingDays !== undefined || availability.capacityUnit !== undefined || availability.updateCapacity || (availability.slots?.length ?? 0) > 0;
+            if (schedule.status === ScheduleStatus.ACTIVE && structuralChange) throw new ConflictException('This availability is active. Deactivate the schedule before changing its dates, slots, operating days or capacity.');
+            const scheduleData: any = { effectiveFrom: scheduleFrom, effectiveTo: scheduleTo, operatingModel: availability.operatingModel || schedule.operatingModel, timezone: availability.timezone || schedule.timezone, operatingDays: availability.operatingDays?.length ? availability.operatingDays.map((day: string) => day.toUpperCase()) : schedule.operatingDays, capacityUnit, sourcePayload: { ...((schedule.sourcePayload as any) || {}), ...capacitySourcePayload }, ...(availability.updateCapacity ? { defaultCapacity: availability.defaultCapacity } : {}) };
+            schedule = await tx.scheduleTemplate.update({ where: { id: schedule.id }, data: { ...scheduleData, version: { increment: 1 } } });
+            if (availability.slots?.length && tx.scheduleSlotTemplate) {
+              for (const [index, slot] of availability.slots.entries()) await tx.scheduleSlotTemplate.upsert({ where: { scheduleTemplateId_slotCode: { scheduleTemplateId: schedule.id, slotCode: slot.slotCode.trim() } }, update: { label: slot.label?.trim() || null, startTime: slot.startTime, endTime: slot.endTime || null, rank: index, active: true, archivedAt: null }, create: { scheduleTemplateId: schedule.id, slotCode: slot.slotCode.trim(), label: slot.label?.trim() || null, startTime: slot.startTime, endTime: slot.endTime || null, rank: index } });
+            }
+          }
+          await tx.ratePlanSchedule.upsert({ where: { ratePlanId_scheduleTemplateId: { ratePlanId: plan.id, scheduleTemplateId: schedule.id } }, update: { active: true }, create: { ratePlanId: plan.id, scheduleTemplateId: schedule.id, active: true } });
+          if (availability.updateCapacity && tx.serviceSession?.findMany) {
+            const sessions: any[] = await tx.serviceSession.findMany({ where: { scheduleTemplateId: schedule.id, serviceDate: { gte: scheduleFrom, lt: scheduleTo }, archivedAt: null }, include: { inventoryState: true, slotTemplate: true } });
+            const allowedSlots = new Set((availability.slotCodes || []).map((slot: string) => slot.trim()));
+            for (const session of sessions) {
+              if (allowedSlots.size && (!session.slotTemplate || !allowedSlots.has(session.slotTemplate.slotCode))) continue;
+              const state = session.inventoryState;
+              const total = Number(availability.defaultCapacity);
+              if (state && total < Number(state.blockedCapacity) + Number(state.heldCapacity) + Number(state.confirmedCapacity)) throw new ConflictException({ code: 'CAPACITY_BELOW_COMMITTED', message: `Capacity cannot be reduced below committed inventory for session ${session.id}.` });
+              if (state) await tx.inventoryState.update({ where: { id: state.id }, data: { totalCapacity: total, version: { increment: 1 } } });
+              else await tx.inventoryState.create({ data: { sessionId: session.id, totalCapacity: total, sourcePayload: { createdFromActivityEditor: true } } });
+            }
+          }
+          scheduleId = schedule.id;
+          materializationRequests.push({ scheduleId: schedule.id, dateFrom: scheduleFrom, dateTo: scheduleTo, expectedVersion: schedule.version, status: schedule.status });
+        }
+        result.push({ variantId: variant.id, ratePlanId: plan.id, commercialVersionId: version.id, commercialVersionIds: versionIds, ...(scheduleId ? { scheduleId } : {}) });
+      }
+      const response: any = { productId, saved: result, replayed: false, materialization: materializationRequests.map((request) => ({ scheduleId: request.scheduleId, dateFrom: request.dateFrom.toISOString().slice(0, 10), dateTo: request.dateTo.toISOString().slice(0, 10) })), materializationStatus: materializationRequests.length ? 'PENDING' : 'NOT_REQUIRED', message: 'Prices and availability saved as draft records. Review commercial readiness before submitting.' };
+      await tx.activityPriceApplyRequest.create({ data: { tenantId, productId, idempotencyKey: key, payloadFingerprint, responsePayload: response, createdById: user.sub } });
+      return response;
+    }, { timeout: 30000, maxWait: 30000 });
+    const savedPayload: any = response || {};
+    const pendingMaterialization = savedPayload.materializationStatus === 'MATERIALIZED' ? [] : (savedPayload.materialization || materializationRequests.map((request) => ({ scheduleId: request.scheduleId, dateFrom: request.dateFrom.toISOString().slice(0, 10), dateTo: request.dateTo.toISOString().slice(0, 10) })));
+    const materialized: Array<{ scheduleId: string; sessions: number }> = [];
+    if (this.schedules && this.materializer && pendingMaterialization.length) {
+      try {
+        for (const request of pendingMaterialization) {
+          const current = await (this.prisma as any).scheduleTemplate.findUnique({ where: { id: request.scheduleId }, select: { version: true, status: true } });
+          if (!current) throw new NotFoundException(`Schedule ${request.scheduleId} not found while preparing availability.`);
+          let scheduleVersion = Number(current.version);
+          if (current.status !== ScheduleStatus.ACTIVE) {
+            const activated = await this.schedules.activate(user, request.scheduleId, scheduleVersion);
+            scheduleVersion = activated.version;
+          }
+          const materializedResult = await this.materializer.materialize(request.scheduleId, { dateFrom: request.dateFrom, dateTo: request.dateTo, expectedVersion: scheduleVersion });
+          materialized.push({ scheduleId: request.scheduleId, sessions: materializedResult.sessions });
+        }
+        const completedPayload = { ...savedPayload, materializationStatus: 'MATERIALIZED', materialized, materializationError: null };
+        if ((this.prisma as any).activityPriceApplyRequest?.update) await (this.prisma as any).activityPriceApplyRequest.update({ where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: key } }, data: { responsePayload: completedPayload } });
+        return completedPayload;
+      } catch (error: any) {
+        const pendingPayload = { ...savedPayload, materializationStatus: 'PENDING', materializationError: error?.message || 'Availability sessions could not be prepared yet.' };
+        if ((this.prisma as any).activityPriceApplyRequest?.update) await (this.prisma as any).activityPriceApplyRequest.update({ where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: key } }, data: { responsePayload: pendingPayload } });
+        throw new ConflictException({ code: 'ACTIVITY_MATERIALIZATION_PENDING', message: 'Prices were saved, but availability sessions are still being prepared. Retry the same request to resume safely.', details: { scheduleIds: pendingMaterialization.map((item: any) => item.scheduleId), cause: pendingPayload.materializationError } });
+      }
+    }
+    return { ...savedPayload, ...(materialized.length ? { materialized } : {}) };
+  }
+
   async createVariant(user: AuthUser, productId: string, dto: VariantDto) { const product = await this.product(user, productId); const { sourcePayload, ...rest } = dto; try { return await this.prisma.$transaction(async (tx) => { const revision = await tx.productRevision.findFirst({ where: { productId, status: ProductRevisionStatus.DRAFT }, orderBy: { versionNumber: 'desc' } }); if (!revision) throw new ConflictException('Start a draft revision before adding options'); const created = await tx.productVariant.create({ data: { productId, revisionId: revision.id, ...rest, ...(sourcePayload ? { sourcePayload: sourcePayload as Prisma.InputJsonValue } : {}) } }); await this.audit.write(tx, { actor: user, tenantId: product.tenantId, action: 'PRODUCT_VARIANT_CREATED', entityType: 'ProductVariant', entityId: created.id, afterState: { variantCode: created.variantCode, status: created.status, revisionId: revision.id } }); await this.outbox.enqueue(tx, { tenantId: product.tenantId, eventType: 'PRODUCT_VARIANT_CREATED', aggregateType: 'ProductVariant', aggregateId: created.id, payload: { productId, variantCode: created.variantCode, revisionId: revision.id } }); return created; }); } catch (error: any) { if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('A variant with this variantCode already exists for the product revision'); throw error; } }
   async updateVariant(user: AuthUser, id: string, dto: UpdateVariantDto) { const tenantId = requireTenant(user); const existing = await this.prisma.productVariant.findFirst({ where: { id, product: { tenantId } } }); if (!existing) throw new NotFoundException('Product variant not found'); if (!Number.isInteger(dto.expectedVersion) || dto.expectedVersion < 1) throw new BadRequestException('expectedVersion is required'); const attempted = dto as UpdateVariantDto & { variantCode?: string; status?: VariantStatus; archivedAt?: Date }; if (attempted.variantCode !== undefined || attempted.status !== undefined || attempted.archivedAt !== undefined) throw new ConflictException('Variant code and lifecycle status are immutable; use archive'); const { expectedVersion: _expectedVersion, sourcePayload, ...rest } = dto; return this.prisma.$transaction(async (tx) => { const changed = await tx.productVariant.updateMany({ where: { id, version: dto.expectedVersion, status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, data: { ...rest, version: { increment: 1 }, ...(sourcePayload !== undefined ? { sourcePayload: sourcePayload as Prisma.InputJsonValue } : {}) } }); if (changed.count !== 1) throw new ConflictException('Variant changed in another session; reload and retry'); const updated = await tx.productVariant.findUniqueOrThrow({ where: { id } }); await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_VARIANT_UPDATED', entityType: 'ProductVariant', entityId: id, beforeState: { name: existing.name, version: existing.version, status: existing.status }, afterState: { name: updated.name, version: updated.version, status: updated.status } }); await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_VARIANT_UPDATED', aggregateType: 'ProductVariant', aggregateId: id, payload: { productId: existing.productId, version: updated.version } }); return updated; }); }
   async archiveVariant(user: AuthUser, id: string, dto: ArchiveVariantDto) { const tenantId = requireTenant(user); const existing = await this.prisma.productVariant.findFirst({ where: { id, product: { tenantId } } }); if (!existing) throw new NotFoundException('Product variant not found'); if (!Number.isInteger(dto.expectedVersion) || dto.expectedVersion < 1) throw new BadRequestException('expectedVersion is required'); return this.prisma.$transaction(async (tx) => { const changed = await tx.productVariant.updateMany({ where: { id, version: dto.expectedVersion, status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, data: { status: VariantStatus.ARCHIVED, archivedAt: new Date(), version: { increment: 1 } } }); if (changed.count !== 1) throw new ConflictException('Variant changed in another session; reload and retry'); const updated = await tx.productVariant.findUniqueOrThrow({ where: { id } }); await this.audit.write(tx, { actor: user, tenantId, action: 'PRODUCT_VARIANT_ARCHIVED', entityType: 'ProductVariant', entityId: id, beforeState: { status: existing.status, version: existing.version, archivedAt: existing.archivedAt }, afterState: { status: updated.status, version: updated.version, archivedAt: updated.archivedAt } }); await this.outbox.enqueue(tx, { tenantId, eventType: 'PRODUCT_VARIANT_ARCHIVED', aggregateType: 'ProductVariant', aggregateId: id, payload: { productId: existing.productId, version: updated.version } }); return updated; }); }

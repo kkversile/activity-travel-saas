@@ -20,6 +20,7 @@ export default function BasicInfoStep({ revisionForm: form, onRevisionChange: se
     <div className="experience-divider" />
     <div className="experience-form-grid two">
       <div className="form-full"><Field label="Product name *"><input autoFocus value={form.productName} onChange={(e) => set('productName', e.target.value)} disabled={locked} placeholder="e.g. Sunrise tea estate walk" /></Field></div>
+      <Field label="Product currency *"><select value={form.currency} onChange={(e) => set('currency', e.target.value)} disabled={locked}><option value="INR">INR · Indian rupee</option><option value="USD">USD · US dollar</option><option value="EUR">EUR · Euro</option><option value="GBP">GBP · Pound sterling</option><option value="AED">AED · UAE dirham</option></select></Field>
       <Field label="Type *"><select value={form.type} onChange={(e) => { set('type', e.target.value as typeof form.type); if (!subTypeOptions[e.target.value]?.includes(form.subType)) set('subType', ''); }} disabled={locked}><option value="">Select a product type</option>{productTypeOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       <Field label="Activity sub-type *"><select value={form.subType} onChange={(e) => set('subType', e.target.value)} disabled={locked}><option value="">Select a sub-type</option>{unsupportedLegacySubtype && <option value={form.subType}>{form.subType.replaceAll('_', ' ')} (existing)</option>}{subtypeOptions.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></Field>
       <div className="form-full"><Field label="Sub-category *"><input list="product-subcategories" value={form.subCategory} onChange={(e) => set('subCategory', e.target.value)} disabled={locked} placeholder="e.g. Nature & culture" /></Field><datalist id="product-subcategories">{subCategorySuggestions.map((value) => <option key={value} value={value} />)}</datalist></div>
@@ -27,10 +28,6 @@ export default function BasicInfoStep({ revisionForm: form, onRevisionChange: se
       <Field label="Meeting model *"><select value={form.meetingModel || ''} onChange={(e) => set('meetingModel', e.target.value as typeof form.meetingModel)} disabled={locked}><option value="">Select a meeting model</option>{meetingOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
       <div className="form-full"><Field label="Short marketplace description *"><textarea rows={3} value={form.shortDescription} onChange={(e) => set('shortDescription', e.target.value)} disabled={locked} placeholder="A concise description for marketplace cards." /></Field></div>
     </div>
-    <div className="experience-divider" />
-    <h3 className="experience-section-title">Example options</h3>
-    <p className="experience-help">Guidance only. These examples do not create database records.</p>
-    <div className="example-option-grid"><div className="example-option"><div className="experience-card-heading"><b>Standard Shared · 2 hours</b><span className="experience-pill success">Suggested</span></div><small>Capacity: 15 people · Instant confirmation · Adult / Child pricing</small></div><div className="example-option"><div className="experience-card-heading"><b>Private Guide · 2 hours</b><span className="experience-pill">Optional</span></div><small>Capacity: 1 booking · On-request confirmation · Group pricing</small></div></div>
-    <div className="experience-notice"><b>Product architecture:</b> Product → Option/Variant → Rate Plan → Schedule/Inventory. This keeps Voya ready for multi-channel distribution later.</div>
+    <div className="experience-notice"><b>Next:</b> Describe the experience, add bookable options, then configure pricing and availability. You can save the draft at any time.</div>
   </div>;
 }

@@ -768,6 +768,7 @@ model Tenant {
   outboxEvents             OutboxEvent[]
   globalSettings           GlobalSetting[]
   products                 Product[]
+  activityPriceApplyRequests ActivityPriceApplyRequest[]
   buyBoxOffers             BuyBoxOffer[]                         @relation("BuyBoxOfferVendor")
   buyBoxBids               BuyBoxBid[]                           @relation("BuyBoxBidVendor")
   resources                Resource[]
@@ -802,6 +803,7 @@ model User {
   createdProductRevisions         ProductRevision[]               @relation("ProductRevisionCreatedBy")
   reviewedProductRevisions        ProductRevision[]               @relation("ProductRevisionReviewedBy")
   createdCommercialVersions       RatePlanCommercialVersion[]     @relation("CommercialVersionCreatedBy")
+  activityPriceApplyRequests      ActivityPriceApplyRequest[]
   activatedCommercialVersions     RatePlanCommercialVersion[]     @relation("CommercialVersionActivatedBy")
   agentBookings                   Booking[]                       @relation("BookingAgentUser")
   createdCommercialRules          CommercialRule[]                @relation("CommercialRuleCreatedBy")
@@ -1044,6 +1046,7 @@ model Product {
   tenantId             String
   tenant               Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productCode          String
+  currency             String                     @default("INR")
   sourceImportKey      String?
   importFingerprint    String?
   importIdempotencyKey String?
@@ -1063,6 +1066,7 @@ model Product {
   experienceMaster     ExperienceMaster?          @relation(fields: [experienceMasterId], references: [id], onDelete: SetNull)
   offerPlacements      ExperienceOfferPlacement[]
   buyBoxOffers         BuyBoxOffer[]
+  activityPriceApplyRequests ActivityPriceApplyRequest[]
   matchSuggestionsFrom ProductMatchSuggestion[]   @relation("MatchSourceProduct")
   matchSuggestionsTo   ProductMatchSuggestion[]   @relation("MatchCandidateProduct")
   createdAt            DateTime                   @default(now())
@@ -1075,6 +1079,23 @@ model Product {
   @@index([tenantId, status])
   @@index([tenantId, deletedAt])
   @@index([experienceMasterId])
+}
+
+model ActivityPriceApplyRequest {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId          String
+  product            Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  idempotencyKey     String
+  payloadFingerprint String
+  responsePayload    Json?
+  createdById        String
+  createdBy          User     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt          DateTime @default(now())
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([productId, createdAt])
 }
 
 model ExperienceMaster {
@@ -1325,6 +1346,11 @@ model ProductVariant {
   description      String?
   status           VariantStatus           @default(ACTIVE)
   durationMinutes  Int?
+  // Booking rules belong to the option and are shared by every price plan.
+  // Nullable keeps legacy/special rate plans authoritative until an option is edited.
+  minPax           Int?
+  maxPax           Int?
+  cutOffMinutes    Int?
   privateShared    String?
   vehicleType      String?
   pickupIncluded   Boolean                 @default(false)

@@ -1,7 +1,7 @@
-import { BookingQuestionType, EvidenceMatchMode, FulfilmentEvidenceKind, FulfilmentMode, MeetingModel, MediaKind, ProductRevisionStatus, ProductType } from '@prisma/client';
+import { BookingMode, BookingQuestionType, CapacityUnit, ChargeType, EvidenceMatchMode, FulfilmentEvidenceKind, FulfilmentMode, MeetingModel, MediaKind, OperatingModel, PricingUnit, ProductRevisionStatus, ProductType, SupplierCommercialModel, TravellerType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { OmitType, PartialType } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsDefined, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, Max, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsDefined, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class ProductFulfilmentPolicyDto {
   @IsOptional() @IsEnum(FulfilmentMode) mode?: FulfilmentMode;
@@ -59,11 +59,13 @@ export class UpdateProductRevisionDto extends PartialType(ProductRevisionDto) {
 
 export class CreateProductDto {
   @IsString() productCode!: string;
+  @IsOptional() @IsString() @Matches(/^[A-Za-z]{3}$/) currency?: string;
   @IsDefined() @ValidateNested() @Type(() => ProductRevisionDto) initialRevision!: ProductRevisionDto;
 }
 
 export class CreateProductDraftDto {
   @IsString() @MinLength(2) productName!: string;
+  @IsOptional() @IsString() @Matches(/^[A-Za-z]{3}$/) currency?: string;
   @IsEnum(ProductType) type!: ProductType;
   @IsString() @MinLength(2) subType!: string;
   @IsOptional() @IsString() subCategory?: string;
@@ -76,6 +78,10 @@ export class CreateProductDraftDto {
   /** Only the browser workbook/JSON importer sets these fields. */
   @IsOptional() @IsBoolean() importMode?: boolean;
   @IsOptional() @IsString() sourceImportKey?: string;
+}
+
+export class UpdateProductCurrencyDto {
+  @IsString() @Matches(/^[A-Za-z]{3}$/) currency!: string;
 }
 
 /**
@@ -154,6 +160,9 @@ export class VariantDto {
   @IsString() name!: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) durationMinutes?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) minPax?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) maxPax?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) cutOffMinutes?: number;
   @IsOptional() @IsString() privateShared?: string;
   @IsOptional() @IsString() vehicleType?: string;
   @IsOptional() @IsBoolean() pickupIncluded?: boolean;
@@ -182,3 +191,85 @@ export class ArchiveVariantDto {
 }
 
 export class RejectProductRevisionDto { @IsString() @MinLength(5) reason!: string; }
+
+const MONEY = /^\d+(\.\d{1,4})?$/;
+
+export class ActivityTravellerPriceDto {
+  @IsEnum(TravellerType) travellerType!: TravellerType;
+  @IsString() @Matches(MONEY) amount!: string;
+}
+
+export class ActivityAvailabilitySlotDto {
+  @IsString() slotCode!: string;
+  @IsOptional() @IsString() label?: string;
+  @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) startTime!: string;
+  @IsOptional() @IsString() @Matches(/^([01]\d|2[0-3]):[0-5]\d$/) endTime?: string;
+}
+
+export class ActivityAvailabilityDto {
+  @IsOptional() @IsString() scheduleCode?: string;
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsEnum(OperatingModel) operatingModel?: OperatingModel;
+  @IsOptional() @IsString() timezone?: string;
+  @IsOptional() @IsDateString() effectiveFrom?: string;
+  @IsOptional() @IsDateString() effectiveTo?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) operatingDays?: string[];
+  @IsOptional() @IsEnum(CapacityUnit) capacityUnit?: CapacityUnit;
+  /** PERSON/BOOKING uses one shared inventory pool per session; UNIT uses resource capacity. */
+  @IsOptional() @IsIn(['SESSION_SHARED', 'RESOURCE_POOL']) capacityScope?: 'SESSION_SHARED' | 'RESOURCE_POOL';
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) defaultCapacity?: number;
+  @IsOptional() @IsBoolean() updateCapacity?: boolean;
+  @IsOptional() @IsArray() @IsString({ each: true }) slotCodes?: string[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ActivityAvailabilitySlotDto) slots?: ActivityAvailabilitySlotDto[];
+}
+
+export class ActivityCancellationRuleDto {
+  @Type(() => Number) @IsInt() @Min(0) minDaysBefore!: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) maxDaysBefore?: number;
+  @IsString() @Matches(MONEY) chargeValue!: string;
+  @IsEnum(ChargeType) chargeType!: ChargeType;
+}
+
+export class ActivityVisitorPriceDto {
+  @IsEnum(TravellerType) travellerType!: TravellerType;
+  @IsString() @Matches(MONEY) indian!: string;
+  @IsString() @Matches(MONEY) foreign!: string;
+}
+
+export const visitorEligibilityBases = ['NATIONALITY', 'RESIDENCY'] as const;
+export const visitorVerificationModes = ['NONE', 'DOCUMENT_AT_BOOKING', 'CHECK_IN', 'BOTH'] as const;
+export type VisitorEligibilityBasis = typeof visitorEligibilityBases[number];
+export type VisitorVerificationMode = typeof visitorVerificationModes[number];
+
+export class ActivityPriceOptionDto {
+  @IsString() variantId!: string;
+  @IsEnum(PricingUnit) pricingUnit!: PricingUnit;
+  @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsEnum(SupplierCommercialModel) supplierModel?: SupplierCommercialModel;
+  @IsOptional() @IsEnum(BookingMode) bookingMode?: BookingMode;
+  @IsOptional() @IsDateString() effectiveFrom?: string;
+  @IsOptional() @IsDateString() effectiveTo?: string;
+  /** IANA timezone used when resolving weekday/date-slot pricing. */
+  @IsOptional() @IsString() timezone?: string;
+  @IsOptional() @IsString() @Matches(MONEY) supplierBaseAmount?: string;
+  @IsOptional() @IsString() @Matches(MONEY) supplierCommissionPercent?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) minPax?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) maxPax?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) maxPassengersPerResource?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) cutOffMinutes?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) expectedVersion?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) confirmationSlaMinutes?: number;
+  @IsOptional() @IsArray() @IsString({ each: true }) pricingDays?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) pricingSlotCodes?: string[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ActivityTravellerPriceDto) travellerPrices?: ActivityTravellerPriceDto[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ActivityVisitorPriceDto) visitorPrices?: ActivityVisitorPriceDto[];
+  @IsOptional() @IsIn(visitorEligibilityBases) visitorEligibilityBasis?: VisitorEligibilityBasis;
+  @IsOptional() @IsIn(visitorVerificationModes) visitorVerificationMode?: VisitorVerificationMode;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ActivityCancellationRuleDto) cancellationRules?: ActivityCancellationRuleDto[];
+  @IsOptional() @ValidateNested() @Type(() => ActivityAvailabilityDto) availability?: ActivityAvailabilityDto;
+}
+
+export class ActivityPricesAvailabilityDto {
+  @IsOptional() @IsBoolean() hasDifferentialVisitorPricing?: boolean;
+  @IsArray() @ValidateNested({ each: true }) @Type(() => ActivityPriceOptionDto) options!: ActivityPriceOptionDto[];
+}

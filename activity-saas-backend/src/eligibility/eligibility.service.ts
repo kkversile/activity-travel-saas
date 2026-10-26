@@ -77,7 +77,7 @@ export class EligibilityService {
     let commercial: any = null;
     if (session && capacityConsumption != null && travellerPass) {
       try {
-        commercial = await this.commercial.evaluateInternal({ ratePlanId: plan.id, serviceDate: date, units: input.units ?? 1, travellers: travellers.normalizedTravellers, agentTenantId: input.agentTenantId, channel: input.channelCode ?? 'VOYA_AGENT', agentFacingRequired: !input.skipAgentGovernance }, db);
+        commercial = await this.commercial.evaluateInternal({ ratePlanId: plan.id, serviceDate: date, units: input.units ?? 1, travellers: travellers.normalizedTravellers, agentTenantId: input.agentTenantId, channel: input.channelCode ?? 'VOYA_AGENT', agentFacingRequired: !input.skipAgentGovernance, visitorCategory: input.visitorCategory, visitorEligibilityVerified: input.visitorEligibilityVerified }, db);
         bookingMode = commercial.bookingMode;
         const amount = Number(commercial.finalAmount); let code: string | undefined;
         if (!Number.isFinite(amount)) code = 'PRICE_NOT_CALCULABLE'; else if (!commercial.ready || (commercial.commercialEligibility !== 'ALLOWED' && !(input.skipAgentGovernance && commercial.commercialEligibility === 'NOT_APPLICABLE'))) code = commercial.reasonCodes?.find((item: string) => ['AGENT_COMMERCIAL_DENIED', 'AGENT_ELIGIBILITY_UNCONFIGURED', 'AGENT_COMMERCIAL_UNCONFIGURED', 'VOYA_REVENUE_RULE_MISSING', 'TAX_CONFIGURATION_MISSING'].includes(item)) ?? 'COMMERCIAL_NOT_READY';

@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type Product, type ProductReadiness, type ProductRevision } from '../../api';
 import { ErrorBox, Loading } from '../Ui';
-import AvailabilityStep from './AvailabilityStep';
+import ActivityPricesAvailability from './ActivityPricesAvailability';
 import BasicInfoStep from './BasicInfoStep';
 import ExperienceStep from './ExperienceStep';
 import OptionsStep from './OptionsStep';
-import RatesRulesStep from './RatesRulesStep';
 import ReviewSubmitStep from './ReviewSubmitStep';
 import WizardFooter from './WizardFooter';
 import WizardNavigation from './WizardNavigation';
@@ -25,8 +24,9 @@ export default function ExperienceWizardModal({ product, initialStep = 1, onDone
   const [snapshot, setSnapshot] = useState<WizardSnapshot>({ product: product || null, revision: null, variants: product?.variants || [], schedules: [] });
   const [form, setForm] = useState<RevisionForm>({ ...emptyRevisionForm });
   const [fulfilment, setFulfilment] = useState<FulfilmentForm>({ ...emptyFulfilmentForm });
-  const [activeStep, setActiveStep] = useState<WizardStep>(initialStep);
-  const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(Boolean(product?.id)); const [error, setError] = useState(''); const [dirty, setDirty] = useState(false); const [notice, setNotice] = useState(''); const [rejected, setRejected] = useState<ProductRevision | null>(null);
+  const unifiedInitialStep = initialStep;
+  const [activeStep, setActiveStep] = useState<WizardStep>(unifiedInitialStep);
+  const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(Boolean(product?.id)); const [error, setError] = useState(''); const [dirty, setDirty] = useState(false); const [notice, setNotice] = useState(''); const [rejected, setRejected] = useState<ProductRevision | null>(null); const [pricingSaved, setPricingSaved] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null); const dialogRef = useRef<HTMLDivElement>(null); const dirtyRef = useRef(false); const busyRef = useRef(false); const reloadSequenceRef = useRef(0); const saveInFlightRef = useRef<Promise<boolean> | null>(null);
 
   async function reload(id: string, preserveEditor = false) {
@@ -53,7 +53,7 @@ export default function ExperienceWizardModal({ product, initialStep = 1, onDone
       setSnapshot({ product: loaded, revision: revisionWithQuestions, variants: loaded.variants || [], schedules: [] });
       setRejected(latestRejected);
       if (!preserveEditor) {
-        setForm(toRevisionForm(revisionWithQuestions));
+        setForm(toRevisionForm(revisionWithQuestions, loaded));
         setFulfilment(toFulfilmentForm(revisionWithQuestions?.fulfilmentPolicy));
         setDirty(false);
       }
@@ -65,6 +65,15 @@ export default function ExperienceWizardModal({ product, initialStep = 1, onDone
   }
   useEffect(() => { setActiveStep(initialStep); if (product?.id) void reload(product.id); else { closeRef.current?.focus(); } }, [product?.id, initialStep]);
   useEffect(() => { dirtyRef.current = dirty; busyRef.current = busy; }, [dirty, busy]);
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current || busyRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
   useEffect(() => {
     if (!error) return;
     const frame = window.requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>('.experience-modal-body > .alert.error')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
@@ -78,7 +87,7 @@ export default function ExperienceWizardModal({ product, initialStep = 1, onDone
   async function refresh() { if (snapshot.product?.id) await reload(snapshot.product.id, dirtyRef.current); }
   function revisionPayload() {
     const mode = fulfilment.mode; const evidence = mode === 'AUTO' ? [] : mode === 'PNR_ONLY' ? ['PNR_REFERENCE'] : mode === 'TICKET_QR' ? (fulfilment.requiredEvidenceKinds.filter((kind) => ['TICKET_FILE', 'QR_TOKEN'].includes(kind)).length ? fulfilment.requiredEvidenceKinds.filter((kind) => ['TICKET_FILE', 'QR_TOKEN'].includes(kind)) : ['TICKET_FILE']) : fulfilment.requiredEvidenceKinds;
-    return { productName: form.productName.trim(), type: form.type, subType: form.subType.trim(), subCategory: form.subCategory.trim() || undefined, shortDescription: form.shortDescription.trim() || undefined, metaname: form.metaname.trim() || undefined, description: form.description, highlights: splitList(form.highlights), terms: splitList(form.terms), importantInfo: splitList(form.importantInfo), thingsToCarry: splitList(form.thingsToCarry), safetyMeasures: splitList(form.safetyMeasures), additionalInfo: splitList(form.additionalInfo), howToRedeem: splitList(form.howToRedeem), labels: splitList(form.labels), cityName: form.cityName.trim(), stateName: form.stateName.trim(), countryName: form.countryName.trim(), address: form.address.trim() || undefined, lat: form.lat ? Number(form.lat) : undefined, lon: form.lon ? Number(form.lon) : undefined, meetingModel: form.meetingModel || undefined, meetingPoint: form.meetingPoint.trim() || undefined, fulfilmentPolicy: mode ? { ...fulfilment, reviewRequired: fulfilment.reviewRequired, requiredEvidenceKinds: evidence, evidenceMatchMode: mode === 'PNR_ONLY' ? 'ALL' : mode === 'TICKET_QR' ? 'ANY' : fulfilment.evidenceMatchMode, voucherNotes: splitList(fulfilment.voucherNotes) } : undefined };
+    return { productName: form.productName.trim(), type: form.type, subType: form.subType.trim(), subCategory: form.subCategory.trim() || undefined, shortDescription: form.shortDescription.trim() || undefined, metaname: form.metaname.trim() || undefined, description: form.description, highlights: splitList(form.highlights), terms: splitList(form.terms), importantInfo: splitList(form.importantInfo), thingsToCarry: splitList(form.thingsToCarry), safetyMeasures: splitList(form.safetyMeasures), additionalInfo: splitList(form.additionalInfo), howToRedeem: splitList(form.howToRedeem), labels: splitList(form.labels), cityName: form.cityName.trim(), stateName: form.stateName.trim(), countryName: form.countryName.trim(), address: form.address.trim() || undefined, lat: form.lat ? Number(form.lat) : undefined, lon: form.lon ? Number(form.lon) : undefined, meetingModel: form.meetingModel || undefined, meetingPoint: form.meetingPoint.trim() || undefined, sourcePayload: { hasDifferentialVisitorPricing: form.hasDifferentialVisitorPricing }, fulfilmentPolicy: mode ? { ...fulfilment, reviewRequired: fulfilment.reviewRequired, requiredEvidenceKinds: evidence, evidenceMatchMode: mode === 'PNR_ONLY' ? 'ALL' : mode === 'TICKET_QR' ? 'ANY' : fulfilment.evidenceMatchMode, voucherNotes: splitList(fulfilment.voucherNotes) } : undefined };
   }
   async function saveDraft() {
     if (saveInFlightRef.current) return saveInFlightRef.current;
@@ -88,10 +97,11 @@ export default function ExperienceWizardModal({ product, initialStep = 1, onDone
       setBusy(true); setError(''); setNotice('');
       try {
         if (!snapshot.product) {
-          const created = await api.request<Product>('/products/drafts', { method: 'POST', body: JSON.stringify({ productName: form.productName.trim(), type: form.type, subType: form.subType.trim(), subCategory: form.subCategory.trim() || undefined, shortDescription: form.shortDescription.trim() || undefined, cityName: form.cityName.trim() || undefined, stateName: form.stateName.trim() || undefined, countryName: form.countryName.trim() || undefined, meetingModel: form.meetingModel || undefined, meetingPoint: form.meetingPoint.trim() || undefined }) });
+          const created = await api.request<Product>('/products/drafts', { method: 'POST', body: JSON.stringify({ productName: form.productName.trim(), currency: form.currency, type: form.type, subType: form.subType.trim(), subCategory: form.subCategory.trim() || undefined, shortDescription: form.shortDescription.trim() || undefined, cityName: form.cityName.trim() || undefined, stateName: form.stateName.trim() || undefined, countryName: form.countryName.trim() || undefined, meetingModel: form.meetingModel || undefined, meetingPoint: form.meetingPoint.trim() || undefined }) });
           await reload(created.id); onChanged();
         } else if (revision?.status === 'DRAFT' && dirty) {
           await api.request(`/product-revisions/${revision.id}`, { method: 'PATCH', body: JSON.stringify(revisionPayload()) });
+          await api.request(`/products/${snapshot.product.id}/currency`, { method: 'PATCH', body: JSON.stringify({ currency: form.currency }) });
           await reload(snapshot.product.id); onChanged();
         }
         setDirty(false);
@@ -108,16 +118,17 @@ export default function ExperienceWizardModal({ product, initialStep = 1, onDone
   }
   function validateStep(step: WizardStep) {
     if (step === 1) { const missing = [['product name', form.productName], ['product type', form.type], ['sub-type', form.subType], ['sub-category', form.subCategory], ['city', form.cityName], ['state / region', form.stateName], ['country', form.countryName], ['meeting model', form.meetingModel], ['short description', form.shortDescription]].filter(([, value]) => !String(value || '').trim()).map(([label]) => label); if (missing.length) { setError(`Complete the required basic information: ${missing.join(', ')}.`); return false; } }
-    if (step === 2 && !form.description.trim()) { setError('Add a full experience description before continuing.'); return false; }
-    if (step === 3 && !snapshot.variants.length) { setError('Add at least one option before configuring rates.'); return false; }
-    if (step === 4 && !snapshot.variants.some((variant) => (variant.ratePlans || []).length)) { setError('Add at least one rate plan before configuring availability.'); return false; }
+    if (step === 2) { if (!form.description.trim()) { setError('Add a full experience description before continuing.'); return false; } }
+    if (step === 3) { if (!snapshot.variants.length) { setError('Add at least one option before configuring prices.'); return false; } }
+    if (step === 4) { if (!pricingSaved && !snapshot.variants.some((variant) => (variant.ratePlans || []).length)) { setError('Save prices for at least one option before continuing.'); return false; } }
     return true;
   }
   async function next() { if (locked || !validateStep(activeStep)) return; const saved = await saveDraft(); if (!saved) return; setActiveStep((step) => Math.min(6, step + 1) as WizardStep); }
   async function startRevision(sourceRevisionId?: string) { if (!snapshot.product) return; setBusy(true); setError(''); try { await api.request(`/products/${snapshot.product.id}/revisions`, { method: 'POST', body: JSON.stringify(sourceRevisionId ? { sourceRevisionId } : {}) }); await reload(snapshot.product.id); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } }
-  async function submit() { if (!snapshot.product || !revision || revision.status !== 'DRAFT') return; const saved = await saveDraft(); if (!saved) return; setBusy(true); try { const result = await api.request<ProductReadiness>(`/products/${snapshot.product.id}/readiness`); if (!result.ready) { setError('This experience still needs attention before it can be submitted.'); setActiveStep(6); return; } await api.request(`/product-revisions/${revision.id}/submit`, { method: 'POST' }); await reload(snapshot.product.id); onChanged(); setNotice('Submitted for review. Platform review can now publish this revision.'); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } }
+  async function submit() { if (!snapshot.product || !revision || revision.status !== 'DRAFT') return; const saved = await saveDraft(); if (!saved) return; setBusy(true); try { const result = await api.request<ProductReadiness>(`/products/${snapshot.product.id}/readiness`); if (!result.ready) { setError('This experience still needs attention before it can be submitted.'); setActiveStep(5); return; } await api.request(`/product-revisions/${revision.id}/submit`, { method: 'POST' }); await reload(snapshot.product.id); onChanged(); setNotice('Submitted for review. Platform review can now publish this revision.'); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); } }
   async function close() { if (busyRef.current) return; if (dirtyRef.current && !window.confirm('You have unsaved changes. Close without saving? Your persisted draft will remain available.')) return; onDone(); }
-  const completed = new Set<number>([...(snapshot.revision ? [1] : []), ...(snapshot.variants.length ? [3] : []), ...(snapshot.variants.some((variant) => (variant.ratePlans || []).length) ? [4] : [])]);
-  const stepProps = { snapshot, locked, revisionForm: form, fulfilment, onSaveDraft: saveDraft, onRevisionChange, onFulfilmentChange: (nextValue: FulfilmentForm) => { setFulfilment(nextValue); setDirty(true); }, onRefresh: refresh, onError };
-  return <div className="experience-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) void close(); }}><div ref={dialogRef} className="experience-modal" role="dialog" aria-modal="true" aria-labelledby="experience-modal-title"><header className="experience-modal-header"><div><h2 id="experience-modal-title">{snapshot.product ? 'Edit marketplace experience' : 'Create marketplace experience'}</h2><p>Build the product once; add options, rates and inventory underneath it.</p></div><button ref={closeRef} type="button" className="experience-modal-close" aria-label="Close experience wizard" onClick={() => void close()}>×</button></header>{loading ? <Loading text="Loading experience…" /> : <><div className="experience-modal-body">{error && <ErrorBox error={error} />}{notice && <div className="alert success">{notice}</div>}{rejected && !revision && <div className="alert error"><b>Revision rejected:</b> {rejected.rejectionReason || 'No reason supplied.'} <button type="button" className="link-button" onClick={() => void startRevision(rejected.id)}>Create corrected draft</button></div>}{snapshot.product && revision && revision.status !== 'DRAFT' && <div className="experience-readonly-banner"><b>{revision.status === 'UNDER_REVIEW' ? 'Under review' : revision.status === 'PUBLISHED' ? 'Published revision' : revision.status}</b><span>This revision is read-only. {revision.status === 'PUBLISHED' && 'Create a working revision to make changes.'}</span>{revision.status !== 'UNDER_REVIEW' && <button type="button" className="btn small" onClick={() => void startRevision()}>Create working revision</button>}</div>}<div className="experience-wizard"><WizardNavigation activeStep={activeStep} completed={completed} onSelect={setActiveStep} locked={false} /><main className="experience-wizard-content">{activeStep === 1 && <BasicInfoStep {...stepProps} />}{activeStep === 2 && <ExperienceStep {...stepProps} />}{activeStep === 3 && <OptionsStep {...stepProps} />}{activeStep === 4 && <RatesRulesStep {...stepProps} />}{activeStep === 5 && <AvailabilityStep {...stepProps} />}{activeStep === 6 && <ReviewSubmitStep {...stepProps} onNavigate={setActiveStep} />}</main></div></div><WizardFooter step={activeStep} busy={busy} locked={locked} onBack={() => setActiveStep((step) => Math.max(1, step - 1) as WizardStep)} onSave={() => void saveDraft()} onNext={() => void next()} onSubmit={() => void submit()} /></>}</div></div>;
+  const completed = new Set<number>([...(snapshot.revision && form.productName.trim() && form.type && form.subType.trim() ? [1] : []), ...(snapshot.revision && form.description.trim() ? [2] : []), ...(snapshot.variants.length ? [3] : []), ...(pricingSaved || snapshot.variants.some((variant) => (variant.ratePlans || []).length) ? [4] : [])]);
+  const stepProps = { snapshot, locked, revisionForm: form, fulfilment, onSaveDraft: saveDraft, onRevisionChange, onFulfilmentChange: (nextValue: FulfilmentForm) => { setFulfilment(nextValue); setDirty(true); }, onRefresh: refresh, onError, onPricingDirty: () => { setDirty(true); setNotice(''); }, onPricingSaved: () => { setPricingSaved(true); setDirty(false); } };
+  const unifiedLabels = ['Activity details', 'Experience', 'Options', 'Pricing', 'Availability', 'Review & submit'];
+  return <div className="experience-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) void close(); }}><div ref={dialogRef} className="experience-modal" role="dialog" aria-modal="true" aria-labelledby="experience-modal-title"><header className="experience-modal-header"><div><h2 id="experience-modal-title">{snapshot.product ? 'Edit marketplace experience' : 'Create marketplace experience'}</h2><p>Add the activity once, then configure pricing and availability as separate steps.</p></div><button ref={closeRef} type="button" className="experience-modal-close" aria-label="Close experience wizard" onClick={() => void close()}>×</button></header>{loading ? <Loading text="Loading experience…" /> : <><div className="experience-modal-body">{error && <ErrorBox error={error} />}{notice && <div className="alert success">{notice}</div>}{rejected && !revision && <div className="alert error"><b>Revision rejected:</b> {rejected.rejectionReason || 'No reason supplied.'} <button type="button" className="link-button" onClick={() => void startRevision(rejected.id)}>Create corrected draft</button></div>}{snapshot.product && revision && revision.status !== 'DRAFT' && <div className="experience-readonly-banner"><b>{revision.status === 'UNDER_REVIEW' ? 'Under review' : revision.status === 'PUBLISHED' ? 'Published revision' : revision.status}</b><span>This revision is read-only. {revision.status === 'PUBLISHED' && 'Create a working revision to make changes.'}</span>{revision.status !== 'UNDER_REVIEW' && <button type="button" className="btn small" onClick={() => void startRevision()}>Create working revision</button>}</div>}<div className="experience-wizard"><WizardNavigation activeStep={activeStep} completed={completed} onSelect={setActiveStep} locked={false} labels={unifiedLabels} /><main className="experience-wizard-content"><>{activeStep === 1 && <BasicInfoStep {...stepProps} />}{activeStep === 2 && <ExperienceStep {...stepProps} />}{activeStep === 3 && <OptionsStep {...stepProps} />}{activeStep === 4 && <ActivityPricesAvailability {...stepProps} section="pricing" />}{activeStep === 5 && <ActivityPricesAvailability {...stepProps} section="availability" />}{activeStep === 6 && <ReviewSubmitStep {...stepProps} onNavigate={setActiveStep} />}</></main></div></div><WizardFooter step={activeStep} busy={busy} locked={locked} totalSteps={6} nextLabels={['Experience', 'Options', 'Pricing', 'Availability', 'Review & submit']} onBack={() => setActiveStep((step) => Math.max(1, step - 1) as WizardStep)} onSave={() => void saveDraft()} onNext={() => void next()} onSubmit={() => void submit()} /></>}</div></div>;
 }

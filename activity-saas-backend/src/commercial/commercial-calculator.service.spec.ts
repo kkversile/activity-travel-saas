@@ -8,7 +8,21 @@ const input = (overrides: any = {}) => ({ ratePlanId: 'rp', serviceDate: new Dat
 describe('CommercialCalculatorService Phase 3.1 correctness', () => {
   const calculator = new CommercialCalculatorService();
   it('calculates per-person net basis', () => expect(calculator.calculate(input(), version(), []).supplier).toMatchObject({ grossBasis: '200.00', vendorPayable: '200.00' }));
+  it('uses the configured visitor category price and requires configured verification', () => {
+    const configured = version({ travellerPrices: [{ travellerType: 'ADULT', amount: '100' }], sourcePayload: { visitorPrices: [{ travellerType: 'ADULT', indian: '80', foreign: '150' }], visitorEligibilityBasis: 'RESIDENCY', visitorVerificationMode: 'DOCUMENT_AT_BOOKING' } });
+    const unverified = calculator.calculate(input({ visitorCategory: 'FOREIGN' }), configured, [voya(), tax()]);
+    expect(unverified.supplier?.grossBasis).toBe('300.00');
+    expect(unverified.reasonCodes).toContain('VISITOR_ELIGIBILITY_VERIFICATION_REQUIRED');
+    const verified = calculator.calculate(input({ visitorCategory: 'INDIAN', visitorEligibilityVerified: true }), configured, [voya(), tax()]);
+    expect(verified.supplier?.grossBasis).toBe('160.00');
+    expect(verified.reasonCodes).not.toContain('VISITOR_ELIGIBILITY_VERIFICATION_REQUIRED');
+  });
   it('calculates per-booking units', () => expect(calculator.calculate(input({ units: 3 }), version({ pricingUnit: 'PER_BOOKING', supplierBaseAmount: '125' }), []).supplier?.grossBasis).toBe('375.00'));
+  it('enforces maximum passengers per resource for vehicle pricing', () => {
+    const result = calculator.calculate(input({ units: 1, travellers: [{ travellerType: 'ADULT', quantity: 8 }] }), version({ pricingUnit: 'PER_UNIT', supplierBaseAmount: '3500', sourcePayload: { maxPassengersPerResource: 7 } }), []);
+    expect(result.reasonCodes).toContain('RESOURCE_PASSENGER_LIMIT_EXCEEDED');
+    expect(result.ready).toBe(false);
+  });
   it('calculates commissionable supplier terms', () => expect(calculator.calculate(input(), version({ supplierModel: 'COMMISSIONABLE', supplierCommissionPercent: '10' }), []).supplier).toMatchObject({ commission: '20.00', vendorPayable: '180.00' }));
   it('rejects unsupported supplier models at calculation', () => expect(calculator.calculate(input(), version({ supplierModel: 'HYBRID' }), []).reasonCodes).toContain('SUPPLIER_MODEL_UNSUPPORTED'));
   it('keeps Voya revenue when applying NET_PLUS_MARKUP', () => { const result = calculator.calculate(input({ agentTenantId: 'a1', travellers: [{ travellerType: 'ADULT', quantity: 1 }] }), version({ supplierBaseAmount: '1000', travellerPrices: [{ travellerType: 'ADULT', amount: '1000' }] }), [voya({ model: 'MARKUP_FIXED', fixedAmount: '150' }), { rule: { id: 'agent', kind: 'AGENT_COMMERCIAL', scopeType: 'AGENT', versions: [{ id: 'av1', priority: 1, stackingMode: 'EXCLUSIVE', effectiveFrom: '2026-09-01' }] }, config: { model: 'NET_PLUS_MARKUP', markupAmount: '100' } }, tax()]); expect(result.voya?.revenue).toBe('150.00'); expect(result.agent).toMatchObject({ markup: '100.00', facingAmount: '1250.00' }); });

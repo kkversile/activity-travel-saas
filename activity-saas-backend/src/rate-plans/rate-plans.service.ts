@@ -69,12 +69,12 @@ export class RatePlansService {
     const existing = await this.prisma.ratePlan.findFirst({ where: { id, variant: { product: { tenantId } } } });
     if (!existing) throw new NotFoundException('Rate plan not found');
     const { travellerRules, cancellationRules, validFrom, validTo, ...rest } = dto;
-    if (travellerRules || cancellationRules) throw new ConflictException('Rate plan identity updates cannot mutate commercial or cancellation terms; use the versioned commercial editor');
     const nextValidFrom = validFrom ? new Date(validFrom) : existing.validFrom;
     const nextValidTo = validTo ? new Date(validTo) : existing.validTo;
     if (nextValidTo < nextValidFrom) throw new ConflictException('validTo must be after validFrom');
 
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       if (travellerRules) {
         await tx.travellerRule.deleteMany({ where: { ratePlanId: id } });
       }
@@ -87,11 +87,17 @@ export class RatePlansService {
           ...rest,
           ...(validFrom ? { validFrom: nextValidFrom } : {}),
           ...(validTo ? { validTo: nextValidTo } : {}),
+          ...(travellerRules ? { travellerRules: { create: travellerRules } } : {}),
+          ...(cancellationRules ? { cancellationRules: { create: cancellationRules } } : {}),
         },
         include: { travellerRules: true, cancellationRules: true },
       });
       await this.audit.write(tx, { actor: user, tenantId, action: 'RATEPLAN_UPDATED', entityType: 'RatePlan', entityId: id, beforeState: { status: existing.status }, afterState: { status: updated.status } });
       return { ...updated, ...(this.commercial ? { commercialReadiness: await this.commercial.readiness(user, id) } : {}) };
-    });
+      });
+    } catch (error: any) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('A rate plan with this ratePlanCode already exists for the variant');
+      throw error;
+    }
   }
 }

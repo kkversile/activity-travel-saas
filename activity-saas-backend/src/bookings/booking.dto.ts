@@ -1,6 +1,6 @@
 import { BookingMode, BookingStatus, TravellerType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsEmail, IsEnum, IsInt, IsObject, IsOptional, IsString, Matches, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, Matches, Min, ValidateNested } from 'class-validator';
 
 export class BookingTravellerDetailDto {
   @IsEnum(TravellerType) travellerType!: TravellerType;
@@ -23,6 +23,8 @@ export class BookingPreviewDto {
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => BookingTravellerDetailDto) travellerDetails?: BookingTravellerDetailDto[];
   @IsOptional() @IsObject() pickupDetails?: Record<string, unknown>;
   @IsOptional() @IsObject() bookingAnswers?: Record<string, unknown>;
+  @IsOptional() @IsIn(['INDIAN', 'FOREIGN']) visitorCategory?: 'INDIAN' | 'FOREIGN';
+  @IsOptional() @IsBoolean() visitorEligibilityVerified?: boolean;
 }
 
 export class BookingCreateDto extends BookingPreviewDto {

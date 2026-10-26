@@ -11,8 +11,15 @@ import { validateRuleConfig } from './commercial-validation';
 import { selectEffectiveVersion } from './commercial-resolution';
 import { fingerprint } from '../bookings/booking-fingerprint';
 
+// `include` automatically returns scalar columns such as sourcePayload. Only
+// relation fields belong in the include object; listing sourcePayload there
+// makes Prisma reject every readiness/listing query at runtime.
 const versionSelect = { travellerPrices: true } as const;
 const dateWindow = (date: Date) => ({ effectiveFrom: { lte: date }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: date } }] });
+const localDayCode = (date: Date, timezone?: string) => {
+  try { return new Intl.DateTimeFormat('en-US', { timeZone: timezone || 'UTC', weekday: 'short' }).format(date).toUpperCase().slice(0, 3); }
+  catch { return ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][date.getUTCDay()]; }
+};
 
 @Injectable()
 export class CommercialService {
@@ -59,6 +66,13 @@ export class CommercialService {
     const reasonCodes: string[] = [];
     let active: any = null;
     try { active = selectEffectiveVersion(activeVersions as any, serviceDate); } catch { reasonCodes.push('AMBIGUOUS_RULE'); }
+    // The unified activity editor intentionally saves the first commercial
+    // version as DRAFT while the product is still awaiting review. Treat that
+    // editor-owned draft as the submission candidate for vendor readiness;
+    // it is still not marketplace-bookable until Admin publishes the product.
+    if (!active && !reasonCodes.includes('AMBIGUOUS_RULE') && draft && (draft.sourcePayload as any)?.createdFromActivityEditor === true) {
+      try { active = selectEffectiveVersion([draft] as any, serviceDate); } catch { /* the draft does not cover this service date */ }
+    }
     let resolvedRules: Array<{ rule: any; config: any }> = [];
     if (active || !reasonCodes.includes('AMBIGUOUS_RULE')) {
         try { resolvedRules = await this.resolveRules({ ratePlanId: id, serviceDate: serviceDate.toISOString(), units: 1, travellers: [], agentTenantId } as any, client); }
@@ -177,13 +191,17 @@ export class CommercialService {
    * uses vendor-user ownership checks and returns the full internal result
    * only to other backend services.
    */
-  async evaluateInternal(input: { ratePlanId: string; serviceDate: Date; units: number; travellers: Array<{ travellerType: string; quantity: number }>; agentTenantId?: string; channel?: string; agentFacingRequired?: boolean }, client: PrismaService | Prisma.TransactionClient = this.prisma) {
+  async evaluateInternal(input: { ratePlanId: string; serviceDate: Date; units: number; travellers: Array<{ travellerType: string; quantity: number }>; agentTenantId?: string; channel?: string; agentFacingRequired?: boolean; slotCode?: string; visitorCategory?: 'INDIAN' | 'FOREIGN'; visitorEligibilityVerified?: boolean }, client: PrismaService | Prisma.TransactionClient = this.prisma) {
     const plan = await client.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { variant: { include: { product: true } } } });
     if (!plan) throw new NotFoundException('Rate plan not found');
     const versions = await client.ratePlanCommercialVersion.findMany({ where: { ratePlanId: plan.id, status: CommercialVersionStatus.ACTIVE, ...dateWindow(input.serviceDate) }, include: versionSelect });
+    const applicableVersions = versions.filter((version: any) => { const payload = version.sourcePayload as any; const dayCode = localDayCode(input.serviceDate, payload?.pricingTimezone); const pricingDays: string[] = Array.isArray(payload?.pricingDays) ? payload.pricingDays : []; const pricingSlots: string[] = Array.isArray(payload?.pricingSlotCodes) ? payload.pricingSlotCodes : []; return (!pricingDays.length || pricingDays.includes(dayCode)) && (!pricingSlots.length || (input.slotCode && pricingSlots.includes(input.slotCode))); });
+    const specificity = (version: any) => { const payload = version.sourcePayload as any; return (Array.isArray(payload?.pricingSlotCodes) && payload.pricingSlotCodes.length ? 2 : 0) + (Array.isArray(payload?.pricingDays) && payload.pricingDays.length && payload.pricingDays.length < 7 ? 1 : 0); };
+    const maxSpecificity = applicableVersions.length ? Math.max(...applicableVersions.map(specificity)) : 0;
+    const selectedVersions = applicableVersions.filter((version: any) => specificity(version) === maxSpecificity);
     let version: any = null;
     let ambiguousVersion = false;
-    try { version = selectEffectiveVersion(versions as any, input.serviceDate); } catch { ambiguousVersion = true; }
+    try { version = selectEffectiveVersion(selectedVersions as any, input.serviceDate); } catch { ambiguousVersion = true; }
     const result = this.calculator.calculate(input, version, await this.resolveRules({ ...input, serviceDate: input.serviceDate.toISOString() } as QuoteDto, client));
     if (ambiguousVersion && !result.reasonCodes.includes('AMBIGUOUS_RULE')) { result.reasonCodes.push('AMBIGUOUS_RULE'); result.ready = false; }
     if (version?.bookingMode !== 'INSTANT' && (!Number.isInteger(version?.confirmationSlaMinutes) || version.confirmationSlaMinutes <= 0)) { if (!result.reasonCodes.includes('CONFIRMATION_SLA_MISSING')) result.reasonCodes.push('CONFIRMATION_SLA_MISSING'); result.ready = false; }
@@ -211,7 +229,8 @@ export class CommercialService {
   }
 
   quoteFingerprint(result: any) {
-    return fingerprint({ ratePlanCommercialVersionId: result.ratePlanCommercialVersionId ?? null, currency: result.currency ?? null, pricingUnit: result.pricingUnit ?? null, bookingMode: result.bookingMode ?? null, finalAmount: result.finalAmount ?? null, tax: result.tax ?? null, promotion: result.promotion ?? { amount: result.promotionAmount ?? null, funder: result.promotionFunder ?? null }, foc: result.foc ?? { amount: result.focAmount ?? null }, commercialEligibility: result.commercialEligibility ?? null, ruleVersionIds: (result.appliedRules ?? []).map((rule: any) => rule.ruleVersionId).sort() });
+    const inputs = (result.calculationInputs || {}) as any;
+    return fingerprint({ ratePlanCommercialVersionId: result.ratePlanCommercialVersionId ?? null, currency: result.currency ?? null, pricingUnit: result.pricingUnit ?? null, bookingMode: result.bookingMode ?? null, finalAmount: result.finalAmount ?? null, tax: result.tax ?? null, promotion: result.promotion ?? { amount: result.promotionAmount ?? null, funder: result.promotionFunder ?? null }, foc: result.foc ?? { amount: result.focAmount ?? null }, commercialEligibility: result.commercialEligibility ?? null, visitorCategory: inputs.visitorCategory ?? null, visitorEligibilityVerified: inputs.visitorEligibilityVerified === true, ruleVersionIds: (result.appliedRules ?? []).map((rule: any) => rule.ruleVersionId).sort() });
   }
 
   async quote(user: AuthUser, dto: QuoteDto) {
@@ -219,7 +238,10 @@ export class CommercialService {
     if (!plan) throw new NotFoundException('Rate plan not found');
     const versions = await this.prisma.ratePlanCommercialVersion.findMany({ where: { ratePlanId: plan.id, status: CommercialVersionStatus.ACTIVE, ...dateWindow(new Date(dto.serviceDate)) }, include: versionSelect });
     let version: any = null; let ambiguousVersion = false;
-    try { version = selectEffectiveVersion(versions as any, new Date(dto.serviceDate)); } catch { ambiguousVersion = true; }
+    const applicableVersions = versions.filter((item: any) => { const payload = item.sourcePayload as any; const dayCode = localDayCode(new Date(dto.serviceDate), payload?.pricingTimezone); const pricingDays: string[] = Array.isArray(payload?.pricingDays) ? payload.pricingDays : []; const pricingSlots: string[] = Array.isArray(payload?.pricingSlotCodes) ? payload.pricingSlotCodes : []; return (!pricingDays.length || pricingDays.includes(dayCode)) && (!pricingSlots.length || (dto.slotCode && pricingSlots.includes(dto.slotCode))); });
+    const specificity = (item: any) => { const payload = item.sourcePayload as any; return (Array.isArray(payload?.pricingSlotCodes) && payload.pricingSlotCodes.length ? 2 : 0) + (Array.isArray(payload?.pricingDays) && payload.pricingDays.length && payload.pricingDays.length < 7 ? 1 : 0); };
+    const maxSpecificity = applicableVersions.length ? Math.max(...applicableVersions.map(specificity)) : 0;
+    try { version = selectEffectiveVersion(applicableVersions.filter((item: any) => specificity(item) === maxSpecificity) as any, new Date(dto.serviceDate)); } catch { ambiguousVersion = true; }
     const result = this.calculator.calculate({ ...dto, serviceDate: new Date(dto.serviceDate) }, version, await this.resolveRules(dto));
     if (ambiguousVersion && !result.reasonCodes.includes('AMBIGUOUS_RULE')) { result.reasonCodes.push('AMBIGUOUS_RULE'); result.ready = false; }
     return { ...result, projection: 'INTERNAL', confidential: { supplier: result.supplier, voya: result.voya, agent: result.agent } };

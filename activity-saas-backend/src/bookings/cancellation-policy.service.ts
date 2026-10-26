@@ -4,8 +4,14 @@ import { fingerprint } from './booking-fingerprint';
 
 @Injectable()
 export class CancellationPolicyService {
-  async load(client: Prisma.TransactionClient | any, ratePlanId: string) {
-    const rows = await client.cancellationRule.findMany({ where: { ratePlanId }, orderBy: [{ minDaysBefore: 'asc' }, { id: 'asc' }] });
+  async load(client: Prisma.TransactionClient | any, ratePlanId: string, commercialVersionId?: string | null) {
+    let rows: any[] = [];
+    if (commercialVersionId && client.ratePlanCommercialVersion?.findUnique) {
+      const version = await client.ratePlanCommercialVersion.findUnique({ where: { id: commercialVersionId }, select: { ratePlanId: true, sourcePayload: true } });
+      const snapshot = (version?.sourcePayload as any)?.bookingRules?.cancellationRules;
+      if (version?.ratePlanId === ratePlanId && Array.isArray(snapshot) && snapshot.length) rows = snapshot.map((rule: any, index: number) => ({ ...rule, id: `version:${commercialVersionId}:${index}` }));
+    }
+    if (!rows.length) rows = await client.cancellationRule.findMany({ where: { ratePlanId }, orderBy: [{ minDaysBefore: 'asc' }, { id: 'asc' }] });
     if (!rows.length) throw new ConflictException('CANCELLATION_POLICY_MISSING');
     for (const row of rows) {
       if (row.minDaysBefore < 0 || (row.maxDaysBefore != null && row.maxDaysBefore < row.minDaysBefore) || Number(row.chargeValue) < 0 || !Object.values(ChargeType).includes(row.chargeType)) throw new ConflictException('CANCELLATION_POLICY_INVALID');
