@@ -124,16 +124,17 @@
 .activity-slot-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; padding: 10px; background: #f7f8fa; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; }
 .activity-slot-row .field { margin: 0; }
 .activity-cancellation-grid { display: grid; gap: 8px; margin-top: 10px; }
-.activity-cancellation-row { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)) minmax(135px, .9fr); gap: 10px; align-items: end; padding: 10px; background: #f7f8fa; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; }
+.activity-cancellation-row { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)) minmax(135px, .9fr) auto; gap: 10px; align-items: end; padding: 10px; background: #f7f8fa; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; }
 .activity-cancellation-row .field { margin: 0; }
 .activity-cancellation-row input, .activity-cancellation-row select { width: 100%; min-width: 0; }
+.activity-cancellation-actions { margin-top: 8px; }
 .activity-preview { display: grid; gap: 3px; width: 100%; margin-top: 10px; padding: 9px 11px; border-radius: 8px; font-size: 11px; }
 .activity-preview.valid { background: #e8f6ef; color: #16805a; }
 .activity-preview.invalid { background: #fff0f0; color: #b42318; }
 @media (max-width: 900px) { .activity-price-head { display: none; } .activity-price-row { grid-template-columns: 1fr 1fr; } .activity-price-row > :first-child { grid-column: 1 / -1; } .activity-prices-actions { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 650px) { .activity-price-row-extra, .activity-visitor-row, .activity-slot-row { grid-template-columns: 1fr; } }
-@media (max-width: 900px) { .activity-cancellation-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 650px) { .activity-cancellation-row { grid-template-columns: 1fr 1fr; } .activity-cancellation-row select { grid-column: 1 / -1; } }
+@media (max-width: 900px) { .activity-cancellation-row { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; } }
+@media (max-width: 650px) { .activity-cancellation-row { grid-template-columns: 1fr 1fr; } .activity-cancellation-row select, .activity-cancellation-row .activity-cancellation-remove { grid-column: 1 / -1; } }
 .activity-preview-details{display:grid;gap:.45rem;margin-top:.65rem;padding-top:.65rem;border-top:1px solid rgba(24,43,79,.14);text-align:left}.activity-preview-details>div{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}.activity-preview-details small{color:#60708d}
 .activity-editor-section-pricing > .experience-step-card:not(.activity-prices-card):not(.activity-booking-rules):not(.activity-prices-actions),.activity-editor-section-pricing > .activity-prices-actions{display:none}.activity-editor-section-pricing > .experience-step-card.activity-prices-actions{display:flex}.activity-editor-section-availability > .experience-step-card.activity-prices-card,.activity-editor-section-availability > .activity-booking-rules{display:none}.activity-editor-section-availability .activity-prices-actions .experience-footer-actions>button:nth-child(1),.activity-editor-section-availability .activity-prices-actions .experience-footer-actions>button:nth-child(2){display:none}.activity-editor-section-availability .activity-prices-actions .experience-footer-actions>button:nth-child(3){font-size:0}.activity-editor-section-availability .activity-prices-actions .experience-footer-actions>button:nth-child(3)::after{content:'Save availability';font-size:11px}
 .activity-editor-section-pricing .activity-price-row-extra > .field:nth-child(1),.activity-editor-section-pricing .activity-price-row-extra > .field:nth-child(2),.activity-editor-section-pricing .activity-price-row-extra > .field:last-child{display:none}
