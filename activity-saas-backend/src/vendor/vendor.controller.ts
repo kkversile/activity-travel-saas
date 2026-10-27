@@ -19,6 +19,12 @@ import { VendorService } from './vendor.service';
 export class VendorController {
   constructor(private readonly service: VendorService) {}
 
+  @Get('visitor-pricing-settings')
+  @Permissions('product.view')
+  visitorPricingSettings() {
+    return this.service.visitorPricingSettings();
+  }
+
   @Get('profile')
   @Permissions('vendor.profile.view')
   getProfile(@CurrentUser() user: AuthUser) {

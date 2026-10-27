@@ -8,6 +8,7 @@ import { StorageService } from '../storage/storage.service';
 import { requireTenant } from '../common/tenant';
 import { UpdateVendorDto } from './update-vendor.dto';
 import { documentKeyMap, DocumentKey } from './vendor-document.dto';
+import { defaultVisitorPricingSettings, normalizeVisitorPricingSettings, VISITOR_PRICING_SETTINGS_KEY } from '../common/visitor-pricing-settings';
 
 const profileSelect = {
   id: true, tenantId: true, legalBusinessName: true, operatingCity: true, operatingRegion: true, gstin: true, category: true,
@@ -28,6 +29,10 @@ export function detectDocumentType(buffer: Buffer): ValidatedDocumentType | null
 @Injectable()
 export class VendorService {
   constructor(private readonly prisma: PrismaService, private readonly storage: StorageService, private readonly audit: AuditService, private readonly outbox: OutboxService) {}
+  async visitorPricingSettings() {
+    const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: VISITOR_PRICING_SETTINGS_KEY }, select: { value: true } });
+    return normalizeVisitorPricingSettings(setting?.value || defaultVisitorPricingSettings);
+  }
   async getProfile(user: AuthUser) {
     const tenantId = requireTenant(user);
     const profile = await this.prisma.vendorProfile.findUnique({ where: { tenantId }, select: profileSelect });

@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Optional } from '@nestjs/common';
 import { ChannelMappingService } from '../distribution/channel-mapping.service';
 import { ChannelDistributionReadinessService } from '../distribution/channel-distribution-readiness.service';
+import { defaultVisitorPricingSettings, normalizeVisitorPricingSettings, VISITOR_PRICING_SETTINGS_KEY, VisitorPricingSettings } from '../common/visitor-pricing-settings';
 
 const profileSelect = { id: true, tenantId: true, legalBusinessName: true, operatingCity: true, operatingRegion: true, gstin: true, category: true, verificationStatus: true, readinessScore: true, payoutAccountMasked: true, payoutAccountHolder: true, payoutBankName: true, payoutBranch: true, payoutIfsc: true, payoutSwift: true, payoutAccountType: true, payoutCurrency: true } satisfies Prisma.VendorProfileSelect;
 const documentsInclude = { vendorDocuments: { include: { versions: { orderBy: { versionNumber: 'desc' as const }, include: { fileAsset: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true, visibility: true, purpose: true } } } } } } };
@@ -15,6 +16,24 @@ const documentsInclude = { vendorDocuments: { include: { versions: { orderBy: { 
 @Injectable()
 export class AdminService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, @Optional() private readonly distributionMappings?: ChannelMappingService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService) {}
+
+  async visitorPricingSettings() {
+    const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: VISITOR_PRICING_SETTINGS_KEY }, select: { value: true, updatedAt: true, adminId: true } });
+    return { ...normalizeVisitorPricingSettings(setting?.value || defaultVisitorPricingSettings), updatedAt: setting?.updatedAt || null, updatedById: setting?.adminId || null };
+  }
+
+  async updateVisitorPricingSettings(actor: AuthUser, input: Partial<VisitorPricingSettings>) {
+    const before = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: VISITOR_PRICING_SETTINGS_KEY }, select: { id: true, value: true } });
+    const next = normalizeVisitorPricingSettings({ ...normalizeVisitorPricingSettings(before?.value), ...input });
+    const setting = await this.prisma.$transaction(async (tx) => {
+      const saved = before
+        ? await tx.globalSetting.update({ where: { id: before.id }, data: { value: next, adminId: actor.sub }, select: { value: true, updatedAt: true, adminId: true } })
+        : await tx.globalSetting.create({ data: { tenantId: null, adminId: actor.sub, key: VISITOR_PRICING_SETTINGS_KEY, value: next }, select: { value: true, updatedAt: true, adminId: true } });
+      await this.audit.write(tx, { actor, action: 'VISITOR_PRICING_SETTINGS_UPDATED', entityType: 'GlobalSetting', entityId: before?.id || VISITOR_PRICING_SETTINGS_KEY, beforeState: normalizeVisitorPricingSettings(before?.value), afterState: next });
+      return saved;
+    });
+    return { ...normalizeVisitorPricingSettings(setting.value), updatedAt: setting.updatedAt, updatedById: setting.adminId };
+  }
 
   platformAdmins() {
     return this.prisma.user.findMany({ where: { role: UserRole.ADMIN }, select: { id: true, email: true, fullName: true, role: true, active: true, createdAt: true, updatedAt: true }, orderBy: { createdAt: 'asc' } });

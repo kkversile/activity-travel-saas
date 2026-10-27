@@ -46,6 +46,8 @@ export class AdminController {
   @Post('refunds/:id/retry') @Permissions('refund.manage') retryRefund(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.cancellations.retryRefund(user, id); }
   @Post('cancellations/:id/resolve-financial') @Permissions('financial.cancellation.resolve') resolveFinancial(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: FinancialResolutionDto) { return this.cancellations.resolveFinancial(user, id, dto); }
   @Get('dashboard') @Permissions('audit.view') dashboard() { return this.service.dashboard(); }
+  @Get('settings/visitor-pricing') @Permissions('platform.settings.manage') visitorPricingSettings() { return this.service.visitorPricingSettings(); }
+  @Patch('settings/visitor-pricing') @Permissions('platform.settings.manage') updateVisitorPricingSettings(@CurrentUser() user: AuthUser, @Body() dto: { showEligibilityBasis?: boolean; showVerificationRequired?: boolean }) { return this.service.updateVisitorPricingSettings(user, dto); }
   @Get('vendors') @Permissions('vendor.profile.view') vendors() { return this.service.vendors(); }
   @Get('products') @Permissions('product.view') products(@Query() query: AdminProductListQueryDto) { return this.service.products(query); }
   @Get('experience-matching/products') @Permissions('product.view') matchingProducts(@Query() query: ExperienceProductSearchDto) { return this.matching.products(query); }
