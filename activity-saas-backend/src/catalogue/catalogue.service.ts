@@ -992,7 +992,7 @@ export class CatalogueService {
   }
   async variants(user: AuthUser, productId: string) { const product = await this.prisma.product.findFirst({ where: { id: productId, tenantId: requireTenant(user) }, select: { currentRevisionId: true, revisions: { where: { status: { in: [ProductRevisionStatus.DRAFT, ProductRevisionStatus.UNDER_REVIEW, ProductRevisionStatus.REJECTED] } }, orderBy: { versionNumber: 'desc' }, select: { id: true, status: true } } } }); if (!product) throw new NotFoundException('Product not found'); const revision = product.revisions.find((item) => item.status === ProductRevisionStatus.DRAFT || item.status === ProductRevisionStatus.UNDER_REVIEW) || product.revisions.find((item) => item.status === ProductRevisionStatus.REJECTED) || { id: product.currentRevisionId }; return this.prisma.productVariant.findMany({ where: { productId, status: { not: VariantStatus.ARCHIVED }, ...(revision?.id ? { OR: [{ revisionId: revision.id }, { revisionId: null, product: { currentRevisionId: revision.id } }] } : {}) }, include: variantInclude, orderBy: { createdAt: 'asc' } }); }
 
-  private activityPriceInput(dto: ActivityPricesAvailabilityDto) {
+  private activityPriceInput(dto: ActivityPricesAvailabilityDto, optionNames = new Map<string, string>()) {
     const errors: string[] = [];
     const seen = new Set<string>();
     for (const [index, option] of (dto.options || []).entries()) {
@@ -1024,7 +1024,7 @@ export class CatalogueService {
       if (dto.hasDifferentialVisitorPricing) {
         const visitorPrices = option.visitorPrices || [];
         const adult = visitorPrices.find((price) => price.travellerType === TravellerType.ADULT);
-        if (!adult || adult.indian === '' || adult.foreign === '') errors.push(`options[${index}]: add both Indian and foreign adult prices or turn off visitor pricing`);
+        if (!adult || adult.indian === '' || adult.foreign === '') errors.push(`${optionNames.get(option.variantId) || `Option ${index + 1}`}: enter the foreign adult price or turn off visitor pricing (the Indian price comes from the option price)`);
       }
       if (option.availability?.operatingModel && ['FIXED_SLOT', 'MULTIPLE_SLOTS'].includes(option.availability.operatingModel) && !option.availability.slots?.length) errors.push(`options[${index}]: add at least one time slot for slot-based availability`);
       if (option.availability?.effectiveTo && option.availability.effectiveFrom && new Date(option.availability.effectiveTo) < new Date(option.availability.effectiveFrom)) errors.push(`options[${index}]: availability end must be on or after availability start`);
@@ -1036,8 +1036,8 @@ export class CatalogueService {
 
   async previewActivityPricesAvailability(user: AuthUser, productId: string, dto: ActivityPricesAvailabilityDto) {
     const product = await this.product(user, productId);
-    const errors = this.activityPriceInput(dto);
     const variants = await this.prisma.productVariant.findMany({ where: { productId, status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, select: { id: true, variantCode: true, name: true } });
+    const errors = this.activityPriceInput(dto, new Map(variants.map((variant) => [variant.id, variant.name])));
     const allowed = new Set(variants.map((variant) => variant.id));
     for (const option of dto.options || []) if (!allowed.has(option.variantId)) errors.push(`Option ${option.variantId} does not belong to this product.`);
     const ratePlanClient: any = (this.prisma as any).ratePlan;
@@ -1130,7 +1130,8 @@ export class CatalogueService {
     const tenantId = requireTenant(user);
     if (!idempotencyKey?.trim()) throw new BadRequestException({ code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key is required for a prices and availability save.' });
     const product = await this.product(user, productId);
-    const errors = this.activityPriceInput(dto);
+    const validationVariants = await this.prisma.productVariant.findMany({ where: { productId, status: { not: VariantStatus.ARCHIVED }, archivedAt: null }, select: { id: true, name: true } });
+    const errors = this.activityPriceInput(dto, new Map(validationVariants.map((variant) => [variant.id, variant.name])));
     if (errors.length) throw new BadRequestException({ code: 'ACTIVITY_PRICES_INVALID', message: 'Fix the highlighted prices and availability fields.', details: errors });
     const key = idempotencyKey.trim();
     const payloadFingerprint = fingerprint(dto);

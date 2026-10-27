@@ -58,7 +58,7 @@ describe('simplified prices and availability editor', () => {
       options: [{ variantId: 'v1', pricingUnit: PricingUnit.PER_PERSON, travellerPrices: [{ travellerType: 'ADULT', amount: '100' }] }],
     } as any);
     expect(result.valid).toBe(false);
-    expect(result.errors).toContain('options[0]: add both Indian and foreign adult prices or turn off visitor pricing');
+    expect(result.errors).toContain('Standard: enter the foreign adult price or turn off visitor pricing (the Indian price comes from the option price)');
   });
 
   it('requires resource passenger limits and a response SLA for non-instant booking', async () => {
@@ -95,7 +95,7 @@ describe('simplified prices and availability editor', () => {
       options: [{ variantId: 'v1', pricingUnit: PricingUnit.PER_PERSON, travellerPrices: [{ travellerType: 'ADULT', amount: '100' }], visitorPrices: [{ travellerType: 'ADULT', indian: '100', foreign: '' }] }],
     } as any);
     expect(result.valid).toBe(false);
-    expect(result.errors).toContain('options[0]: add both Indian and foreign adult prices or turn off visitor pricing');
+    expect(result.errors).toContain('Standard: enter the foreign adult price or turn off visitor pricing (the Indian price comes from the option price)');
   });
 
   it('counts only selected pricing weekdays in the preview', async () => {
