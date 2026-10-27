@@ -111,6 +111,17 @@
 .activity-price-head, .activity-price-row { display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(150px, 1fr) repeat(3, minmax(110px, .8fr)); gap: 12px; align-items: center; padding: 12px 14px; }
 .activity-price-head { background: #f6f8fa; color: #52627c; font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
 .activity-price-row { border-top: 1px solid var(--border, #e5e7eb); }
+.activity-price-option-group + .activity-price-option-group { border-top: 1px solid var(--border, #e5e7eb); }
+.activity-price-option-group .activity-price-row { border-top: 0; }
+.activity-visitor-toggle { padding: 12px 14px; background: #f6f8fa; border-bottom: 1px solid var(--border, #e5e7eb); }
+.activity-visitor-toggle > .wizard-check { margin: 0; display: flex; align-items: center; gap: 8px; }
+.activity-visitor-toggle > .experience-form-grid { margin: 12px 0 0; }
+.activity-visitor-toggle > .experience-form-grid .field { margin-bottom: 0; }
+.activity-foreign-price-row { display: grid; grid-template-columns: minmax(180px, 1.5fr) minmax(150px, 1fr) repeat(3, minmax(110px, .8fr)); gap: 12px; align-items: start; padding: 0 14px 12px; }
+.activity-foreign-price-label { color: var(--ink2); font-size: 12px; font-weight: 700; padding-top: 10px; }
+.activity-foreign-price-input { min-width: 0; }
+.activity-foreign-price-input input { min-width: 0; width: 100%; }
+.activity-foreign-price-input .field-error { display: block; margin-top: 4px; color: var(--bad); font-size: 10.5px; line-height: 1.3; }
 .activity-price-row small, .activity-prices-actions small { display: block; color: #6b7890; margin-top: 4px; }
 .activity-price-row input, .activity-price-row select { min-width: 0; width: 100%; }
 .activity-prices-actions { display: flex; justify-content: space-between; align-items: center; gap: 18px; }
@@ -133,7 +144,7 @@
 .activity-preview { display: grid; gap: 3px; width: 100%; margin-top: 10px; padding: 9px 11px; border-radius: 8px; font-size: 11px; }
 .activity-preview.valid { background: #e8f6ef; color: #16805a; }
 .activity-preview.invalid { background: #fff0f0; color: #b42318; }
-@media (max-width: 900px) { .activity-price-head { display: none; } .activity-price-row { grid-template-columns: 1fr 1fr; } .activity-price-row > :first-child { grid-column: 1 / -1; } .activity-prices-actions { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 900px) { .activity-price-head { display: none; } .activity-price-row, .activity-foreign-price-row { grid-template-columns: 1fr 1fr; } .activity-price-row > :first-child { grid-column: 1 / -1; } .activity-foreign-price-row > :first-child { display: none; } .activity-foreign-price-label { grid-column: 1 / -1; padding-top: 0; } .activity-prices-actions { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 650px) { .activity-price-row-extra, .activity-visitor-row, .activity-slot-row { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .activity-cancellation-row { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; } }
 @media (max-width: 650px) { .activity-cancellation-row { grid-template-columns: 1fr 1fr; } .activity-cancellation-row select, .activity-cancellation-row .activity-cancellation-remove { grid-column: 1 / -1; } }

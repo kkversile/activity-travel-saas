@@ -52,12 +52,12 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     const onError = vi.fn();
     const request = renderEditor(onError);
     await waitFor(() => expect(screen.getByDisplayValue('900')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Different Indian / foreign prices' }));
-    await waitFor(() => expect(screen.getAllByLabelText('Foreign adult').length).toBe(3));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Visitor pricing Optional Different Indian \/ foreign prices/ }));
+    await waitFor(() => expect(screen.getAllByLabelText(/foreign adult price$/i).length).toBe(2));
     expect(screen.queryAllByLabelText('Indian adult')).toHaveLength(0);
-    expect(screen.getByText(/Indian prices: Adult USD 900/)).toBeInTheDocument();
-    expect(screen.getByText(/Indian prices: Adult INR 1,200/)).toBeInTheDocument();
-    expect(screen.getAllByLabelText('Foreign adult').every((input) => !(input as HTMLInputElement).readOnly)).toBe(true);
+    expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900);
+    expect(screen.getByLabelText('Entry + Adventure adult or base price')).toHaveValue(1200);
+    expect(screen.getAllByLabelText(/foreign adult price$/i).every((input) => !(input as HTMLInputElement).readOnly)).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Preview changes' }));
     await waitFor(() => expect(onError).toHaveBeenCalledWith('Entry Only, Entry + Adventure: enter the foreign adult price or turn off visitor pricing.'));
     expect(request.mock.calls.some(([path]) => String(path).endsWith('/prices-availability/preview'))).toBe(false);
