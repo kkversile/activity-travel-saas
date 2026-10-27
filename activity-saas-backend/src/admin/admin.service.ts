@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AgentVerificationStatus, BookingStatus, DocumentReviewStatus, Prisma, ProductRevisionStatus, ProductStatus, TenantKind, UserRole, VendorVerificationStatus } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { AuditService } from '../audit/audit.service';
@@ -146,7 +146,70 @@ export class AdminService {
     return { ...mapping, enabled: mapping.status === 'ACTIVE' };
   }
   async dashboard() { const [vendors, pendingVendors, products, reviewProducts, bookings, pendingBookings] = await Promise.all([this.prisma.tenant.count({ where: { kind: TenantKind.VENDOR } }), this.prisma.vendorProfile.count({ where: { verificationStatus: VendorVerificationStatus.PENDING } }), this.prisma.product.count({ where: { tenant: { kind: TenantKind.VENDOR }, deletedAt: null } }), this.prisma.productRevision.count({ where: { product: { tenant: { kind: TenantKind.VENDOR }, deletedAt: null }, status: ProductRevisionStatus.UNDER_REVIEW } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR } } }), this.prisma.booking.count({ where: { vendorTenant: { kind: TenantKind.VENDOR }, status: BookingStatus.PENDING } })]); return { vendors, pendingVendors, products, listings: products, reviewProducts, reviewActivities: reviewProducts, bookings, pendingBookings }; }
-  vendors() { return this.prisma.tenant.findMany({ where: { kind: TenantKind.VENDOR }, include: { ...documentsInclude, vendorProfile: { select: profileSelect }, users: { select: { id: true, email: true, fullName: true, active: true } }, _count: { select: { products: true, vendorBookings: true, payouts: true } } }, orderBy: { createdAt: 'desc' } }); }
+  async vendorStates(): Promise<string[]> {
+    // A vendor can operate in its home region and in other states through products.
+    const [profiles, applications, revisions] = await Promise.all([
+      this.prisma.vendorProfile.findMany({
+        where: { tenant: { kind: TenantKind.VENDOR } },
+        distinct: ['operatingRegion'],
+        select: { operatingRegion: true },
+      }),
+      this.prisma.vendorOnboardingApplication.findMany({
+        where: { tenant: { kind: TenantKind.VENDOR } },
+        distinct: ['state'],
+        select: { state: true },
+      }),
+      this.prisma.productRevision.findMany({
+        where: { currentForProducts: { some: { deletedAt: null, tenant: { kind: TenantKind.VENDOR } } } },
+        distinct: ['stateName'],
+        select: { stateName: true },
+      }),
+    ]);
+    const states = new Map<string, string>();
+    for (const value of [
+      ...profiles.map((profile) => profile.operatingRegion),
+      ...applications.map((application) => application.state),
+      ...revisions.map((revision) => revision.stateName),
+    ]) {
+      const name = value?.trim();
+      if (name && name.toLowerCase() !== 'not set' && !states.has(name.toLowerCase())) {
+        states.set(name.toLowerCase(), name);
+      }
+    }
+    return [...states.values()].sort((a, b) => a.localeCompare(b));
+  }
+
+  vendors(state?: string) {
+    if (state !== undefined && (typeof state !== 'string' || state.length > 100)) {
+      throw new BadRequestException('Invalid state filter');
+    }
+    const selectedState = state?.trim();
+    const where: Prisma.TenantWhereInput = { kind: TenantKind.VENDOR };
+    if (selectedState) {
+      where.OR = [
+        { vendorProfile: { is: { operatingRegion: { equals: selectedState, mode: 'insensitive' } } } },
+        { vendorOnboarding: { is: { state: { equals: selectedState, mode: 'insensitive' } } } },
+        {
+          products: {
+            some: {
+              deletedAt: null,
+              currentRevision: { is: { stateName: { equals: selectedState, mode: 'insensitive' } } },
+            },
+          },
+        },
+      ];
+    }
+    return this.prisma.tenant.findMany({
+      where,
+      include: {
+        ...documentsInclude,
+        vendorProfile: { select: profileSelect },
+        users: { select: { id: true, email: true, fullName: true, active: true } },
+        _count: { select: { products: true, vendorBookings: true, payouts: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
   async products(query: { search?: string; vendorId?: string; status?: string; type?: string; page?: number; limit?: number }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
