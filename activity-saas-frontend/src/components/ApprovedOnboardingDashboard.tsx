@@ -105,7 +105,7 @@ export default function ApprovedOnboardingDashboard({ application, onNavigate }:
 
   return <div className="approved-onboarding">
     <div className="approved-onboarding-heading">
-      <div><div className="onboarding-eyebrow">VOYA PARTNER WORKSPACE</div><h2>Onboarding &amp; Readiness</h2><p>Keep your legal profile, payout account and marketplace readiness healthy.</p></div>
+      <div><div className="onboarding-eyebrow">VOYA PARTNER WORKSPACE</div><h2>Profile</h2><p>Keep your legal profile, payout account and marketplace readiness healthy.</p></div>
       <Badge value="VERIFIED VENDOR" />
     </div>
 
