@@ -118,9 +118,10 @@
 .activity-price-row-extra .field { margin: 0; }
 .activity-price-row-extra input { padding: 8px; }
 .activity-visitor-grid { display: grid; gap: 8px; margin-top: 12px; }
-.activity-visitor-row { display: grid; grid-template-columns: minmax(150px, 1.4fr) repeat(6, minmax(110px, 1fr)); gap: 10px; align-items: end; padding: 10px; background: #fff; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; }
+.activity-visitor-row { display: grid; grid-template-columns: minmax(270px, 1.8fr) repeat(3, minmax(145px, 1fr)); gap: 10px; align-items: end; padding: 10px; background: #fff; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; }
 .activity-visitor-row .field { margin: 0; }
-.activity-visitor-row input[readonly] { background: #f1f3f5; color: #667085; cursor: not-allowed; }
+.activity-visitor-option { display: grid; gap: 6px; align-self: center; }
+.activity-visitor-option small { color: #667085; font-size: 12px; line-height: 1.35; }
 .activity-slot-editor { display: grid; gap: 8px; margin-top: 12px; }
 .activity-slot-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; padding: 10px; background: #f7f8fa; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; }
 .activity-slot-row .field { margin: 0; }
