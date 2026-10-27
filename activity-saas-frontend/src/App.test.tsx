@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminPageForRole, agentCanBook, agentPageFromPath } from './App';
+import { adminPageForRole, agentCanBook, agentPageFromPath, vendorPageFromPath, vendorPathFor } from './App';
 
 describe('admin route authorization', () => {
   it('keeps Admin Users available only to Super Admin', () => {
@@ -18,5 +18,19 @@ describe('admin route authorization', () => {
     expect(agentCanBook('OWNER')).toBe(true);
     expect(agentCanBook('CATALOGUE')).toBe(true);
     expect(agentCanBook('OPERATIONS')).toBe(true);
+  });
+});
+
+describe('approved vendor Profile routing', () => {
+  it('recognizes the new Profile URL as the existing approved vendor workspace', () => {
+    expect(vendorPageFromPath('/vendor/profile')).toBe('onboarding');
+    expect(vendorPageFromPath('/vendor/onboarding')).toBe('onboarding');
+  });
+
+  it('keeps unfinished applications in Onboarding and approved vendors in Profile', () => {
+    expect(vendorPathFor('onboarding', 'APPROVED')).toBe('/vendor/profile');
+    expect(vendorPathFor('onboarding', 'DRAFT')).toBe('/vendor/onboarding');
+    expect(vendorPathFor('onboarding', 'CHANGES_REQUESTED')).toBe('/vendor/onboarding');
+    expect(vendorPathFor('dashboard', 'APPROVED')).toBe('/vendor/dashboard');
   });
 });
