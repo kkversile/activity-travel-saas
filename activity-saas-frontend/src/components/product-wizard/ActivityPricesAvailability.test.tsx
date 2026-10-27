@@ -48,14 +48,16 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     expect(screen.getByText(/Activity price · Entry Only/)).toBeInTheDocument();
   });
 
-  it('blocks preview until every selected option has visitor adult prices', async () => {
+  it('copies Indian visitor prices from the option and only asks for foreign prices', async () => {
     const onError = vi.fn();
     renderEditor(onError);
     await waitFor(() => expect(screen.getByDisplayValue('900')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('checkbox', { name: 'Different Indian / foreign prices' }));
     await waitFor(() => expect(screen.getAllByLabelText('Indian adult').length).toBe(3));
+    expect(screen.getAllByLabelText('Indian adult').map((input) => (input as HTMLInputElement).value)).toEqual(['900', '1200', '']);
+    expect(screen.getAllByLabelText('Indian adult').every((input) => (input as HTMLInputElement).readOnly)).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Preview changes' }));
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('Enter Indian and foreign adult prices for every selected option, or turn off visitor pricing.'));
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('Enter the option adult price and foreign adult price for every selected per-traveller option, or turn off visitor pricing.'));
   });
 
   it('reloads persisted cancellation rules and per-resource passenger limits', async () => {
