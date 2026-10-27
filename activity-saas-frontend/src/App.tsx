@@ -48,7 +48,15 @@ const vendorPaths: Record<VendorPage, string> = { dashboard: '/vendor/dashboard'
 const APP_BASE_PATH = import.meta.env.BASE_URL === '/' ? '' : import.meta.env.BASE_URL.replace(/\/$/, '');
 function appPath(path: string) { return `${APP_BASE_PATH}${path}`; }
 function routePath(pathname: string) { return APP_BASE_PATH && (pathname === APP_BASE_PATH || pathname.startsWith(`${APP_BASE_PATH}/`)) ? pathname.slice(APP_BASE_PATH.length) || '/' : pathname; }
-function vendorPageFromPath(pathname: string): VendorPage { const normalized = routePath(pathname); const found = (Object.entries(vendorPaths) as Array<[VendorPage, string]>).find(([, path]) => normalized === path); return found?.[0] || 'dashboard'; }
+export function vendorPageFromPath(pathname: string): VendorPage {
+  const normalized = routePath(pathname);
+  if (normalized === '/vendor/profile') return 'onboarding';
+  const found = (Object.entries(vendorPaths) as Array<[VendorPage, string]>).find(([, path]) => normalized === path);
+  return found?.[0] || 'dashboard';
+}
+export function vendorPathFor(page: VendorPage, status: string | null): string {
+  return page === 'onboarding' && status === 'APPROVED' ? '/vendor/profile' : vendorPaths[page];
+}
 const adminPaths: Record<AdminPage, string> = { dashboard: '/admin/dashboard', users: '/admin/users', agents: '/admin/agents', vendors: '/admin/vendors', products: '/admin/products', matching: '/admin/experience-matching', review: '/admin/product-review', commercial: '/admin/commercial', eligibility: '/admin/eligibility', bookings: '/admin/bookings', refunds: '/admin/refunds', fulfilment: '/admin/fulfilment', settlements: '/admin/settlements', quality: '/admin/quality', demand: '/admin/demand', distribution: '/admin/distribution', buybox: '/admin/buy-box', settings: '/admin/settings' };
 function adminPageFromPath(pathname: string): AdminPage { const normalized = routePath(pathname); const found = (Object.entries(adminPaths) as Array<[AdminPage, string]>).find(([, path]) => normalized === path); return found?.[0] || 'dashboard'; }
 export function adminPageForRole(pathname: string, role: User['role']): AdminPage { const requested = adminPageFromPath(pathname); return requested === 'users' && role !== 'SUPER_ADMIN' ? 'dashboard' : requested; }
@@ -57,8 +65,36 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null); const [page, setPage] = useState<VendorPage>(() => vendorPageFromPath(window.location.pathname)); const [profile, setProfile] = useState<VendorProfile | null>(null); const [onboardingStatus, setOnboardingStatus] = useState<string | null>(null); const [checking, setChecking] = useState(Boolean(api.token)); const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   useEffect(() => { if (!api.token) { setChecking(false); return; } api.request<User>('/auth/me').then((nextUser) => { setUser(nextUser); if (nextUser.mustChangePassword) { setChangePasswordOpen(true); if (nextUser.role === 'VENDOR') { setPage('onboarding'); window.history.replaceState({}, '', appPath(vendorPaths.onboarding)); } } }).catch(() => api.setToken(null)).finally(() => setChecking(false)); }, []);
   useEffect(() => { if (user?.role !== 'VENDOR' || user.mustChangePassword) { setProfile(null); setOnboardingStatus(null); return; } api.request<VendorProfile>('/vendor/profile').then(setProfile).catch(() => setProfile(null)); api.request<{ status: string }>('/vendor/onboarding').then((application) => setOnboardingStatus(application.status)).catch(() => setOnboardingStatus('PENDING')); }, [user?.tenantId, user?.role, user?.mustChangePassword]);
-  useEffect(() => { if (user?.role !== 'VENDOR' || user.mustChangePassword) return; const requested = vendorPageFromPath(window.location.pathname); if (!routePath(window.location.pathname).startsWith('/vendor/')) { window.history.replaceState({}, '', appPath(vendorPaths.dashboard)); setPage('dashboard'); return; } if (onboardingStatus === null) { setPage(requested); return; } const locked = onboardingStatus !== 'APPROVED'; const safe = locked && requested !== 'onboarding' ? 'onboarding' : requested; if (safe !== requested) window.history.replaceState({}, '', appPath(vendorPaths[safe])); setPage(safe); const onPopState = () => { const next = vendorPageFromPath(window.location.pathname); setPage(locked && next !== 'onboarding' ? 'onboarding' : next); }; window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState); }, [user?.role, user?.mustChangePassword, onboardingStatus]);
-  function navigateVendor(next: VendorPage) { const safe = onboardingStatus === 'APPROVED' || next === 'onboarding' ? next : 'onboarding'; setPage(safe); const nextPath = appPath(vendorPaths[safe]); if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath); }
+  useEffect(() => {
+    if (user?.role !== 'VENDOR' || user.mustChangePassword) return;
+    const requested = vendorPageFromPath(window.location.pathname);
+    if (!routePath(window.location.pathname).startsWith('/vendor/')) {
+      window.history.replaceState({}, '', appPath(vendorPaths.dashboard));
+      setPage('dashboard');
+      return;
+    }
+    if (onboardingStatus === null) { setPage(requested); return; }
+    const locked = onboardingStatus !== 'APPROVED';
+    const safe = locked && requested !== 'onboarding' ? 'onboarding' : requested;
+    const canonicalPath = appPath(vendorPathFor(safe, onboardingStatus));
+    if (window.location.pathname !== canonicalPath) window.history.replaceState({}, '', canonicalPath);
+    setPage(safe);
+    const onPopState = () => {
+      const next = vendorPageFromPath(window.location.pathname);
+      const safeNext = locked && next !== 'onboarding' ? 'onboarding' : next;
+      const safePath = appPath(vendorPathFor(safeNext, onboardingStatus));
+      if (window.location.pathname !== safePath) window.history.replaceState({}, '', safePath);
+      setPage(safeNext);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [user?.role, user?.mustChangePassword, onboardingStatus]);
+  function navigateVendor(next: VendorPage) {
+    const safe = onboardingStatus === 'APPROVED' || next === 'onboarding' ? next : 'onboarding';
+    setPage(safe);
+    const nextPath = appPath(vendorPathFor(safe, onboardingStatus));
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+  }
   function logout() { api.setToken(null); sessionStorage.removeItem('voya_impersonation_original_token'); setUser(null); setProfile(null); setOnboardingStatus(null); setChangePasswordOpen(false); }
   if (checking) return <div className="boot">Loading Voya...</div>;
   async function handleLogin(nextUser: User) {
@@ -90,7 +126,7 @@ export default function App() {
   let app: ReactNode;
   if (user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') app = <AdminApp user={user} logout={logout} />;
   else if (user.role === 'TRAVEL_AGENT') app = <AgentApp user={user} logout={logout} />;
-  else { const Page = pages[page].component; const vendorName = profile?.legalBusinessName || user.fullName || 'Vendor'; const onboardingLocked = onboardingStatus !== 'APPROVED'; const statusLabel = onboardingLocked ? `ONBOARDING ${onboardingStatus || 'PENDING'}` : (profile?.verificationStatus || 'Vendor'); const vendorTitle = page === 'onboarding' && onboardingStatus === 'APPROVED' ? 'Onboarding & Readiness' : pages[page].title; const vendorSubtitle = page === 'onboarding' && onboardingStatus === 'APPROVED' ? 'Vendor verification, documents and marketplace readiness' : (page === 'dashboard' ? `Welcome back, ${vendorName}` : pages[page].sub); app = <div className="app-shell"><aside className="sidebar"><div className="brand"><div className="brand-mark">V</div><div><b>Voya</b><small>Vendor Console</small></div></div><nav>{vendorNavigation.map(({ key, label }) => <button key={key} disabled={onboardingLocked && key !== 'onboarding'} className={page === key ? 'active' : ''} onClick={() => navigateVendor(key)} title={onboardingLocked && key !== 'onboarding' ? 'Complete and get onboarding approved to unlock this area' : undefined}>{label}</button>)}</nav><div className="sidebar-foot"><span>Vendor account</span><b>{vendorName}</b><small>{profile?.operatingCity || user.email}</small></div></aside><main className="main"><header className="topbar"><div><h1>{vendorTitle}</h1><p>{vendorSubtitle}</p></div><div className="top-actions"><span className="verified">{statusLabel}</span><div className="avatar">{vendorName[0]}</div><button type="button" className="link-button password-link" onClick={() => setChangePasswordOpen(true)}>Change password</button><button className="logout" onClick={logout}>Sign out</button></div></header><div className="content">{page === 'onboarding' ? <Onboarding onNavigate={() => navigateVendor('products')} onStatusChange={setOnboardingStatus} /> : <Page />}</div></main></div>; }
+  else { const Page = pages[page].component; const vendorName = profile?.legalBusinessName || user.fullName || 'Vendor'; const onboardingLocked = onboardingStatus !== 'APPROVED'; const statusLabel = onboardingLocked ? `ONBOARDING ${onboardingStatus || 'PENDING'}` : (profile?.verificationStatus || 'Vendor'); const vendorTitle = page === 'onboarding' && onboardingStatus === 'APPROVED' ? 'Profile' : pages[page].title; const vendorSubtitle = page === 'onboarding' && onboardingStatus === 'APPROVED' ? 'Business profile, documents and marketplace readiness' : (page === 'dashboard' ? `Welcome back, ${vendorName}` : pages[page].sub); app = <div className="app-shell"><aside className="sidebar"><div className="brand"><div className="brand-mark">V</div><div><b>Voya</b><small>Vendor Console</small></div></div><nav>{vendorNavigation.map(({ key, label }) => <button key={key} disabled={onboardingLocked && key !== 'onboarding'} className={page === key ? 'active' : ''} onClick={() => navigateVendor(key)} title={onboardingLocked && key !== 'onboarding' ? 'Complete and get onboarding approved to unlock this area' : undefined}>{key === 'onboarding' && onboardingStatus === 'APPROVED' ? 'Profile' : label}</button>)}</nav><div className="sidebar-foot"><span>Vendor account</span><b>{vendorName}</b><small>{profile?.operatingCity || user.email}</small></div></aside><main className="main"><header className="topbar"><div><h1>{vendorTitle}</h1><p>{vendorSubtitle}</p></div><div className="top-actions"><span className="verified">{statusLabel}</span><div className="avatar">{vendorName[0]}</div><button type="button" className="link-button password-link" onClick={() => setChangePasswordOpen(true)}>Change password</button><button className="logout" onClick={logout}>Sign out</button></div></header><div className="content">{page === 'onboarding' ? <Onboarding onNavigate={() => navigateVendor('products')} onStatusChange={setOnboardingStatus} /> : <Page />}</div></main></div>; }
   const passwordDialog = user && changePasswordOpen ? <ChangePasswordDialog key={`${user.id || user.sub || user.email}-${Boolean(user.mustChangePassword)}`} required={Boolean(user.mustChangePassword)} onClose={() => setChangePasswordOpen(false)} onChanged={() => setUser((current) => current ? { ...current, mustChangePassword: false } : current)} /> : null;
   return user.isImpersonating ? <><ImpersonationBanner user={user} onEnded={() => { setUser(null); window.location.assign(import.meta.env.BASE_URL); }} />{app}{passwordDialog}</> : <>{app}{passwordDialog}</>;
 }
