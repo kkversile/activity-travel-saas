@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, distributionReasonLabel, type ImpersonationTarget } from '../api';
 
 const docs = [['GSTIN', 'GSTIN certificate'], ['PAN', 'PAN card'], ['BANK_PROOF', 'Cancelled cheque / bank proof']] as const;
@@ -13,6 +13,9 @@ export default function AdminVendors({ canImpersonate = false, canCreateVendor =
   const [reasonText, setReasonText] = useState('');
   const [reasonBusy, setReasonBusy] = useState(false);
   const [q, setQ] = useState('');
+  const [stateFilter, setStateFilter] = useState('');
+  const [stateOptions, setStateOptions] = useState<string[]>([]);
+  const listRequestId = useRef(0);
   const [error, setError] = useState('');
   const [vendorName, setVendorName] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
@@ -24,8 +27,19 @@ export default function AdminVendors({ canImpersonate = false, canCreateVendor =
   const [resetVendorPassword, setResetVendorPassword] = useState('');
   const [resetVendorBusy, setResetVendorBusy] = useState(false);
   const [resettingVendorId, setResettingVendorId] = useState<string | null>(null);
-  const load = () => api.request<any[]>('/admin/vendors').then(setVendors).catch((e) => setError((e as Error).message));
-  useEffect(() => { void load(); }, []);
+  const load = () => {
+    const requestId = ++listRequestId.current;
+    const suffix = stateFilter ? `?state=${encodeURIComponent(stateFilter)}` : '';
+    return api.request<any[]>(`/admin/vendors${suffix}`)
+      .then((rows) => { if (requestId === listRequestId.current) setVendors(rows); })
+      .catch((e) => { if (requestId === listRequestId.current) setError((e as Error).message); });
+  };
+  useEffect(() => { void load(); }, [stateFilter]);
+  useEffect(() => {
+    api.request<string[]>('/admin/vendors/states')
+      .then(setStateOptions)
+      .catch((e) => setError((e as Error).message));
+  }, []);
   async function open(id: string) { try { const [vendor, application] = await Promise.all([api.request<any>('/admin/vendors/' + id), api.request<any>('/admin/vendors/' + id + '/onboarding')]); setSelected(vendor); setOnboarding(application.vendorOnboarding); } catch (e) { setError((e as Error).message); } }
   async function update(path: string, body: any) { try { await api.request(path, { method: 'PATCH', body: JSON.stringify(body) }); if (selected) await open(selected.id); await load(); } catch (e) { setError((e as Error).message); } }
   async function activateForAgents(productId: string) { try { await api.request(`/admin/distribution/products/${productId}/activate-agent`, { method: 'POST' }); if (selected) await open(selected.id); await load(); } catch (e) { setError((e as Error).message); } }
@@ -83,8 +97,9 @@ export default function AdminVendors({ canImpersonate = false, canCreateVendor =
   async function preview(version: any) { try { const blob = await api.blob(`/files/${version.fileAsset.id}/content`); if (viewing) URL.revokeObjectURL(viewing.url); setViewing({ fileName: version.fileAsset.originalName, url: URL.createObjectURL(blob), mimeType: version.fileAsset.mimeType }); } catch (e) { setError((e as Error).message); } }
   function closePreview() { if (viewing) URL.revokeObjectURL(viewing.url); setViewing(null); }
   const filtered = vendors.filter((v) => (v.name + ' ' + (v.vendorProfile?.legalBusinessName || '') + ' ' + v.users?.[0]?.email).toLowerCase().includes(q.toLowerCase()));
+  const changeState = (value: string) => { setStateFilter(value); setSelected(null); setOnboarding(null); };
   return <>
-    <div className="admin-hero"><div><h2>Vendors</h2><p className="muted">All vendor tenants and onboarding status.</p></div><div className="admin-toolbar"><input className="search" placeholder="Search vendors..." value={q} onChange={(e) => setQ(e.target.value)} /><button className="btn primary" onClick={() => { setError(''); setCreatedCredentials(null); setCreateOpen(true); }}>Create vendor</button><button className="btn small" onClick={() => void load()}>Refresh</button></div></div>
+    <div className="admin-hero"><div><h2>Vendors</h2><p className="muted">All vendor tenants and onboarding status.</p></div><div className="admin-toolbar"><input className="search" placeholder="Search vendors..." value={q} onChange={(e) => setQ(e.target.value)} /><select aria-label="Filter vendors by state" value={stateFilter} onChange={(e) => changeState(e.target.value)}><option value="">All states</option>{stateOptions.map((state) => <option key={state} value={state}>{state}</option>)}</select><button className="btn primary" onClick={() => { setError(''); setCreatedCredentials(null); setCreateOpen(true); }}>Create vendor</button><button className="btn small" onClick={() => void load()}>Refresh</button></div></div>
     {error && <div className="alert error">{error}</div>}
     <div className="admin-columns">
       <div className="panel admin-vendor-list"><div className="panel-head"><h3>{filtered.length} vendors</h3></div>{filtered.map((v) => { const target = v.users?.find((item: any) => item.active && item.id); const resetOpen = resettingVendorId === target?.id; return <div className={'admin-vendor-row ' + (selected?.id === v.id ? 'selected' : '')} key={v.id} role="button" tabIndex={0} onClick={() => void open(v.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') void open(v.id); }}><span className="avatar">{(v.name?.[0] || 'V').toUpperCase()}</span><span><b>{v.vendorProfile?.legalBusinessName || v.name}</b><small>{v.users?.[0]?.email || v.slug}</small></span><span className={'badge ' + (v.vendorProfile?.verificationStatus || 'pending').toLowerCase()}>{v.vendorProfile?.verificationStatus || 'PENDING'}</span><button className="btn small" onClick={(e) => { e.stopPropagation(); onViewProducts?.(v.id); }}>Products</button>{canImpersonate && <><button className="btn small" disabled={!target} onClick={(e) => { e.stopPropagation(); void loginAsVendor(v); }}>Login as</button><button className="btn small" disabled={!target} onClick={(e) => { e.stopPropagation(); setResettingVendorId(resetOpen ? null : target?.id || null); setResetVendorPassword(''); }}>{resetOpen ? 'Cancel reset' : 'Reset password'}</button></>}{canImpersonate && target && resetOpen && <form className="form-grid three" onClick={(e) => e.stopPropagation()} onSubmit={(e) => void resetVendorPasswordForUser(e, target.id)}><label className="field"><span>New password</span><input required minLength={8} type="password" value={resetVendorPassword} onChange={(e) => setResetVendorPassword(e.target.value)} /></label><button className="btn primary" disabled={resetVendorBusy}>{resetVendorBusy ? 'Saving…' : 'Set new password'}</button></form>}</div>; })}</div>
