@@ -83,12 +83,14 @@ export type WizardStepProps = {
   revisionForm: RevisionForm;
   fulfilment: FulfilmentForm;
   onSaveDraft: () => Promise<boolean>;
+  onSaveDraftWithId?: () => Promise<boolean | string>;
   onRevisionChange: <K extends keyof RevisionForm>(key: K, value: RevisionForm[K]) => void;
   onFulfilmentChange: (next: FulfilmentForm) => void;
   onRefresh: () => Promise<void>;
   onError: (message: string) => void;
   onPricingSaved?: () => void;
   onPricingDirty?: () => void;
+  onRegisterPricingSave?: (handler: (() => Promise<boolean>) | null) => void;
 };
 
 export const splitList = (value: string) => value.split(',').map((item) => item.trim()).filter(Boolean);
