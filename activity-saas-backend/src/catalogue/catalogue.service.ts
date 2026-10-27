@@ -1003,6 +1003,7 @@ export class CatalogueService {
       if (to <= from) errors.push(`options[${index}]: selling end must be after selling start (the end date is exclusive)`);
       const prices = option.travellerPrices || [];
       if (option.pricingUnit === PricingUnit.PER_PERSON && !prices.length) errors.push(`options[${index}]: add at least one traveller price for per-traveller pricing`);
+      if (option.pricingUnit === PricingUnit.PER_PERSON && !prices.some((price) => price.travellerType === TravellerType.ADULT)) errors.push(`${optionNames.get(option.variantId) || `Option ${index + 1}`}: enter an adult price for per-traveller pricing`);
       if (option.pricingUnit !== PricingUnit.PER_PERSON && !option.supplierBaseAmount) errors.push(`options[${index}]: add a base amount for this pricing basis`);
       if (option.pricingUnit === PricingUnit.PER_UNIT && option.maxPassengersPerResource == null) errors.push(`options[${index}]: add maximum passengers per resource for per-resource pricing`);
       if (option.availability?.capacityScope === 'RESOURCE_POOL' && option.availability.capacityUnit !== CapacityUnit.UNIT) errors.push(`options[${index}]: resource-pool capacity requires Resources / vehicles capacity unit`);

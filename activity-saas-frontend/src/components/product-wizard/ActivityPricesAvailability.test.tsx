@@ -50,7 +50,7 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
 
   it('copies Indian visitor prices from the option and only asks for foreign prices', async () => {
     const onError = vi.fn();
-    renderEditor(onError);
+    const request = renderEditor(onError);
     await waitFor(() => expect(screen.getByDisplayValue('900')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('checkbox', { name: 'Different Indian / foreign prices' }));
     await waitFor(() => expect(screen.getAllByLabelText('Foreign adult').length).toBe(3));
@@ -59,7 +59,9 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     expect(screen.getByText(/Indian prices: Adult INR 1,200/)).toBeInTheDocument();
     expect(screen.getAllByLabelText('Foreign adult').every((input) => !(input as HTMLInputElement).readOnly)).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Preview changes' }));
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('Enter the option adult price and foreign adult price for every selected per-traveller option, or turn off visitor pricing.'));
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('Entry Only, Entry + Adventure: enter the foreign adult price or turn off visitor pricing.'));
+    expect(request.mock.calls.some(([path]) => String(path).endsWith('/prices-availability/preview'))).toBe(false);
+    expect(request.mock.calls.some(([path]) => String(path).endsWith('/prices-availability/apply'))).toBe(false);
   });
 
   it('reloads persisted cancellation rules and per-resource passenger limits', async () => {
