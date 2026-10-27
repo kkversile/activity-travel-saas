@@ -1,4 +1,4 @@
-import { DocumentReviewStatus, ProductStatus, UserRole, VendorVerificationStatus } from '@prisma/client';
+import { DocumentReviewStatus, ProductStatus, TenantKind, UserRole, VendorVerificationStatus } from '@prisma/client';
 import { AdminService } from './admin.service';
 
 const actor = { sub: 'admin-1', email: 'admin@voya.test', role: UserRole.SUPER_ADMIN, tenantId: null } as any;
@@ -42,4 +42,39 @@ describe('AdminService governance', () => {
     expect(audit.write).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'PRODUCT_ARCHIVED' }));
     expect(outbox.enqueue).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ eventType: 'PRODUCT_ARCHIVED' }));
   });
+  it('filters vendors by profile state, onboarding state or current product state', async () => {
+    const prisma: any = { tenant: { findMany: jest.fn().mockResolvedValue([]) } };
+    const service = new AdminService(prisma, {} as any, {} as any);
+
+    await service.vendors(' Kerala ');
+    expect(prisma.tenant.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        kind: TenantKind.VENDOR,
+        OR: [
+          { vendorProfile: { is: { operatingRegion: { equals: 'Kerala', mode: 'insensitive' } } } },
+          { vendorOnboarding: { is: { state: { equals: 'Kerala', mode: 'insensitive' } } } },
+          { products: { some: { deletedAt: null, currentRevision: { is: { stateName: { equals: 'Kerala', mode: 'insensitive' } } } } } },
+        ],
+      },
+    }));
+
+    await service.vendors();
+    expect(prisma.tenant.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: { kind: TenantKind.VENDOR },
+    }));
+  });
+
+  it('lists distinct real states across vendor profiles, applications and current products', async () => {
+    const prisma: any = {
+      vendorProfile: { findMany: jest.fn().mockResolvedValue([{ operatingRegion: 'Kerala' }, { operatingRegion: 'Not set' }]) },
+      vendorOnboardingApplication: { findMany: jest.fn().mockResolvedValue([{ state: ' kerala ' }, { state: 'Tamil Nadu' }]) },
+      productRevision: { findMany: jest.fn().mockResolvedValue([{ stateName: 'Goa' }]) },
+    };
+    const service = new AdminService(prisma, {} as any, {} as any);
+    await expect(service.vendorStates()).resolves.toEqual(['Goa', 'Kerala', 'Tamil Nadu']);
+    expect(prisma.productRevision.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { currentForProducts: { some: { deletedAt: null, tenant: { kind: TenantKind.VENDOR } } } },
+    }));
+  });
+
 });
