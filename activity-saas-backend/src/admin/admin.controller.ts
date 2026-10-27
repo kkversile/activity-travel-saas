@@ -48,7 +48,8 @@ export class AdminController {
   @Get('dashboard') @Permissions('audit.view') dashboard() { return this.service.dashboard(); }
   @Get('settings/visitor-pricing') @Permissions('platform.settings.manage') visitorPricingSettings() { return this.service.visitorPricingSettings(); }
   @Patch('settings/visitor-pricing') @Permissions('platform.settings.manage') updateVisitorPricingSettings(@CurrentUser() user: AuthUser, @Body() dto: { showEligibilityBasis?: boolean; showVerificationRequired?: boolean }) { return this.service.updateVisitorPricingSettings(user, dto); }
-  @Get('vendors') @Permissions('vendor.profile.view') vendors() { return this.service.vendors(); }
+  @Get('vendors/states') @Permissions('vendor.profile.view') vendorStates() { return this.service.vendorStates(); }
+  @Get('vendors') @Permissions('vendor.profile.view') vendors(@Query('state') state?: string) { return this.service.vendors(state); }
   @Get('products') @Permissions('product.view') products(@Query() query: AdminProductListQueryDto) { return this.service.products(query); }
   @Get('experience-matching/products') @Permissions('product.view') matchingProducts(@Query() query: ExperienceProductSearchDto) { return this.matching.products(query); }
   @Get('experience-matching/suggestions') @Permissions('product.view') matchingSuggestions() { return this.matching.suggestions(); }
