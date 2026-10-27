@@ -102,7 +102,7 @@ export default function ExperienceWizardModal({ product, initialStep = 1, onDone
         } else if (revision?.status === 'DRAFT' && dirty) {
           await api.request(`/product-revisions/${revision.id}`, { method: 'PATCH', body: JSON.stringify(revisionPayload()) });
           await api.request(`/products/${snapshot.product.id}/currency`, { method: 'PATCH', body: JSON.stringify({ currency: form.currency }) });
-          await reload(snapshot.product.id); onChanged();
+          onChanged();
         }
         setDirty(false);
         return true;
