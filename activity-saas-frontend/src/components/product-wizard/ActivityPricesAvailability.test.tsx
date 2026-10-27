@@ -64,6 +64,16 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     expect(request.mock.calls.some(([path]) => String(path).endsWith('/prices-availability/apply'))).toBe(false);
   });
 
+  it('names the option when a required traveller price is missing', async () => {
+    const onError = vi.fn();
+    const request = renderEditor(onError);
+    const adultPrice = await screen.findByLabelText('Entry Only adult or base price');
+    fireEvent.change(adultPrice, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview changes' }));
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('Entry Only: Enter an adult price.'));
+    expect(request.mock.calls.some(([path]) => String(path).endsWith('/prices-availability/preview'))).toBe(false);
+  });
+
   it('reloads persisted cancellation rules and per-resource passenger limits', async () => {
     renderEditor();
     await waitFor(() => expect(screen.getByDisplayValue('3500')).toBeInTheDocument());

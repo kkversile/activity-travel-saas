@@ -84,14 +84,18 @@ export default function ActivityPricesAvailability({ snapshot, locked, revisionF
     return row.pricingUnit === 'PER_UNIT' && !row.maxPassengers ? 'Enter the maximum passengers for each resource.' : '';
   };
   const rowError = (row: PriceRow) => {
-    if (row.pricingUnit === 'PER_PERSON' && !row.adult && !row.child && !row.senior) return 'Enter at least one traveller price.';
+    if (row.pricingUnit === 'PER_PERSON' && !row.adult) return 'Enter an adult price.';
     if (rowFieldError(row, 'adult') || rowFieldError(row, 'child') || rowFieldError(row, 'senior') || rowFieldError(row, 'base') || rowFieldError(row, 'maxPassengers')) return rowFieldError(row, 'adult') || rowFieldError(row, 'child') || rowFieldError(row, 'senior') || rowFieldError(row, 'base') || rowFieldError(row, 'maxPassengers');
     if (row.minPax && row.maxPax && Number(row.maxPax) < Number(row.minPax)) return 'Maximum travellers must be at least the minimum.';
     return '';
   };
   const dateError = dateFrom && dateTo && dateTo <= dateFrom ? 'Selling end must be after selling start (exclusive).' : '';
   const validationErrors = () => {
-    const errors = [...rows.map(rowError).filter(Boolean), dateError].filter(Boolean) as string[];
+    const optionErrors = rows.map((row) => {
+      const error = rowError(row);
+      return error ? `${byId.get(row.variantId)?.name || 'Selected option'}: ${error}` : '';
+    }).filter(Boolean);
+    const errors = [...optionErrors, dateError].filter(Boolean) as string[];
     if (!selectedVariantIds.length) errors.push('Select at least one option to update.');
     const missingVisitorPrices = rows.filter((row) => selectedVariantIds.includes(row.variantId) && row.pricingUnit === 'PER_PERSON' && (!row.adult || !row.foreign));
     if (visitorPricing && missingVisitorPrices.length) errors.push(`${missingVisitorPrices.map((row) => byId.get(row.variantId)?.name || 'Selected option').join(', ')}: enter the foreign adult price or turn off visitor pricing.`);
