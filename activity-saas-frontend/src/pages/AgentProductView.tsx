@@ -46,6 +46,7 @@ type ActivityDetail = {
       ratePlanId: string; sessionId: string; serviceDate: string;
       name?: string; localStartTime?: string | null; localEndTime?: string | null;
       bookingMode?: string | null;
+      cancellationRules?: Array<{ minDaysBefore: number; maxDaysBefore?: number | null; chargeValue: string; chargeType: string }>;
       price?: { finalAmount?: number | string | null; currency?: string | null } | null;
       availability?: { availableCapacity?: number | null } | null;
     }>;
@@ -178,7 +179,8 @@ export default function AgentProductView({
             {Boolean(variant.inclusions?.length) && <><h4>Option inclusions</h4><ul className="voya-detail-list">{variant.inclusions!.map((item, i) => <li key={i}>{item}</li>)}</ul></>}
             {Boolean(variant.exclusions?.length) && <><h4>Option exclusions</h4><ul className="voya-detail-list excluded">{variant.exclusions!.map((item, i) => <li key={i}>{item}</li>)}</ul></>}
             <h4>Available prices & sessions</h4>
-            {(variant.offers || []).map((offer) => <div className="voya-detail-offer-price" key={`${offer.ratePlanId}-${offer.sessionId}`}>
+            {(variant.offers || []).map((offer) => <div key={`${offer.ratePlanId}-${offer.sessionId}`}>
+              <div className="voya-detail-offer-price">
               <div>
                 <small>{shortDate(offer.serviceDate)}{offer.localStartTime ? ` · ${offer.localStartTime}` : ''}{offer.localEndTime ? `–${offer.localEndTime}` : ''} · {readable(offer.bookingMode)}</small>
                 <strong>{offer.price?.finalAmount != null ? money(offer.price.finalAmount, offer.price.currency || 'INR') : 'Price on request'}</strong>
@@ -186,6 +188,13 @@ export default function AgentProductView({
               {canBook
                 ? <button type="button" onClick={() => setSelected(offer)}>Book this option →</button>
                 : <small className="voya-detail-booking-note">Booking is unavailable for your account role.</small>}
+              </div>
+              {Boolean(offer.cancellationRules?.length) && <div className="voya-detail-cancel-terms">
+                <b>Cancellation terms</b>
+                {offer.cancellationRules!.map((rule, index) => <span key={index}>
+                  {rule.maxDaysBefore == null ? `${rule.minDaysBefore}+ days before` : `${rule.minDaysBefore}–${rule.maxDaysBefore} days before`}: {rule.chargeType === 'PERCENTAGE' ? `${rule.chargeValue}% charge` : `${money(rule.chargeValue, offer.price?.currency || 'INR')} charge`}
+                </span>)}
+              </div>}
             </div>)}
           </article>)}
         </section>
