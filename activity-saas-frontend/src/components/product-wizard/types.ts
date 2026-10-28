@@ -1,6 +1,6 @@
 import type { Product, ProductRevision, ProductVariant, Schedule } from '../../api';
 
-export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
+export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type WizardMode = 'CREATE' | 'EDIT';
 export type RevisionForm = {
   productName: string;
