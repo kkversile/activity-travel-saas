@@ -102,3 +102,7 @@
 .voya-detail-media-extras > a.voya-detail-video-link { padding:10px 18px; }
 
 .voya-activity-card-category { display:block;margin:-3px 0 10px;font-size:10px;font-weight:850;letter-spacing:.4px;color:#b4896b;text-transform:capitalize; }
+
+.voya-detail-cancel-terms { display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:#f8faf9;border-radius:10px;margin-top:10px;padding:10px 12px; }
+.voya-detail-cancel-terms b { color:#446471;font-size:10px; }
+.voya-detail-cancel-terms span { color:#7c8f96;font-size:10px; }
