@@ -87,7 +87,7 @@ export default function AgentActivityCards({
           <button type="button" key={product.id} className="voya-activity-card" onClick={() => onView(product.id, context)} aria-label={`View complete details for ${product.name}`}>
             <div className="voya-activity-card-media">
               {cover ? <img src={cover} alt={product.coverMedia?.description || product.name} loading="lazy" /> : <div className="voya-activity-no-image" aria-hidden="true"><span>✧</span><small>VOYA EXPERIENCES</small></div>}
-              <span className="voya-activity-image-tag">{product.variants.length > 1 ? `${product.variants.length} options` : 'EXPERIENCE'}</span>
+              <span className="voya-activity-image-tag">{product.variants.length > 1 ? `${product.variants.length} options` : (product.type || 'EXPERIENCE').replaceAll('_', ' ')}</span>
               {Number.isFinite(rating) && rating > 0 && <span className="voya-activity-rating">★ {rating.toFixed(1)}</span>}
             </div>
             <div className="voya-activity-card-content">
