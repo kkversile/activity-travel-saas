@@ -16,7 +16,7 @@ function resultDetails(result: SearchResult): ReverseGeocodeDetails {
   };
 }
 
-export function OnboardingLocationMap({ latitude, longitude, onChange, onReverseGeocode, searchId = 'onboarding-location-search', mapLabel = 'Business location map' }: { latitude?: string | number | null; longitude?: string | number | null; onChange: (latitude: string, longitude: string) => void; onReverseGeocode?: (details: ReverseGeocodeDetails) => void; searchId?: string; mapLabel?: string }) {
+export function OnboardingLocationMap({ latitude, longitude, address, city, state, country, autoGeocodeAddress = false, onChange, onReverseGeocode, searchId = 'onboarding-location-search', mapLabel = 'Business location map' }: { latitude?: string | number | null; longitude?: string | number | null; address?: string | null; city?: string | null; state?: string | null; country?: string | null; autoGeocodeAddress?: boolean; onChange: (latitude: string, longitude: string) => void; onReverseGeocode?: (details: ReverseGeocodeDetails) => void; searchId?: string; mapLabel?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
@@ -32,7 +32,7 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
 
   const lat = latitude === '' || latitude == null ? Number.NaN : Number(latitude);
   const lng = longitude === '' || longitude == null ? Number.NaN : Number(longitude);
-  const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lng);
+  const hasCoordinates = Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
   const center: [number, number] = hasCoordinates ? [lat, lng] : DEFAULT_LOCATION;
 
   async function reverseGeocode(latitudeValue: number, longitudeValue: number) {
@@ -114,6 +114,38 @@ export function OnboardingLocationMap({ latitude, longitude, onChange, onReverse
     const timer = window.setTimeout(() => { void searchLocation(search); }, 350);
     return () => window.clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    if (!autoGeocodeAddress || hasCoordinates || !address?.trim()) return;
+    const search = [address, city, state, country].filter((value) => value?.trim()).join(', ');
+    const queries = [...new Set([search, address.trim(), address.split(',')[0]?.trim()].filter((value) => value && value.length >= 3))];
+    if (!queries.length || lastSelectedQueryRef.current === `auto:${search}`) return;
+    let disposed = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        for (const query of queries) {
+          const params = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', limit: '1', q: query });
+          const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`);
+          if (!response.ok || disposed) {
+            if (disposed) return;
+            continue;
+          }
+          const matches = await response.json() as SearchResult[];
+          const result = matches[0];
+          const nextLatitude = Number(result?.lat);
+          const nextLongitude = Number(result?.lon);
+          if (!result || !Number.isFinite(nextLatitude) || !Number.isFinite(nextLongitude)) continue;
+          lastSelectedQueryRef.current = `auto:${search}`;
+          onChangeRef.current(nextLatitude.toFixed(6), nextLongitude.toFixed(6));
+          onReverseGeocodeRef.current?.(resultDetails(result));
+          return;
+        }
+      } catch {
+        // The user can still use the visible search box or map pin when automatic lookup is unavailable.
+      }
+    }, 250);
+    return () => { disposed = true; window.clearTimeout(timer); };
+  }, [address, city, state, country, autoGeocodeAddress, hasCoordinates]);
 
   function selectResult(result: SearchResult) {
     const nextLatitude = Number(result.lat);

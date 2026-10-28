@@ -48,6 +48,8 @@ export class AdminController {
   @Get('dashboard') @Permissions('audit.view') dashboard() { return this.service.dashboard(); }
   @Get('settings/visitor-pricing') @Permissions('platform.settings.manage') visitorPricingSettings() { return this.service.visitorPricingSettings(); }
   @Patch('settings/visitor-pricing') @Permissions('platform.settings.manage') updateVisitorPricingSettings(@CurrentUser() user: AuthUser, @Body() dto: { showEligibilityBasis?: boolean; showVerificationRequired?: boolean }) { return this.service.updateVisitorPricingSettings(user, dto); }
+  @Get('settings/activity-content') @Permissions('platform.settings.manage') activityContentSettings() { return this.service.activityContentSettings(); }
+  @Patch('settings/activity-content') @Permissions('platform.settings.manage') updateActivityContentSettings(@CurrentUser() user: AuthUser, @Body() dto: { terms?: string[]; howToRedeem?: string[]; bookingQuestions?: Array<{ code: string; label: string; type: string; required?: boolean }> }) { return this.service.updateActivityContentSettings(user, dto as any); }
   @Get('vendors') @Permissions('vendor.profile.view') vendors() { return this.service.vendors(); }
   @Get('products') @Permissions('product.view') products(@Query() query: AdminProductListQueryDto) { return this.service.products(query); }
   @Get('experience-matching/products') @Permissions('product.view') matchingProducts(@Query() query: ExperienceProductSearchDto) { return this.matching.products(query); }

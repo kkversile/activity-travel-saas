@@ -30,6 +30,7 @@ import { DemandModule } from './demand/demand.module';
 import { DistributionModule } from './distribution/distribution.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { BuyBoxModule } from './buy-box/buy-box.module';
+import { ActivityAiModule } from './activity-ai/activity-ai.module';
 
 function validateEnvironment(config: Record<string, unknown>) {
   const databaseUrl = String(config.DATABASE_URL ?? '');
@@ -74,6 +75,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     DistributionModule,
     OnboardingModule,
     BuyBoxModule,
+    ActivityAiModule,
   ],
   controllers: [AppController],
   providers: [CorrelationIdMiddleware],

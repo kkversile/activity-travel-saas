@@ -25,6 +25,12 @@ export class VendorController {
     return this.service.visitorPricingSettings();
   }
 
+  @Get('activity-content-settings')
+  @Permissions('product.view')
+  activityContentSettings() {
+    return this.service.activityContentSettings();
+  }
+
   @Get('profile')
   @Permissions('vendor.profile.view')
   getProfile(@CurrentUser() user: AuthUser) {

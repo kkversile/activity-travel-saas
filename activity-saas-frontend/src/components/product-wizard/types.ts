@@ -44,6 +44,19 @@ export type FulfilmentForm = {
   voucherNotes: string;
 };
 
+export type ActivityBookingQuestionDefault = {
+  code: string;
+  label: string;
+  type: 'TEXT' | 'NUMBER' | 'BOOLEAN' | 'SELECT';
+  required: boolean;
+};
+
+export type ActivityContentSettings = {
+  terms: string[];
+  howToRedeem: string[];
+  bookingQuestions: ActivityBookingQuestionDefault[];
+};
+
 export type VariantForm = {
   variantCode: string;
   name: string;
@@ -82,6 +95,7 @@ export type WizardStepProps = {
   locked: boolean;
   revisionForm: RevisionForm;
   fulfilment: FulfilmentForm;
+  contentSettings?: ActivityContentSettings;
   onSaveDraft: () => Promise<boolean>;
   onSaveDraftWithId?: () => Promise<boolean | string>;
   onRevisionChange: <K extends keyof RevisionForm>(key: K, value: RevisionForm[K]) => void;
@@ -97,7 +111,7 @@ export const splitList = (value: string) => value.split(',').map((item) => item.
 export const joinList = (value?: string[]) => (value || []).join(', ');
 
 export const emptyRevisionForm: RevisionForm = {
-  productName: '', currency: 'INR', type: 'ACTIVITY', subType: '', subCategory: '', shortDescription: '', metaname: '', description: '', highlights: '', terms: '', importantInfo: '', thingsToCarry: '', safetyMeasures: '', additionalInfo: '', howToRedeem: '', cityName: '', stateName: '', countryName: '', address: '', lat: '', lon: '', meetingModel: '', meetingPoint: '', labels: '', hasDifferentialVisitorPricing: false,
+  productName: '', currency: 'INR', type: 'ACTIVITY', subType: '', subCategory: '', shortDescription: '', metaname: '', description: '', highlights: '', terms: '', importantInfo: '', thingsToCarry: '', safetyMeasures: '', additionalInfo: '', howToRedeem: '', cityName: '', stateName: '', countryName: '', address: '', lat: '', lon: '', meetingModel: 'FIXED_MEETING_POINT', meetingPoint: '', labels: '', hasDifferentialVisitorPricing: false,
 };
 
 export const emptyFulfilmentForm: FulfilmentForm = {
@@ -111,7 +125,7 @@ export const emptyVariantForm: VariantForm = {
 export function toRevisionForm(revision?: ProductRevision | null, product?: Product | null): RevisionForm {
   if (!revision) return { ...emptyRevisionForm };
   return {
-    productName: revision.productName || '', currency: product?.currency || 'INR', type: revision.type, subType: revision.subType || '', subCategory: revision.subCategory || '', shortDescription: revision.shortDescription || '', metaname: revision.metaname || '', description: revision.description || '', highlights: joinList(revision.highlights), terms: joinList(revision.terms), importantInfo: joinList(revision.importantInfo), thingsToCarry: joinList(revision.thingsToCarry), safetyMeasures: joinList(revision.safetyMeasures), additionalInfo: joinList(revision.additionalInfo), howToRedeem: joinList(revision.howToRedeem), cityName: revision.cityName || '', stateName: revision.stateName || '', countryName: revision.countryName || '', address: revision.address || '', lat: revision.lat == null ? '' : String(revision.lat), lon: revision.lon == null ? '' : String(revision.lon), meetingModel: revision.meetingModel || '', meetingPoint: revision.meetingPoint || '', labels: joinList(revision.labels), hasDifferentialVisitorPricing: Boolean(revision.sourcePayload && revision.sourcePayload.hasDifferentialVisitorPricing),
+    productName: revision.productName || '', currency: product?.currency || 'INR', type: revision.type, subType: revision.subType || '', subCategory: revision.subCategory || '', shortDescription: revision.shortDescription || '', metaname: revision.metaname || '', description: revision.description || '', highlights: joinList(revision.highlights), terms: joinList(revision.terms), importantInfo: joinList(revision.importantInfo), thingsToCarry: joinList(revision.thingsToCarry), safetyMeasures: joinList(revision.safetyMeasures), additionalInfo: joinList(revision.additionalInfo), howToRedeem: joinList(revision.howToRedeem), cityName: revision.cityName || '', stateName: revision.stateName || '', countryName: revision.countryName || '', address: revision.address || '', lat: revision.lat == null ? '' : String(revision.lat), lon: revision.lon == null ? '' : String(revision.lon), meetingModel: revision.meetingModel || 'FIXED_MEETING_POINT', meetingPoint: revision.meetingPoint || '', labels: joinList(revision.labels), hasDifferentialVisitorPricing: Boolean(revision.sourcePayload && revision.sourcePayload.hasDifferentialVisitorPricing),
   };
 }
 

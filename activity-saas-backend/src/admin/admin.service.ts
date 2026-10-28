@@ -9,6 +9,7 @@ import { Optional } from '@nestjs/common';
 import { ChannelMappingService } from '../distribution/channel-mapping.service';
 import { ChannelDistributionReadinessService } from '../distribution/channel-distribution-readiness.service';
 import { defaultVisitorPricingSettings, normalizeVisitorPricingSettings, VISITOR_PRICING_SETTINGS_KEY, VisitorPricingSettings } from '../common/visitor-pricing-settings';
+import { ACTIVITY_CONTENT_SETTINGS_KEY, ActivityContentSettings, defaultActivityContentSettings, normalizeActivityContentSettings } from '../common/activity-content-settings';
 
 const profileSelect = { id: true, tenantId: true, legalBusinessName: true, operatingCity: true, operatingRegion: true, gstin: true, category: true, verificationStatus: true, readinessScore: true, payoutAccountMasked: true, payoutAccountHolder: true, payoutBankName: true, payoutBranch: true, payoutIfsc: true, payoutSwift: true, payoutAccountType: true, payoutCurrency: true } satisfies Prisma.VendorProfileSelect;
 const documentsInclude = { vendorDocuments: { include: { versions: { orderBy: { versionNumber: 'desc' as const }, include: { fileAsset: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true, visibility: true, purpose: true } } } } } } };
@@ -33,6 +34,25 @@ export class AdminService {
       return saved;
     });
     return { ...normalizeVisitorPricingSettings(setting.value), updatedAt: setting.updatedAt, updatedById: setting.adminId };
+  }
+
+  async activityContentSettings() {
+    const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: ACTIVITY_CONTENT_SETTINGS_KEY }, select: { value: true, updatedAt: true, adminId: true } });
+    return { ...normalizeActivityContentSettings(setting?.value || defaultActivityContentSettings), updatedAt: setting?.updatedAt || null, updatedById: setting?.adminId || null };
+  }
+
+  async updateActivityContentSettings(actor: AuthUser, input: Partial<ActivityContentSettings>) {
+    const before = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: ACTIVITY_CONTENT_SETTINGS_KEY }, select: { id: true, value: true } });
+    const current = normalizeActivityContentSettings(before?.value || defaultActivityContentSettings);
+    const next = normalizeActivityContentSettings({ ...current, ...input });
+    const setting = await this.prisma.$transaction(async (tx) => {
+      const saved = before
+        ? await tx.globalSetting.update({ where: { id: before.id }, data: { value: next, adminId: actor.sub }, select: { value: true, updatedAt: true, adminId: true } })
+        : await tx.globalSetting.create({ data: { tenantId: null, adminId: actor.sub, key: ACTIVITY_CONTENT_SETTINGS_KEY, value: next }, select: { value: true, updatedAt: true, adminId: true } });
+      await this.audit.write(tx, { actor, action: 'ACTIVITY_CONTENT_SETTINGS_UPDATED', entityType: 'GlobalSetting', entityId: before?.id || ACTIVITY_CONTENT_SETTINGS_KEY, beforeState: current, afterState: next });
+      return saved;
+    });
+    return { ...normalizeActivityContentSettings(setting.value), updatedAt: setting.updatedAt, updatedById: setting.adminId };
   }
 
   platformAdmins() {

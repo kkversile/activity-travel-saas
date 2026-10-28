@@ -9,6 +9,7 @@ import { requireTenant } from '../common/tenant';
 import { UpdateVendorDto } from './update-vendor.dto';
 import { documentKeyMap, DocumentKey } from './vendor-document.dto';
 import { defaultVisitorPricingSettings, normalizeVisitorPricingSettings, VISITOR_PRICING_SETTINGS_KEY } from '../common/visitor-pricing-settings';
+import { ACTIVITY_CONTENT_SETTINGS_KEY, defaultActivityContentSettings, normalizeActivityContentSettings } from '../common/activity-content-settings';
 
 const profileSelect = {
   id: true, tenantId: true, legalBusinessName: true, operatingCity: true, operatingRegion: true, gstin: true, category: true,
@@ -32,6 +33,10 @@ export class VendorService {
   async visitorPricingSettings() {
     const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: VISITOR_PRICING_SETTINGS_KEY }, select: { value: true } });
     return normalizeVisitorPricingSettings(setting?.value || defaultVisitorPricingSettings);
+  }
+  async activityContentSettings() {
+    const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: ACTIVITY_CONTENT_SETTINGS_KEY }, select: { value: true } });
+    return normalizeActivityContentSettings(setting?.value || defaultActivityContentSettings);
   }
   async getProfile(user: AuthUser) {
     const tenantId = requireTenant(user);
