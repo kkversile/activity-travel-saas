@@ -16,10 +16,10 @@ const createSearchAttemptId = () => {
 };
 
 const demoDate = () => new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
-const initialState = (): AgentSearchState => ({ serviceDate: demoDate(), travellers: [{ travellerType: 'ADULT', quantity: 2 }], units: undefined, destination: 'Munnar', query: '', category: '', subType: '', durationMin: '', durationMax: '', priceMin: '', priceMax: '', currency: '', bookingMode: '', pickupIncluded: '', minRating: '', privateShared: '', childSuitable: false, sort: 'RELEVANCE' });
+export const createAgentSearchState = (): AgentSearchState => ({ serviceDate: demoDate(), travellers: [{ travellerType: 'ADULT', quantity: 2 }], units: undefined, destination: 'Munnar', query: '', category: '', subType: '', durationMin: '', durationMax: '', priceMin: '', priceMax: '', currency: '', bookingMode: '', pickupIncluded: '', minRating: '', privateShared: '', childSuitable: false, sort: 'RELEVANCE' });
 
 export default function AgentMarketplace({ onView, initial, onStateChange }: { onView: (id: string, context: AgentSearchContext) => void; initial?: AgentSearchState; onStateChange?: (state: AgentSearchState) => void }) {
-  const [state, setState] = useState<AgentSearchState>(initial ?? initialState()); const [results, setResults] = useState<any>(initial?.results ?? null); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [more, setMore] = useState(false); const [currencies, setCurrencies] = useState<string[]>([]);
+  const [state, setState] = useState<AgentSearchState>(initial ?? createAgentSearchState()); const [results, setResults] = useState<any>(initial?.results ?? null); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [more, setMore] = useState(false); const [currencies, setCurrencies] = useState<string[]>([]);
   useEffect(() => { api.request<string[]>('/marketplace/currencies').then(setCurrencies).catch(() => setCurrencies([])); }, []);
   const adults = state.travellers.find((item) => item.travellerType === 'ADULT')?.quantity ?? 0; const children = state.travellers.find((item) => item.travellerType === 'CHILD')?.quantity ?? 0;
   const update = (next: Partial<AgentSearchState>) => setState((current) => ({ ...current, ...next }));
