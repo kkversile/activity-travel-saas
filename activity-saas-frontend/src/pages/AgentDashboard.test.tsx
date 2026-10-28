@@ -32,7 +32,7 @@ describe('Agent Overview dashboard', () => {
       booking('CONFIRMED', '2099-04-10', 'a'),
       booking('PENDING_MANUAL_REVIEW', '2099-04-12', 'b'),
     ];
-    const request = vi.spyOn(api, 'request').mockResolvedValue(rows);
+    const request = vi.spyOn(api, 'request').mockResolvedValue(rows as never);
     render(<AgentDashboard user={user} canBook onExplore={vi.fn()} onViewBookings={vi.fn()} />);
     await waitFor(() => expect(screen.getByLabelText('Total bookings').textContent).toBe('2'));
     expect(request).toHaveBeenCalledWith('/agent/bookings');
@@ -48,7 +48,7 @@ describe('Agent Overview dashboard', () => {
   });
 
   it('passes destination, date and traveller counts to the existing Marketplace workflow', async () => {
-    vi.spyOn(api, 'request').mockResolvedValue([]);
+    vi.spyOn(api, 'request').mockResolvedValue([] as never);
     const onExplore = vi.fn();
     render(<AgentDashboard user={user} canBook onExplore={onExplore} onViewBookings={vi.fn()} />);
     fireEvent.change(screen.getByPlaceholderText('City or state (optional)'), { target: { value: 'Kochi' } });
