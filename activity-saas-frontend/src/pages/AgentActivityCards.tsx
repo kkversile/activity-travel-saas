@@ -93,6 +93,7 @@ export default function AgentActivityCards({
             <div className="voya-activity-card-content">
               <span className="voya-activity-card-location"><span aria-hidden="true">⌖</span> {destination || 'Destination details available inside'}</span>
               <h3>{product.name}</h3>
+              {(product.subCategory || product.subType) && <span className="voya-activity-card-category">{(product.subCategory || product.subType || '').replaceAll('_', ' ')}</span>}
               <p>{product.shortDescription?.trim() || 'Explore this experience and its available options.'}</p>
               <div className="voya-activity-card-chips">
                 {duration != null && <span>◷ {durationLabel(duration)}</span>}
