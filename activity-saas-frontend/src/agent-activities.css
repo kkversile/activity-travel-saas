@@ -1,0 +1,94 @@
+/* Activity cards and published-product details, scoped to the Agent marketplace. */
+.voya-activity-results-heading { display:flex;align-items:center;justify-content:space-between;gap:14px;margin:26px 0 18px; }
+.voya-activity-results-heading h2 { font-size:23px;color:#203947;letter-spacing:-.7px;margin:0 0 6px; }
+.voya-activity-results-heading p { font-size:12px;color:#83949e;margin:0; }
+.voya-activity-results-count { color:#8c6b52;background:#fff2e8;border:1px solid #f4e3d6;border-radius:20px;padding:9px 13px;font-weight:800;font-size:11px;white-space:nowrap; }
+.voya-activity-grid { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin:0 0 30px; }
+.voya-activity-card { cursor:pointer;min-width:0;border:1px solid #e4ebed;border-radius:19px;background:#fff;padding:0;text-align:left;overflow:hidden;color:#253d4b;display:flex;flex-direction:column;box-shadow:0 6px 22px #1833420b;transition:transform .2s,border-color .2s,box-shadow .2s; }
+.voya-activity-card:hover { transform:translateY(-4px);border-color:#d7e4e5;box-shadow:0 22px 40px #1334441b; }
+.voya-activity-card:focus-visible { outline:3px solid #deaf88;outline-offset:4px; }
+.voya-activity-card-media { position:relative;aspect-ratio:1.52;overflow:hidden;background:#193b48; }
+.voya-activity-card-media > img { width:100%;height:100%;object-fit:cover;transition:transform .35s;display:block; }
+.voya-activity-card:hover .voya-activity-card-media img { transform:scale(1.045); }
+.voya-activity-no-image { width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;background:radial-gradient(circle at 70% 33%,#d2a081 0 12%,transparent 13%),linear-gradient(155deg,#163b49,#286569 58%,#153a4a);color:#f5dfc9; }
+.voya-activity-no-image > span { font-size:50px; }
+.voya-activity-no-image > small { font-size:9px;letter-spacing:2.2px;font-weight:800; }
+.voya-activity-image-tag,.voya-activity-rating { position:absolute;top:15px;border-radius:30px;padding:8px 11px;font-size:10px;font-weight:800;box-shadow:0 5px 15px #0a223a2f; }
+.voya-activity-image-tag { left:15px;background:#ffffffed;color:#355562; }
+.voya-activity-rating { right:15px;background:#f9b785;color:#25404a; }
+.voya-activity-card-content { display:flex;flex-direction:column;flex:1;padding:20px 20px 18px; }
+.voya-activity-card-location { display:block;min-height:16px;font-size:10px;letter-spacing:.3px;color:#af7f61;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.voya-activity-card-location > span { font-size:17px;vertical-align:middle;margin-right:4px; }
+.voya-activity-card-content h3 { font-size:18px;line-height:1.35;letter-spacing:-.4px;color:#1d3a4a;margin:9px 0; }
+.voya-activity-card-content > p { font-size:12px;line-height:1.65;color:#82949e;margin:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden; }
+.voya-activity-card-chips { display:flex;flex-wrap:wrap;gap:6px;margin:16px 0 17px; }
+.voya-activity-card-chips > span { color:#6c8990;font-size:10px;background:#eff5f4;padding:6px 9px;border-radius:7px;font-weight:700; }
+.voya-activity-card-footer { display:flex;gap:10px;align-items:center;justify-content:space-between;border-top:1px solid #edf0f1;padding-top:16px;margin-top:auto; }
+.voya-activity-card-footer small { display:block;color:#9ba9ae;font-size:10px;margin-bottom:4px; }
+.voya-activity-card-footer b { display:block;font-size:17px;font-weight:850;letter-spacing:-.4px;color:#1f4553; }
+.voya-activity-view { display:inline-flex;align-items:center;gap:7px;color:#24717a;font-size:11px;font-weight:850;white-space:nowrap; }
+.voya-activity-view > span { font-size:16px; }
+.voya-activity-no-results { display:flex;flex-direction:column;align-items:center;justify-content:center;padding:46px 20px;border:1px dashed #dbe5e7;border-radius:19px;background:#fff;text-align:center; }
+.voya-activity-no-results > span { font-size:37px;color:#d6a17d; }
+.voya-activity-no-results b { font-size:17px;margin:9px 0;color:#314d5c; }
+.voya-activity-no-results p { font-size:12px;color:#91a0aa;max-width:380px;line-height:1.7;margin:0; }
+
+.voya-detail-page { color:#254150; }
+.voya-detail-back { padding:0;margin:0 0 17px;background:transparent;border:0;color:#477681;font-weight:800;font-size:12px;cursor:pointer; }
+.voya-detail-back:hover { color:#1b4b59;text-decoration:underline; }
+.voya-detail-overline { color:#b57c58;font-size:10px;font-weight:850;letter-spacing:1.7px;text-transform:uppercase; }
+.voya-detail-title { margin:11px 0 9px;font-size:clamp(27px,3.2vw,39px);font-weight:850;letter-spacing:-1.3px;line-height:1.18;color:#1b3646; }
+.voya-detail-subline { display:flex;gap:9px 19px;align-items:center;flex-wrap:wrap;margin:0 0 24px;color:#84939e;font-size:12px; }
+.voya-detail-rating { color:#986a4a;font-weight:800; }
+.voya-detail-gallery { display:grid;grid-template-columns:minmax(0,1.7fr) minmax(160px,1fr);grid-template-rows:repeat(2,minmax(0,1fr));height:360px;gap:8px;border-radius:19px;overflow:hidden;margin-bottom:23px; }
+.voya-detail-gallery-picture { position:relative;background:#d9e5e2;overflow:hidden;min-width:0; }
+.voya-detail-gallery-picture:first-child { grid-row:span 2; }
+.voya-detail-gallery-picture img { width:100%;height:100%;object-fit:cover;display:block; }
+.voya-detail-gallery-picture.placeholder { background:radial-gradient(circle at 67% 33%,#ebbd96 0 12%,transparent 13%),linear-gradient(145deg,#153d4b,#37807e);display:grid;place-items:center;color:#f5d7ba;font-size:70px; }
+.voya-detail-gallery-picture .voya-detail-image-label { position:absolute;bottom:13px;left:15px;background:#ffffffed;color:#214653;border-radius:9px;padding:7px 10px;font-size:10px;font-weight:800; }
+.voya-detail-layout { display:grid;grid-template-columns:minmax(0,1.62fr) minmax(280px,.75fr);align-items:start;gap:22px; }
+.voya-detail-stack { display:flex;flex-direction:column;gap:17px;min-width:0; }
+.voya-detail-panel,.voya-detail-booking-panel { border:1px solid #e3e9ea;border-radius:17px;background:#fff;padding:23px 25px;min-width:0; }
+.voya-detail-panel h3 { margin:0 0 15px;color:#244251;font-size:18px;letter-spacing:-.4px; }
+.voya-detail-panel h4 { margin:16px 0 10px;color:#335363;font-size:13px; }
+.voya-detail-description { color:#617681;font-size:13px;line-height:1.9;margin:0;white-space:pre-line; }
+.voya-detail-list { list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:11px; }
+.voya-detail-list li { display:flex;gap:10px;align-items:flex-start;color:#647b88;font-size:12px;line-height:1.6; }
+.voya-detail-list li::before { content:"✓";flex:0 0 auto;font-size:11px;font-weight:900;color:#409582;margin-top:1px; }
+.voya-detail-list.excluded li::before { content:"–";color:#c99073; }
+.voya-detail-highlight-grid { display:flex;flex-wrap:wrap;gap:8px; }
+.voya-detail-highlight-grid span { padding:9px 13px;color:#577b7d;background:#edf6f3;border-radius:9px;font-size:11px;font-weight:750; }
+.voya-detail-attributes { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px; }
+.voya-detail-attribute { border-radius:11px;padding:12px 14px;background:#f7faf9; }
+.voya-detail-attribute small { display:block;font-size:10px;color:#93a4ab;margin-bottom:5px; }
+.voya-detail-attribute b { display:block;font-size:12px;color:#325360;line-height:1.6;white-space:pre-line; }
+.voya-detail-side { position:sticky;top:106px;display:flex;flex-direction:column;gap:14px; }
+.voya-detail-booking-panel > span { font-size:10px;color:#b88868;font-weight:850;letter-spacing:1.5px; }
+.voya-detail-booking-panel h3 { font-size:20px;color:#214454;margin:10px 0;letter-spacing:-.5px; }
+.voya-detail-booking-panel p { font-size:12px;line-height:1.75;color:#8599a2; }
+.voya-detail-price { font-size:30px;font-weight:850;color:#204757;line-height:1.15;letter-spacing:-1px;margin:15px 0 5px; }
+.voya-detail-booking-panel button { background:#1c4956;color:#fff;border:0;border-radius:10px;padding:12px;width:100%;font-size:12px;font-weight:850;cursor:pointer; }
+.voya-detail-booking-panel button:hover { background:#2b6170; }
+.voya-detail-offer { border:1px solid #e8edee;border-radius:13px;margin-top:14px;padding:17px; }
+.voya-detail-offer-heading { display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap; }
+.voya-detail-offer-heading h4 { margin:0;color:#294959;font-size:15px; }
+.voya-detail-offer-heading small { color:#93a0a7;font-size:11px; }
+.voya-detail-offer-meta { display:flex;flex-wrap:wrap;gap:8px;margin:13px 0;font-size:11px;color:#7b919a; }
+.voya-detail-offer-meta span { background:#f1f6f6;padding:7px 9px;border-radius:7px; }
+.voya-detail-offer-price { display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid #eaf0f0;padding-top:13px;margin-top:10px; }
+.voya-detail-offer-price strong { color:#234656;font-size:20px; }
+.voya-detail-offer-price button { padding:10px 14px;border-radius:10px;border:0;background:#1a4855;color:#fff;font-size:11px;font-weight:800;cursor:pointer; }
+.voya-detail-offer-price button:disabled { opacity:.55;cursor:not-allowed; }
+.voya-detail-booking-note { margin-top:10px;color:#84979d;font-size:11px; }
+.voya-detail-questions { display:flex;flex-direction:column;gap:8px; }
+.voya-detail-questions > div { padding:11px 12px;background:#f7faf9;border-radius:10px; }
+.voya-detail-questions b { display:block;font-size:12px;color:#365965; }
+.voya-detail-questions small { display:block;margin-top:5px;color:#8a9da4;font-size:11px; }
+.voya-detail-faq { border-bottom:1px solid #edf0f1;padding:11px 0; }
+.voya-detail-faq:last-child { border:0; }
+.voya-detail-faq summary { cursor:pointer;font-weight:750;color:#315260;font-size:13px; }
+.voya-detail-faq p { font-size:12px;line-height:1.7;color:#82949d; }
+@media(max-width:1230px){.voya-activity-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.voya-detail-layout{grid-template-columns:minmax(0,1.5fr) minmax(250px,.8fr)}}
+@media(max-width:880px){.voya-detail-layout{grid-template-columns:1fr}.voya-detail-side{position:static;grid-row:1}.voya-detail-gallery{height:310px}}
+@media(max-width:600px){.voya-activity-grid{grid-template-columns:1fr}.voya-activity-results-heading h2{font-size:20px}.voya-activity-card-media{aspect-ratio:1.6}.voya-detail-gallery{height:250px;grid-template-columns:1fr 1fr}.voya-detail-gallery-picture:first-child{grid-column:span 2;grid-row:auto}.voya-detail-title{font-size:27px}.voya-detail-panel,.voya-detail-booking-panel{padding:19px 17px}.voya-detail-attributes{grid-template-columns:1fr}.voya-detail-offer-price{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){.voya-activity-card,.voya-activity-card img{transition:none}}
