@@ -45,7 +45,7 @@ export function activityMediaUrl(value?: string | null): string | null {
 export function minimumActivityPrice(product: ActivityResult): { amount: number; currency: string } | null {
   const offers = product.variants.flatMap((variant) => variant.offers);
   const prices = offers
-    .filter((offer) => offer.price?.finalAmount !== null && offer.price?.finalAmount !== undefined)
+    .filter((offer) => offer.price?.finalAmount !== null && offer.price?.finalAmount !== undefined && String(offer.price.finalAmount).trim() !== '')
     .map((offer) => ({ amount: Number(offer.price!.finalAmount), currency: String(offer.price?.currency || '').toUpperCase() }))
     .filter((price) => price.currency && Number.isFinite(price.amount) && price.amount >= 0);
   const currencies = new Set(prices.map((price) => price.currency));
