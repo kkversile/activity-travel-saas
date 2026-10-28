@@ -25,7 +25,7 @@ type ActivityDetail = {
   howToRedeem?: string[];
   additionalInfo?: string[];
   faqs?: Array<{ question?: string; answer?: string; title?: string; content?: string } | string>;
-  bookingQuestions?: Array<{ label: string; helpText?: string | null; required?: boolean; appliesPerTraveller?: boolean; type?: string }>;
+  bookingQuestions?: Array<{ code: string; label: string; helpText?: string | null; required?: boolean; appliesPerTraveller?: boolean; type?: string }>;
   meetingModel?: string | null;
   meetingPoint?: string | null;
   address?: string | null;
