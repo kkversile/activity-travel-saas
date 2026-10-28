@@ -40,7 +40,7 @@ export class MarketplaceService {
   }
 
   private safeVariant(variant: any) {
-    return { id: variant.id, variantCode: variant.variantCode, name: variant.name, description: variant.description, durationMinutes: variant.durationMinutes, privateShared: variant.privateShared, pickupIncluded: variant.pickupIncluded, pickupType: variant.pickupType, pickupInput: variant.pickupInput, pickupTimings: variant.pickupTimings, dropoffIncluded: variant.dropoffIncluded, dropoffTimings: variant.dropoffTimings, mealIncluded: variant.mealIncluded, mealType: variant.mealType, menu: variant.menu, pointsOfInterest: variant.pointsOfInterest, inclusions: variant.inclusions, exclusions: variant.exclusions, suitableFor: variant.suitableFor };
+    return { id: variant.id, variantCode: variant.variantCode, name: variant.name, description: variant.description, durationMinutes: variant.durationMinutes, privateShared: variant.privateShared, pickupIncluded: variant.pickupIncluded, pickupType: variant.pickupType, pickupInput: variant.pickupInput, pickupTimings: variant.pickupTimings, dropoffIncluded: variant.dropoffIncluded, dropoffTimings: variant.dropoffTimings, mealIncluded: variant.mealIncluded, mealType: variant.mealType, menu: variant.menu, mealVariety: variant.mealVariety, vehicleType: variant.vehicleType, minPax: variant.minPax, maxPax: variant.maxPax, cutOffMinutes: variant.cutOffMinutes, pointsOfInterest: variant.pointsOfInterest, inclusions: variant.inclusions, exclusions: variant.exclusions, suitableFor: variant.suitableFor };
   }
 
   private async findEligibleOffers(agentTenantId: string, dto: MarketplaceSearchDto | MarketplaceProductViewDto, options: SearchOptions = {}) {
@@ -157,9 +157,41 @@ export class MarketplaceService {
   async productView(user: AuthUser, productId: string, dto: MarketplaceProductViewDto) {
     const agentTenantId = await this.assertApprovedAgent(user); const result = await this.findEligibleOffers(agentTenantId, dto, { productId });
     if (!result.offers.length) throw new NotFoundException('Product has no eligible marketplace offer for this context');
-    const source: any = await this.prisma.product.findFirst({ where: { id: productId, status: ProductStatus.LIVE, currentRevision: { status: ProductRevisionStatus.PUBLISHED } }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } } } } } });
+    const source: any = await this.prisma.product.findFirst({ where: { id: productId, status: ProductStatus.LIVE, currentRevision: { status: ProductRevisionStatus.PUBLISHED } }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } }, bookingQuestions: { where: { archivedAt: null }, orderBy: { rank: 'asc' }, select: { label: true, helpText: true, type: true, required: true, appliesPerTraveller: true, options: true } } } } } });
     if (!source?.currentRevision) throw new NotFoundException('Published product not found'); const revision = source.currentRevision; const grouped = new Map<string, any>();
     for (const item of result.offers) { let variant = grouped.get(item.variant.id); if (!variant) { variant = { ...item.variant, offers: [] }; grouped.set(item.variant.id, variant); } variant.offers.push(item.offer); }
-    return { id: source.id, productCode: source.productCode, name: revision.productName, description: revision.description, shortDescription: revision.shortDescription, highlights: revision.highlights, inclusions: [...new Set(result.offers.flatMap((item: any) => item.variant.inclusions ?? []))], exclusions: [...new Set(result.offers.flatMap((item: any) => item.variant.exclusions ?? []))], terms: revision.terms, importantInfo: revision.importantInfo, destination: { city: revision.cityName, state: revision.stateName, country: revision.countryName }, media: revision.media.map((item: any) => this.safeMedia(item)).filter(Boolean), variants: [...grouped.values()] };
+    return {
+      id: source.id,
+      productCode: source.productCode,
+      name: revision.productName,
+      type: revision.type,
+      subType: revision.subType,
+      subCategory: revision.subCategory,
+      starRating: revision.starRating?.toString() ?? null,
+      description: revision.description,
+      shortDescription: revision.shortDescription,
+      highlights: revision.highlights,
+      // Customer-facing content only. Never expose draft revisions, internal labels,
+      // supplier source payloads, commission rates, or unpublished media.
+      inclusions: [...new Set(result.offers.flatMap((item: any) => item.variant.inclusions ?? []))],
+      exclusions: [...new Set(result.offers.flatMap((item: any) => item.variant.exclusions ?? []))],
+      terms: revision.terms,
+      importantInfo: revision.importantInfo,
+      thingsToCarry: revision.thingsToCarry,
+      safetyMeasures: revision.safetyMeasures,
+      howToRedeem: revision.howToRedeem,
+      additionalInfo: revision.additionalInfo,
+      faqs: Array.isArray(revision.faqs) ? revision.faqs : [],
+      bookingQuestions: revision.bookingQuestions,
+      meetingModel: revision.meetingModel,
+      meetingPoint: revision.meetingPoint,
+      address: revision.address,
+      coordinates: revision.lat != null && revision.lon != null
+        ? { lat: Number(revision.lat), lon: Number(revision.lon) }
+        : null,
+      destination: { city: revision.cityName, state: revision.stateName, country: revision.countryName },
+      media: revision.media.map((item: any) => this.safeMedia(item)).filter(Boolean),
+      variants: [...grouped.values()],
+    };
   }
 }
