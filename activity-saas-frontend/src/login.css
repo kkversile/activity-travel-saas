@@ -33,3 +33,13 @@
   font-size: 13px;
   font-weight: 700;
 }
+
+/* Entry point from the shared sign-in page; Agent Portal itself is isolated. */
+.agent-login-entry-link {
+  display: inline-block;
+  margin: 0 0 14px;
+  font-weight: 750;
+  color: #245a65;
+  text-decoration: none;
+}
+.agent-login-entry-link:hover { text-decoration: underline; }
