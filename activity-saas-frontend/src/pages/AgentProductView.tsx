@@ -117,7 +117,7 @@ export default function AgentProductView({
       {Number.isFinite(rating) && rating > 0 && <span className="voya-detail-rating">★ {rating.toFixed(1)}</span>}
       <span>{context.travellers.map((t) => `${t.quantity} ${readable(t.travellerType)}`).join(', ')}</span>
     </div>
-    <div className="voya-detail-gallery" aria-label="Activity gallery">
+    <div className={`voya-detail-gallery ${media.length === 1 ? "single" : media.length === 2 ? "double" : ""}`} aria-label="Activity gallery">
       {media.length ? media.map((item, index) => <div className="voya-detail-gallery-picture" key={item.id}>
         <img src={activityMediaUrl(item.url)!} alt={item.description || `${product.name} photo ${index + 1}`} />
         {index === 0 && <span className="voya-detail-image-label">EXPERIENCE GALLERY</span>}
