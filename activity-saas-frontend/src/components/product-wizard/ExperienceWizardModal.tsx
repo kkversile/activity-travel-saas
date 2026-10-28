@@ -108,7 +108,7 @@ export default function ExperienceWizardModal({ product, initialStep = 1, onDone
           await reload(created.id); onChanged(); setNotice('Draft saved successfully.'); return created.id;
         } else if (revision?.status === 'DRAFT' && (dirty || !revision.meetingModel || (!revision.terms?.length && Boolean(form.terms.trim())) || (!revision.howToRedeem?.length && Boolean(form.howToRedeem.trim())))) {
           await api.request(`/product-revisions/${revision.id}`, { method: 'PATCH', body: JSON.stringify(revisionPayload()) });
-          await api.request(`/products/${snapshot.product.id}/currency`, { method: 'PATCH', body: JSON.stringify({ currency: form.currency }) });
+          if (form.currency !== snapshot.product.currency) await api.request(`/products/${snapshot.product.id}/currency`, { method: 'PATCH', body: JSON.stringify({ currency: form.currency }) });
           onChanged();
         }
         setDirty(false); setNotice('Draft saved successfully.');
