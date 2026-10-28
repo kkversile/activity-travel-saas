@@ -23,6 +23,9 @@ export type ActivityVariant = {
 export type ActivityResult = {
   id: string;
   name: string;
+  type?: string | null;
+  subType?: string | null;
+  subCategory?: string | null;
   shortDescription?: string | null;
   destination?: { city?: string | null; state?: string | null; country?: string | null } | null;
   starRating?: string | null;
