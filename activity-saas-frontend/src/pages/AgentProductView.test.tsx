@@ -44,7 +44,7 @@ describe('Agent published activity detail', () => {
     expect(screen.getByText('Traveller ID *')).toBeDefined();
     expect(screen.getByText('Tea garden viewpoint')).toBeDefined();
     expect(screen.getByRole('img', { name: 'Tea hills' })).toBeDefined();
-    expect(screen.getByText('₹1,800')).toBeDefined();
+    expect(screen.getAllByText('₹1,800').length).toBeGreaterThan(0);
   });
 
   it('does not expose booking CTA to view-only agent roles', async () => {
