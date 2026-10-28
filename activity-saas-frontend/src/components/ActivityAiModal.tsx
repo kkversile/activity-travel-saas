@@ -23,6 +23,7 @@ const fields: ReviewField[] = [
 
 const categoryOptions = [
   'Adventure park',
+  'Amusement park',
   'Water sports & activities',
   'Trekking & hiking',
   'Nature & wildlife',
