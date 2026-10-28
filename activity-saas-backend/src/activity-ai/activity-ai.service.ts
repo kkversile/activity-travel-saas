@@ -70,7 +70,9 @@ Do not leave the descriptive suggestion fields blank when a cautious suggestion 
 Treat vendor notes as private context only. Do not copy vendor notes verbatim into generated descriptions, highlights or instructions, and do not include supplier URLs in descriptive content. Use the notes only to understand the activity; source links belong only in verified source fields.
 
 RESEARCH AND IMAGES:
-- The backend has already searched the internet using the exact activity name and provides a RESEARCH_PACKET in the user message. Use that packet as the only research evidence; do not claim to have searched anything else.
+- The backend has searched the internet using the exact activity name together with the supplied category and any supplied city, state and country, and provides a RESEARCH_PACKET in the user message. Use that packet as the only research evidence; do not claim to have searched anything else.
+- LOCATION REQUIREMENT: Treat the activity name as a named business, venue or tour listing. Search for the exact name with the supplied city, state and country. If a matching authoritative source or map/listing result gives an exact street address or named meeting point, copy that exact value into Basic_Info.address and Basic_Info.meeting_point, and include the source URL in Experience.additional_information. Never substitute a city centre, district, state, generic landmark, search-results page or guessed address. If no confident exact match is found, leave address, meeting_point and coordinates empty and state that supplier confirmation is required.
+- Coordinates must come only from the same confident named-place match or an explicit source; never infer them from the city alone.
 - Use only facts actually found in the supplied research sources. Public facts require supplier confirmation.
 - Return a Media array with up to 5 reviewable images only when search exposes the actual direct HTTPS image asset URL. Each item must be { kind: "IMAGE", url, source_url, description, requires_review: true }.
 - When an exact Google Maps listing is present in the research packet, use its photos only when the retrieved result exposes a direct HTTPS image asset URL; never use the listing URL itself as an image.
@@ -160,33 +162,50 @@ function ensureContentSuggestions(draft: any, input: { activityName: string; cit
 export class ActivityAiService {
   constructor(private readonly config: ConfigService, private readonly catalogue: CatalogueService, private readonly prisma: PrismaService, @Inject('AI_PROVIDER') private readonly provider: AiProvider, private readonly researchService?: ActivityAiResearchService) {}
   private enabled() { return this.config.get<string>('AI_ACTIVITY_ENABLED', 'false').toLowerCase() === 'true'; }
-  private async geocodeBasicLocation(basic: Record<string, any>) {
-    if (!basic.address || (basic.latitude !== undefined && basic.latitude !== null && basic.longitude !== undefined && basic.longitude !== null)) return;
+  private async geocodeBasicLocation(basic: Record<string, any>, context: { activityName?: string; city?: string; state?: string; country?: string } = {}) {
+    if (basic.latitude !== undefined && basic.latitude !== null && basic.longitude !== undefined && basic.longitude !== null) return;
     if (this.config.get<string>('AI_LOCATION_GEOCODING_ENABLED', 'true').toLowerCase() !== 'true') return;
 
-    const fullQuery = [basic.address, basic.city, basic.state, basic.country].filter((value) => typeof value === 'string' && value.trim()).join(', ');
-    const address = String(basic.address).trim();
-    const queries = [...new Set([fullQuery, address, address.split(',')[0]?.trim()].filter(Boolean))];
+    const address = typeof basic.address === 'string' ? basic.address.trim() : '';
+    const fullQuery = [address, basic.city || context.city, basic.state || context.state, basic.country || context.country]
+      .filter((value) => typeof value === 'string' && value.trim()).join(', ');
+    const namedPlace = [context.activityName, context.city, context.state, context.country]
+      .filter((value) => typeof value === 'string' && value.trim()).join(', ');
+    const queries = [...new Set((address
+      ? [fullQuery, address, address.split(',')[0]?.trim()]
+      : [namedPlace, [context.activityName, context.city].filter(Boolean).join(', '), context.activityName])
+      .filter((value) => typeof value === 'string' && value.trim()))];
     if (!queries.length) return;
     const endpoint = this.config.get<string>('LOCATION_GEOCODER_URL', 'https://nominatim.openstreetmap.org/search');
     try {
       const request = (globalThis as any).fetch;
       if (typeof request !== 'function') return;
+      const nameTokens = String(context.activityName || '').toLowerCase().split(/[^a-z0-9]+/i).filter((token) => token.length >= 4);
+      const isNamedPlaceMatch = (candidate: { name?: string; display_name?: string }) => {
+        if (!nameTokens.length) return false;
+        const haystack = `${candidate.name || ''} ${candidate.display_name || ''}`.toLowerCase();
+        const hits = nameTokens.filter((token) => haystack.includes(token)).length;
+        return nameTokens.length === 1 ? hits >= 1 : hits >= Math.min(2, nameTokens.length);
+      };
       for (const query of queries) {
         const url = new URL(endpoint);
-        url.search = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', limit: '1', q: query }).toString();
+        url.search = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', limit: '5', q: query || '' }).toString();
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
         try {
           const response = await request(url.toString(), { headers: { Accept: 'application/json', 'User-Agent': 'VOYA Vendor Console location lookup' }, signal: controller.signal });
           if (!response.ok) continue;
-          const matches = await response.json() as Array<{ lat?: string; lon?: string }>;
-          const match = matches[0];
+          const matches = await response.json() as Array<{ lat?: string; lon?: string; name?: string; display_name?: string }>;
+          const match = address ? matches.find((candidate) => Number.isFinite(Number(candidate.lat)) && Number.isFinite(Number(candidate.lon))) : matches.find(isNamedPlaceMatch);
           const latitude = Number(match?.lat);
           const longitude = Number(match?.lon);
           if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
             basic.latitude = latitude;
             basic.longitude = longitude;
+            if (!address && match?.display_name) {
+              basic.address = match.display_name;
+              basic.meeting_point = basic.meeting_point || match.name || context.activityName;
+            }
             return;
           }
         } finally {
@@ -322,10 +341,13 @@ export class ActivityAiService {
     if (!this.enabled()) throw new ServiceUnavailableException('AI activity creation is disabled by the administrator.');
     await this.consume(user);
     const input = { activityName: dto.activityName.trim(), city: dto.city || '', state: dto.state || '', country: dto.country || '', category: dto.category || '', language: dto.language || 'English', mode: dto.mode || 'FILL_MISSING', selectedFields: dto.selectedFields || [], vendorNotes: dto.vendorNotes || '' };
-    // The model receives only the activity name. It must discover the remaining
-    // details through research; supplier notes and form metadata stay server-side.
-    const research = this.researchService ? await this.researchService.search(input.activityName) : { query: input.activityName, sources: [], imageCandidates: [] };
-    const aiUserInput = { activityName: input.activityName, research };
+    // Research is scoped to the exact name plus the location/category supplied by
+    // the vendor. Supplier notes and form metadata stay server-side.
+    const research = this.researchService ? await this.researchService.search(input.activityName, { city: input.city, state: input.state, country: input.country, category: input.category }) : { query: input.activityName, sources: [], imageCandidates: [] };
+    const aiUserInput: Record<string, unknown> = { activityName: input.activityName, research };
+    for (const field of ['city', 'state', 'country', 'category', 'vendorNotes'] as const) {
+      if (input[field].trim()) aiUserInput[field] = input[field].trim();
+    }
     const systemPrompt = COMPACT_SYSTEM_PROMPT
       .replace('If no verified direct image asset is found, return Media as an empty array.', 'If no verified direct image asset is found, return Media as an empty array. Valid image suggestions are copied into the draft Media section when the vendor saves the reviewed draft; they are never published automatically.');
     const result = await this.provider.generate({ system: systemPrompt, user: JSON.stringify(aiUserInput) });
@@ -343,7 +365,7 @@ export class ActivityAiService {
     basic.type = taxonomy.type;
     basic.sub_type = taxonomy.subType;
     basic.sub_category = basic.sub_category || input.category || taxonomy.subType;
-    await this.geocodeBasicLocation(basic);
+    if (basic.address || this.researchService) await this.geocodeBasicLocation(basic, { activityName: input.activityName, city: input.city, state: input.state, country: input.country });
     await this.enrichGoogleMapsMedia(draft, input, research);
     const { draft: _validatedDraft, ...validation } = validateDraft(draft); const generationId = `AI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return { generationId, status: 'REVIEW_REQUIRED', stage: 'AI_DRAFT', model: result.model, suggestions: draft, draft, ...validation, requiresVerification: ['Meeting point', 'Safety details', 'Actual supplier options', 'Prices and availability'], provenance: { generatedBy: this.config.get<string>('AI_PROVIDER', 'mock').toLowerCase(), promptVersion: SYSTEM_PROMPT_VERSION, webSearchUsed: Boolean(result.metadata?.webSearch), generatedAt: new Date().toISOString(), humanReviewRequired: true }, usage: result.usage || null };

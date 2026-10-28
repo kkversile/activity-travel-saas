@@ -72,18 +72,26 @@ export class ActivityAiResearchService {
     } catch { return []; }
   }
 
-  async search(activityName: string): Promise<ActivityResearchPacket> {
-    const query = activityName.trim();
-    if (!query) return { query: '', sources: [], imageCandidates: [] };
-    const encoded = encodeURIComponent(`"${query}"`);
-    const [instant, html, imageCandidates] = await Promise.all([
+  async search(activityName: string, context: { city?: string; state?: string; country?: string; category?: string } = {}): Promise<ActivityResearchPacket> {
+    const name = activityName.trim();
+    const location = [context.city, context.state, context.country].filter((value) => typeof value === 'string' && value.trim()).join(' ');
+    const category = typeof context.category === 'string' ? context.category.trim() : '';
+    const query = [name, category, location].filter(Boolean).join(' ').trim();
+    if (!name) return { query: '', sources: [], imageCandidates: [] };
+    const searchQuery = [`"${name}"`, category, location].filter(Boolean).join(' ').trim();
+    const mapsQuery = [`"${name}"`, location, 'address Google Maps'].filter(Boolean).join(' ').trim();
+    const encoded = encodeURIComponent(searchQuery);
+    const encodedMapsQuery = encodeURIComponent(mapsQuery);
+    const [instant, html, mapsHtml, imageCandidates] = await Promise.all([
       this.fetchText(`https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`),
       this.fetchText(`https://html.duckduckgo.com/html/?q=${encoded}`),
+      this.fetchText(`https://html.duckduckgo.com/html/?q=${encodedMapsQuery}`),
       this.searchImages(query),
     ]);
     const sources: ActivityResearchSource[] = [];
     this.parseInstantAnswer(instant, sources);
     this.parseHtmlResults(html, sources);
+    this.parseHtmlResults(mapsHtml, sources);
     return { query, sources, imageCandidates };
   }
 }

@@ -20,9 +20,9 @@ describe('ActivityAiService', () => {
     expect(provider.generate.mock.calls[0][0].system).toContain('exact Google Maps listing');
     expect(provider.generate.mock.calls[0][0].system).toContain('direct HTTPS image asset URL');
     expect(provider.generate.mock.calls[0][0].system).toContain('!6shttps:%2F%2Flh3.googleusercontent.com');
-    expect(JSON.parse(provider.generate.mock.calls[0][0].user)).toEqual({ activityName: 'Munnar Walk', research: { query: 'Munnar Walk', sources: [], imageCandidates: [] } });
+    expect(JSON.parse(provider.generate.mock.calls[0][0].user)).toEqual({ activityName: 'Munnar Walk', city: 'Munnar', state: 'Kerala', country: 'India', category: 'Nature walk', research: { query: 'Munnar Walk', sources: [], imageCandidates: [] } });
     await service.generate({ sub: 'u2', tenantId: 't1' } as any, { activityName: 'Munnar Walk', vendorNotes: 'Supplier-confirmed tea garden route.' } as any);
-    expect(JSON.parse(provider.generate.mock.calls[1][0].user)).toEqual({ activityName: 'Munnar Walk', research: { query: 'Munnar Walk', sources: [], imageCandidates: [] } });
+    expect(JSON.parse(provider.generate.mock.calls[1][0].user)).toEqual({ activityName: 'Munnar Walk', vendorNotes: 'Supplier-confirmed tea garden route.', research: { query: 'Munnar Walk', sources: [], imageCandidates: [] } });
   });
 
   it('geocodes an AI-researched address before returning the draft', async () => {
@@ -36,6 +36,27 @@ describe('ActivityAiService', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('Tadadi+Port');
     expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({ headers: expect.objectContaining({ 'User-Agent': expect.stringContaining('VOYA') }) }));
     expect(result.draft.Basic_Info[0]).toEqual(expect.objectContaining({ latitude: 14.5441, longitude: 74.3187 }));
+  });
+
+  it('searches the supplied location context and fills a confident named-place address', async () => {
+    const catalogue = {};
+    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({}) } };
+    const config = { get: jest.fn().mockImplementation((key: string, fallback?: string) => key === 'AI_ACTIVITY_ENABLED' ? 'true' : key === 'AI_IMAGE_SEARCH_ENABLED' ? 'false' : fallback) };
+    const provider = { generate: jest.fn().mockResolvedValue({ model: 'mock', content: { Basic_Info: [{ product_name: 'Goa Water Sports Activities and Boat Tours', city: 'Goa', state: 'Goa', country: 'India' }], Experience: [{ full_description: 'Water activities and boat tours.' }], Options: [{ option_code: 'STANDARD', option_name: 'Standard experience' }] } }) };
+    const researchService = { search: jest.fn().mockResolvedValue({ query: '"Goa Water Sports Activities and Boat Tours" Water sports & activities Goa Goa India', sources: [], imageCandidates: [] }) };
+    const fetchMock = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue({ ok: true, json: async () => [{ name: 'Goa Water Sports Activities and Boat Tours', display_name: 'Goa Water Sports Activities and Boat Tours, Panaji, Goa, India', lat: '15.4909', lon: '73.8278' }] } as any);
+    const service = new ActivityAiService(config as any, catalogue as any, prisma as any, provider as any, researchService as any);
+
+    const result = await service.generate({ sub: 'u1', tenantId: 't1' } as any, { activityName: 'Goa Water Sports Activities and Boat Tours', city: 'Goa', state: 'Goa', country: 'India', category: 'Water sports & activities' } as any);
+
+    expect(researchService.search).toHaveBeenCalledWith('Goa Water Sports Activities and Boat Tours', expect.objectContaining({ city: 'Goa', state: 'Goa', country: 'India', category: 'Water sports & activities' }));
+    expect(String(fetchMock.mock.calls[0][0])).toContain('Goa+Water+Sports+Activities+and+Boat+Tours');
+    expect(result.draft.Basic_Info[0]).toEqual(expect.objectContaining({
+      address: 'Goa Water Sports Activities and Boat Tours, Panaji, Goa, India',
+      meeting_point: 'Goa Water Sports Activities and Boat Tours',
+      latitude: 15.4909,
+      longitude: 73.8278,
+    }));
   });
 
   it('filters Google placeholder avatars and uses reviewable images from an AI-retrieved source page', async () => {
