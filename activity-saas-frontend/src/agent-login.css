@@ -1,0 +1,157 @@
+/* Dedicated Agent Portal: styles are scoped to avoid touching Vendor/Admin sign-in. */
+.agent-login-page {
+  --agent-navy: #102337;
+  --agent-ink: #182a3a;
+  --agent-muted: #697889;
+  --agent-peach: #f0a87b;
+  --agent-border: #dce3e8;
+  display: grid;
+  grid-template-columns: minmax(0, 1.06fr) minmax(420px, 0.94fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #fbfcfd;
+  color: var(--agent-ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.agent-login-page * { box-sizing: border-box; }
+.agent-login-story {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 760px;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(28px, 3.8vw, 58px) clamp(32px, 5.5vw, 88px) 30px;
+  color: #fff;
+  background: radial-gradient(circle at 70% 71%, #244958 0, transparent 37%), linear-gradient(143deg, #112839 0%, #132d3b 48%, #112430 100%);
+}
+.agent-login-story::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: .15;
+  pointer-events: none;
+  background-image: radial-gradient(#ffffff70 0.8px, transparent 0.8px);
+  background-size: 26px 26px;
+  mask-image: linear-gradient(to bottom, transparent, #000 42%, transparent 96%);
+}
+.agent-login-story-header, .agent-login-story-footer, .agent-login-story-main { position: relative; z-index: 3; }
+.agent-login-story-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.agent-login-brand { display: flex; align-items: center; gap: 13px; }
+.agent-login-brand-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 51px; height: 51px;
+  border: 1px solid #ffffff59; border-radius: 15px;
+  color: #fff; font-size: 28px; font-weight: 850; letter-spacing: -3px;
+  background: linear-gradient(135deg, #e3a278, #bd7457);
+  box-shadow: 0 8px 24px #08172054;
+}
+.agent-login-brand-mark span { color: #172637; }
+.agent-login-brand-label { display: flex; flex-direction: column; gap: 2px; }
+.agent-login-brand-label strong { font-size: 24px; letter-spacing: 4px; font-weight: 850; line-height: 1.1; }
+.agent-login-brand-label small { font-size: 9px; letter-spacing: 2.3px; color: #cad8d7; font-weight: 700; }
+.agent-login-story-tag { color: #c4d4d5; border: 1px solid #ffffff27; border-radius: 30px; padding: 11px 15px; font-size: 9px; letter-spacing: 1.7px; font-weight: 750; white-space: nowrap; }
+.agent-login-story-main { margin-top: clamp(75px, 10vh, 118px); max-width: 660px; }
+.agent-login-story-eyebrow { display: inline-flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 800; letter-spacing: 2.1px; color: #e5ae87; }
+.agent-login-live-dot, .agent-login-pill-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #eba77c; box-shadow: 0 0 0 4px #eba77c20; flex: 0 0 auto; }
+.agent-login-story-main h1 { margin: 25px 0 20px; font-size: clamp(44px, 4.2vw, 74px); letter-spacing: -3.4px; line-height: 1.12; font-weight: 770; }
+.agent-login-story-main h1 em { font-weight: 500; color: #eab089; font-style: italic; font-family: Georgia, serif; letter-spacing: -2px; }
+.agent-login-story-main p { margin: 0; max-width: 430px; font-size: 15px; line-height: 1.9; color: #c4d3d6; }
+.agent-login-story-points { display: flex; flex-wrap: wrap; gap: 16px 25px; margin-top: 30px; font-size: 12px; font-weight: 650; color: #e7eceb; }
+.agent-login-story-points span span { color: #eeb589; font-size: 14px; margin-right: 6px; }
+.agent-login-art { position: relative; flex: 1 1 auto; min-height: 260px; width: 100%; margin-top: -3px; }
+.agent-login-art-glow { position: absolute; bottom: -130px; right: -160px; height: 470px; width: 660px; border-radius: 50%; background: radial-gradient(ellipse, #4d7874a6, transparent 66%); }
+.agent-login-art-orbit { position: absolute; bottom: -175px; right: -75px; height: 480px; width: 600px; border: 1px solid #ffffff26; border-radius: 50%; transform: rotate(-17deg); }
+.agent-login-art-orbit.orbit-two { bottom: -190px; right: -115px; height: 560px; width: 720px; opacity: .45; }
+.agent-login-art-sun { position: absolute; bottom: 128px; right: 12%; width: 172px; height: 172px; border-radius: 100%; background: linear-gradient(160deg, #f6c9a4, #d88865); box-shadow: 0 0 120px #f5a77755; }
+.agent-login-art-hill { position: absolute; bottom: -45px; left: -16%; width: 137%; height: 220px; border-radius: 48% 54% 0 0 / 76% 85% 0 0; }
+.agent-login-art-hill.hill-back { bottom: -25px; left: 18%; background: linear-gradient(130deg, #4c817f, #244f59); transform: rotate(-11deg); }
+.agent-login-art-hill.hill-mid { bottom: -90px; left: -34%; background: linear-gradient(115deg, #28515b, #1b3e4b); transform: rotate(8deg); }
+.agent-login-art-hill.hill-front { bottom: -130px; left: -5%; background: linear-gradient(95deg, #1d3c4a, #102b38); transform: rotate(-3deg); }
+.agent-login-art-track { position: absolute; bottom: 48px; left: 11%; width: 280px; height: 110px; border-bottom: 2px dashed #e9b99899; border-radius: 50%; transform: rotate(-13deg); }
+.agent-login-float-card { position: absolute; z-index: 2; display: flex; align-items: center; gap: 13px; padding: 15px 19px; border: 1px solid #ffffff73; border-radius: 17px; background: #ffffffeb; color: #203441; box-shadow: 0 24px 55px #081a2c65; backdrop-filter: blur(16px); }
+.agent-login-float-card b, .agent-login-float-card small { display: block; }
+.agent-login-float-card b { font-size: 13px; letter-spacing: -.2px; }
+.agent-login-float-card small { color: #788590; font-size: 10px; margin-top: 4px; }
+.agent-login-float-icon { display: grid; place-items: center; width: 37px; height: 37px; border-radius: 12px; color: #397066; background: #e8f2eb; font-size: 24px; }
+.agent-login-float-icon.warm { background: #fbe9dc; color: #c47752; }
+.agent-login-float-card.card-explore { top: 35px; left: 2%; transform: rotate(-5deg); }
+.agent-login-float-card.card-partners { bottom: 60px; right: -2%; transform: rotate(4deg); }
+.agent-login-story-footer { display: flex; justify-content: space-between; gap: 12px; padding-top: 23px; border-top: 1px solid #ffffff26; font-size: 9px; color: #b5c8cc; letter-spacing: 2px; font-weight: 750; }
+
+.agent-login-access {
+  display: flex; flex-direction: column; justify-content: space-between;
+  min-width: 0; min-height: 100vh; min-height: 100dvh;
+  padding: clamp(28px, 3.8vw, 57px) clamp(32px, 5vw, 86px) 27px;
+  background: radial-gradient(circle at 83% 15%, #faeee5 0, transparent 28%), #fbfcfd;
+}
+.agent-login-access-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.agent-login-access-pill { display: inline-flex; align-items: center; gap: 10px; color: #8a6a53; background: #f7eee7; border: 1px solid #efdfd2; padding: 10px 14px; border-radius: 30px; font-size: 10px; font-weight: 850; letter-spacing: 1.5px; white-space: nowrap; }
+.agent-login-pill-dot { width: 6px; height: 6px; box-shadow: 0 0 0 3px #eab89a3d; }
+.agent-login-main-link { color: #59707e; text-decoration: none; font-size: 12px; font-weight: 750; white-space: nowrap; }
+.agent-login-main-link span { margin-left: 4px; }
+.agent-login-main-link:hover { color: #ad7250; }
+.agent-login-form-area { width: min(100%, 430px); margin: 58px auto; }
+.agent-login-mobile-brand { display: none; }
+.agent-login-form-kicker { color: #c4845f; font-size: 10px; font-weight: 850; letter-spacing: 2.2px; }
+.agent-login-form-heading h2 { font-size: clamp(35px, 3.3vw, 53px); letter-spacing: -2.6px; font-weight: 800; line-height: 1.15; margin: 18px 0 13px; color: #152b3c; }
+.agent-login-form-heading h2 span { color: #dc9871; }
+.agent-login-form-heading p { font-size: 14px; line-height: 1.8; margin: 0 0 36px; color: #697b87; max-width: 385px; }
+.agent-login-form { display: flex; flex-direction: column; gap: 23px; }
+.agent-login-field { display: flex; flex-direction: column; gap: 9px; font-size: 12px; font-weight: 750; color: #2c4352; }
+.agent-login-field > input, .agent-login-password-field > input { width: 100%; min-height: 54px; border: 1px solid #dce3e8; border-radius: 12px; padding: 0 16px; background: #fff; outline: 0; color: #182b3b; font-size: 13px; font-weight: 500; transition: border-color .2s, box-shadow .2s; }
+.agent-login-field input::placeholder { color: #9ca9b3; }
+.agent-login-field input:focus { border-color: #c68a68; box-shadow: 0 0 0 4px #e6a98120; }
+.agent-login-field input:disabled { background: #f3f5f6; }
+.agent-login-password-field { position: relative; }
+.agent-login-password-field > input { padding-right: 76px; }
+.agent-login-show-password { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); border: none; background: transparent; padding: 11px; color: #9e735a; font-size: 11px; font-weight: 850; cursor: pointer; }
+.agent-login-show-password:hover, .agent-login-show-password:focus-visible { color: #6e493a; }
+.agent-login-help-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: -4px; color: #87939d; font-size: 10px; }
+.agent-login-lock { font-size: 17px; color: #67897e; margin-right: 3px; }
+.agent-login-submit { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 58px; width: 100%; border: 1px solid #163c47; border-radius: 13px; padding: 10px 12px 10px 21px; background: #163743; color: #fff; cursor: pointer; font-size: 13px; font-weight: 750; box-shadow: 0 16px 34px #153d472d; transition: transform .2s, background .2s, box-shadow .2s; }
+.agent-login-submit:not(:disabled):hover { background: #205160; transform: translateY(-2px); box-shadow: 0 20px 38px #153d4740; }
+.agent-login-submit:focus-visible { outline: 3px solid #dfa480; outline-offset: 3px; }
+.agent-login-submit:disabled { opacity: .65; cursor: wait; }
+.agent-login-submit-arrow { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: #e5ad8a; color: #1d3540; font-size: 23px; }
+.agent-login-error { padding: 14px 16px; border: 1px solid #e9b4ad; border-radius: 11px; color: #9d382e; background: #fff3f0; font-size: 12px; line-height: 1.5; }
+.agent-login-support { margin-top: 35px; display: flex; gap: 13px; border: 1px solid #e4e9ec; border-radius: 14px; background: #fff; padding: 18px; }
+.agent-login-support-mark { display: grid; place-items: center; flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%; background: #edf3f3; color: #3b6770; font-size: 18px; font-weight: 800; }
+.agent-login-support p { margin: 0; color: #77858e; font-size: 11px; line-height: 1.8; }
+.agent-login-support b { color: #2a4753; font-size: 12px; }
+.agent-login-access-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; color: #9aa6ad; font-size: 10px; }
+@media (max-width: 1120px) {
+  .agent-login-page { grid-template-columns: 0.9fr 1.1fr; }
+  .agent-login-story { padding-left: 36px; padding-right: 36px; }
+  .agent-login-story-tag { display: none; }
+  .agent-login-story-main h1 { font-size: 48px; }
+  .agent-login-access { padding-left: 36px; padding-right: 36px; }
+}
+@media (max-width: 900px) {
+  .agent-login-page { grid-template-columns: 1fr; }
+  .agent-login-story { min-height: 250px; padding: 25px 32px 30px; }
+  .agent-login-story-main { margin-top: 32px; }
+  .agent-login-story-main h1 { margin: 10px 0; font-size: 36px; letter-spacing: -1.7px; }
+  .agent-login-story-main p, .agent-login-story-points, .agent-login-art, .agent-login-story-footer, .agent-login-story-eyebrow { display: none; }
+  .agent-login-access { min-height: auto; padding: 28px 32px 24px; }
+  .agent-login-form-area { margin: 45px auto 65px; }
+}
+@media (max-width: 550px) {
+  .agent-login-story { min-height: 155px; padding: 18px 23px; }
+  .agent-login-brand-mark { width: 39px; height: 39px; border-radius: 12px; font-size: 22px; }
+  .agent-login-brand-label strong { font-size: 20px; }
+  .agent-login-story-main { margin-top: 20px; }
+  .agent-login-story-main h1 { font-size: 24px; line-height: 1.25; margin: 0; letter-spacing: -1px; }
+  .agent-login-story-main h1 br { display: none; }
+  .agent-login-access { padding: 22px 21px; }
+  .agent-login-access-top { justify-content: space-between; }
+  .agent-login-form-area { margin: 36px auto 45px; }
+  .agent-login-form-heading h2 { font-size: 39px; }
+  .agent-login-form-heading p { margin-bottom: 28px; }
+  .agent-login-access-footer { flex-wrap: wrap; font-size: 9px; }
+  .agent-login-help-row { gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-login-page *, .agent-login-page *::before, .agent-login-page *::after { animation: none !important; transition: none !important; }
+}
