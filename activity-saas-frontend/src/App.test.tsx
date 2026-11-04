@@ -8,6 +8,8 @@ describe('admin route authorization', () => {
   });
 
   it('maps Agent modules to stable browser routes', () => {
+    expect(agentPageFromPath('/agent/dashboard')).toBe('dashboard');
+    expect(agentPageFromPath('/')).toBe('dashboard');
     expect(agentPageFromPath('/agent/marketplace')).toBe('marketplace');
     expect(agentPageFromPath('/agent/bookings')).toBe('bookings');
   });

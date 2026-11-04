@@ -26,4 +26,56 @@ describe('MarketplaceService Phase 5.1', () => {
   it('evaluates every candidate across deterministic pages before applying the product result limit', async () => { const candidates = Array.from({ length: 351 }, (_, index) => { const item = plan(); item.id = `rp${String(index + 1).padStart(3, '0')}`; item.ratePlanCode = item.id; return item; }); const f = make(candidates.slice(0, 1)); f.prisma.ratePlan.findMany.mockReset().mockResolvedValueOnce(candidates.slice(0, 100)).mockResolvedValueOnce(candidates.slice(100, 200)).mockResolvedValueOnce(candidates.slice(200, 300)).mockResolvedValueOnce(candidates.slice(300)); f.eligibility.evaluate.mockImplementation(async (input: any) => ({ eligible: input.ratePlanId === 'rp351', bookingMode: 'INSTANT', commercial: { currency: 'INR', finalAmount: '100.00', tax: null, promotion: null }, inventory: { availableCapacity: 5 }, evaluatedAt: '' })); const result = await f.service.search(user, { ...dto, limit: 1 }); expect(f.prisma.ratePlan.findMany).toHaveBeenCalledTimes(4); expect(f.eligibility.evaluate).toHaveBeenCalledTimes(351); expect(f.prisma.product.findFirst).not.toHaveBeenCalled(); expect(result.count).toBe(1); expect(result.products).toHaveLength(1); });
   it('rejects inverted duration and price ranges', async () => { const f = make(); await expect(f.service.search(user, { ...dto, durationMin: 180, durationMax: 60 })).rejects.toMatchObject({ status: 400 }); await expect(f.service.search(user, { ...dto, priceMin: 200, priceMax: 100 })).rejects.toMatchObject({ status: 400 }); });
   it('requires a UUID v4 searchAttemptId at the API validation boundary', async () => { const request = Object.assign(new MarketplaceSearchDto(), { serviceDate: '2026-10-10', travellers: [{ travellerType: 'ADULT', quantity: 1 }] }); const errors = await validate(request); expect(errors.some((error) => error.property === 'searchAttemptId')).toBe(true); });
+  it('exposes published traveller-facing creation details without internal supplier fields', async () => {
+    const f = make();
+    const revision = {
+      ...plan().variant.product.currentRevision,
+      description: 'Full published tour itinerary',
+      highlights: ['Guided experience'],
+      terms: ['Valid ID required'],
+      howToRedeem: ['Show your voucher'],
+      thingsToCarry: ['Water'],
+      safetyMeasures: ['Follow your guide'],
+      importantInfo: ['Arrive 15 minutes early'],
+      additionalInfo: ['Wear comfortable shoes'],
+      meetingModel: 'FIXED_MEETING_POINT',
+      meetingPoint: 'Tea estate gate',
+      address: 'Munnar Road',
+      lat: '10.0000000',
+      lon: '76.0000000',
+      faqs: [{ question: 'Is pickup included?', answer: 'See the selected option.' }],
+      media: [],
+      bookingQuestions: [{
+        code: 'GUEST_NAME', label: 'Traveller name', helpText: null,
+        type: 'TEXT', required: true, appliesPerTraveller: true, options: null,
+      }],
+      labels: ['SUPPLIER_INTERNAL_ONLY'],
+      sourcePayload: { supplierNetRate: 10 },
+    };
+    f.prisma.product.findFirst.mockResolvedValue({ id: 'p1', productCode: 'P1', status: 'LIVE', currentRevision: revision });
+    const details = await f.service.productView(user, 'p1', dto);
+    expect(details).toMatchObject({
+      name: 'Munnar walk',
+      description: 'Full published tour itinerary',
+      meetingPoint: 'Tea estate gate',
+      address: 'Munnar Road',
+      thingsToCarry: ['Water'],
+      safetyMeasures: ['Follow your guide'],
+      howToRedeem: ['Show your voucher'],
+      bookingQuestions: [{ code: 'GUEST_NAME', label: 'Traveller name' }],
+      coordinates: { lat: 10, lon: 76 },
+    });
+    expect(details).not.toHaveProperty('sourcePayload');
+    expect(details).not.toHaveProperty('labels');
+    expect(f.prisma.product.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      include: expect.objectContaining({
+        currentRevision: expect.objectContaining({
+          include: expect.objectContaining({
+            bookingQuestions: expect.objectContaining({ where: { archivedAt: null } }),
+          }),
+        }),
+      }),
+    }));
+  });
+
 });

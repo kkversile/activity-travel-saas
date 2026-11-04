@@ -40,7 +40,7 @@ export class MarketplaceService {
   }
 
   private safeVariant(variant: any) {
-    return { id: variant.id, variantCode: variant.variantCode, name: variant.name, description: variant.description, durationMinutes: variant.durationMinutes, privateShared: variant.privateShared, pickupIncluded: variant.pickupIncluded, pickupType: variant.pickupType, pickupInput: variant.pickupInput, pickupTimings: variant.pickupTimings, dropoffIncluded: variant.dropoffIncluded, dropoffTimings: variant.dropoffTimings, mealIncluded: variant.mealIncluded, mealType: variant.mealType, menu: variant.menu, pointsOfInterest: variant.pointsOfInterest, inclusions: variant.inclusions, exclusions: variant.exclusions, suitableFor: variant.suitableFor };
+    return { id: variant.id, variantCode: variant.variantCode, name: variant.name, description: variant.description, durationMinutes: variant.durationMinutes, privateShared: variant.privateShared, pickupIncluded: variant.pickupIncluded, pickupType: variant.pickupType, pickupInput: variant.pickupInput, pickupTimings: variant.pickupTimings, dropoffIncluded: variant.dropoffIncluded, dropoffTimings: variant.dropoffTimings, mealIncluded: variant.mealIncluded, mealType: variant.mealType, menu: variant.menu, mealVariety: variant.mealVariety, vehicleType: variant.vehicleType, minPax: variant.minPax, maxPax: variant.maxPax, cutOffMinutes: variant.cutOffMinutes, pointsOfInterest: variant.pointsOfInterest, inclusions: variant.inclusions, exclusions: variant.exclusions, suitableFor: variant.suitableFor };
   }
 
   private async findEligibleOffers(agentTenantId: string, dto: MarketplaceSearchDto | MarketplaceProductViewDto, options: SearchOptions = {}) {
@@ -56,7 +56,7 @@ export class MarketplaceService {
     if ('privateShared' in s && s.privateShared) variantWhere.privateShared = { equals: s.privateShared, mode: 'insensitive' };
     if ('pickupIncluded' in s && s.pickupIncluded !== undefined) variantWhere.pickupIncluded = s.pickupIncluded;
     const where = { status: RatePlanStatus.ACTIVE, validFrom: { lte: serviceDate }, validTo: { gt: serviceDate }, channelMappings: { some: { status: 'ACTIVE', enabled: true, channel: { code: 'VOYA_AGENT', active: true } } }, variant: { ...variantWhere, product: { ...(options.productId ? { id: options.productId } : {}), status: ProductStatus.LIVE, currentRevision: revisionWhere, tenant: { kind: TenantKind.VENDOR, vendorProfile: { verificationStatus: 'VERIFIED' } } } }, scheduleMappings: { some: { active: true, scheduleTemplate: { status: 'ACTIVE', effectiveFrom: { lte: serviceDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: serviceDate } }], sessions: { some: { serviceDate, status: 'OPEN', archivedAt: null } } } } } };
-    const include = { travellerRules: true, channelMappings: { where: { status: 'ACTIVE', enabled: true, channel: { code: 'VOYA_AGENT', active: true } }, include: { channel: true, inventoryRule: true } }, variant: { include: { product: { include: { experienceMaster: { include: { placements: true, buyBox: { include: { offers: { include: { bids: { where: { status: 'ACTIVE' }, orderBy: { submittedAt: 'desc' } } } } } } } }, currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } } } } } } } }, scheduleMappings: { where: { active: true }, include: { scheduleTemplate: { include: { sessions: { where: { serviceDate, status: 'OPEN', archivedAt: null } } } } } } };
+    const include = { travellerRules: true, cancellationRules: true, channelMappings: { where: { status: 'ACTIVE', enabled: true, channel: { code: 'VOYA_AGENT', active: true } }, include: { channel: true, inventoryRule: true } }, variant: { include: { product: { include: { experienceMaster: { include: { placements: true, buyBox: { include: { offers: { include: { bids: { where: { status: 'ACTIVE' }, orderBy: { submittedAt: 'desc' } } } } } } } }, currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } } } } } } } }, scheduleMappings: { where: { active: true }, include: { scheduleTemplate: { include: { sessions: { where: { serviceDate, status: 'OPEN', archivedAt: null } } } } } } };
     const plans: any[] = []; const pageSize = 100; let cursor: string | undefined;
     do {
       const page: any[] = await this.prisma.ratePlan.findMany({ where, include, orderBy: { id: 'asc' }, take: pageSize, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) } as any);
@@ -97,7 +97,7 @@ export class MarketplaceService {
         if ('bookingMode' in s && s.bookingMode && result.bookingMode !== s.bookingMode) continue;
         if ('minRating' in s && s.minRating != null && Number(revision.starRating ?? 0) < s.minRating) continue;
         const media = revision.media.map((item: any) => this.safeMedia(item)).filter(Boolean);
-        const item: any = { product: { id: plan.variant.product.id, productCode: plan.variant.product.productCode, name: revision.productName, shortDescription: revision.shortDescription, destination: { city: revision.cityName, state: revision.stateName, country: revision.countryName }, starRating: revision.starRating?.toString() ?? null, coverMedia: media[0] ?? null, experienceMaster: plan.variant.product.experienceMaster ? { id: plan.variant.product.experienceMaster.id, canonicalName: plan.variant.product.experienceMaster.canonicalName, displayMode: plan.variant.product.experienceMaster.displayMode, selectionPolicy: plan.variant.product.experienceMaster.selectionPolicy, placements: plan.variant.product.experienceMaster.placements } : null }, variant: this.safeVariant(plan.variant), offer: { ratePlanId: plan.id, ratePlanCode: plan.ratePlanCode, name: plan.name, sessionId: session.id, serviceDate: session.serviceDate, localStartTime: session.localStartTime, localEndTime: session.localEndTime, timezone: mapping.scheduleTemplate.timezone, startsAt: session.startsAt, bookingMode: result.bookingMode, quoteFingerprint: (result.commercial as any)?.quoteFingerprint ?? null, price: result.commercial ? { currency: (result.commercial as any).currency, finalAmount: (result.commercial as any).finalAmount, tax: (result.commercial as any).tax, promotion: (result.commercial as any).promotion } : null, availability: exposedInventory, evaluatedAt: result.evaluatedAt }, _commissionScore: Number((result.commercial as any)?.voya?.revenue ?? 0) };
+        const item: any = { product: { id: plan.variant.product.id, productCode: plan.variant.product.productCode, name: revision.productName, type: revision.type, subType: revision.subType, subCategory: revision.subCategory, shortDescription: revision.shortDescription, destination: { city: revision.cityName, state: revision.stateName, country: revision.countryName }, starRating: revision.starRating?.toString() ?? null, coverMedia: media[0] ?? null, experienceMaster: plan.variant.product.experienceMaster ? { id: plan.variant.product.experienceMaster.id, canonicalName: plan.variant.product.experienceMaster.canonicalName, displayMode: plan.variant.product.experienceMaster.displayMode, selectionPolicy: plan.variant.product.experienceMaster.selectionPolicy, placements: plan.variant.product.experienceMaster.placements } : null }, variant: this.safeVariant(plan.variant), offer: { ratePlanId: plan.id, ratePlanCode: plan.ratePlanCode, name: plan.name, sessionId: session.id, serviceDate: session.serviceDate, localStartTime: session.localStartTime, localEndTime: session.localEndTime, timezone: mapping.scheduleTemplate.timezone, startsAt: session.startsAt, bookingMode: result.bookingMode, cancellationRules: (plan.cancellationRules || []).map((rule: any) => ({ minDaysBefore: rule.minDaysBefore, maxDaysBefore: rule.maxDaysBefore, chargeValue: String(rule.chargeValue), chargeType: rule.chargeType })), quoteFingerprint: (result.commercial as any)?.quoteFingerprint ?? null, price: result.commercial ? { currency: (result.commercial as any).currency, finalAmount: (result.commercial as any).finalAmount, tax: (result.commercial as any).tax, promotion: (result.commercial as any).promotion } : null, availability: exposedInventory, evaluatedAt: result.evaluatedAt }, _commissionScore: Number((result.commercial as any)?.voya?.revenue ?? 0) };
         const offerCurrency = String((result.commercial as any)?.currency ?? '').toUpperCase();
         if (Number.isFinite(finalAmount) && offerCurrency) { const values = priceValues.get(offerCurrency) ?? []; values.push(finalAmount); priceValues.set(offerCurrency, values); }
         eligibleBeforePrice.push(item);
@@ -157,9 +157,41 @@ export class MarketplaceService {
   async productView(user: AuthUser, productId: string, dto: MarketplaceProductViewDto) {
     const agentTenantId = await this.assertApprovedAgent(user); const result = await this.findEligibleOffers(agentTenantId, dto, { productId });
     if (!result.offers.length) throw new NotFoundException('Product has no eligible marketplace offer for this context');
-    const source: any = await this.prisma.product.findFirst({ where: { id: productId, status: ProductStatus.LIVE, currentRevision: { status: ProductRevisionStatus.PUBLISHED } }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } } } } } });
+    const source: any = await this.prisma.product.findFirst({ where: { id: productId, status: ProductStatus.LIVE, currentRevision: { status: ProductRevisionStatus.PUBLISHED } }, include: { currentRevision: { include: { media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' } }, bookingQuestions: { where: { archivedAt: null }, orderBy: { rank: 'asc' }, select: { code: true, label: true, helpText: true, type: true, required: true, appliesPerTraveller: true, options: true } } } } } });
     if (!source?.currentRevision) throw new NotFoundException('Published product not found'); const revision = source.currentRevision; const grouped = new Map<string, any>();
     for (const item of result.offers) { let variant = grouped.get(item.variant.id); if (!variant) { variant = { ...item.variant, offers: [] }; grouped.set(item.variant.id, variant); } variant.offers.push(item.offer); }
-    return { id: source.id, productCode: source.productCode, name: revision.productName, description: revision.description, shortDescription: revision.shortDescription, highlights: revision.highlights, inclusions: [...new Set(result.offers.flatMap((item: any) => item.variant.inclusions ?? []))], exclusions: [...new Set(result.offers.flatMap((item: any) => item.variant.exclusions ?? []))], terms: revision.terms, importantInfo: revision.importantInfo, destination: { city: revision.cityName, state: revision.stateName, country: revision.countryName }, media: revision.media.map((item: any) => this.safeMedia(item)).filter(Boolean), variants: [...grouped.values()] };
+    return {
+      id: source.id,
+      productCode: source.productCode,
+      name: revision.productName,
+      type: revision.type,
+      subType: revision.subType,
+      subCategory: revision.subCategory,
+      starRating: revision.starRating?.toString() ?? null,
+      description: revision.description,
+      shortDescription: revision.shortDescription,
+      highlights: revision.highlights,
+      // Customer-facing content only. Never expose draft revisions, internal labels,
+      // supplier source payloads, commission rates, or unpublished media.
+      inclusions: [...new Set(result.offers.flatMap((item: any) => item.variant.inclusions ?? []))],
+      exclusions: [...new Set(result.offers.flatMap((item: any) => item.variant.exclusions ?? []))],
+      terms: revision.terms,
+      importantInfo: revision.importantInfo,
+      thingsToCarry: revision.thingsToCarry,
+      safetyMeasures: revision.safetyMeasures,
+      howToRedeem: revision.howToRedeem,
+      additionalInfo: revision.additionalInfo,
+      faqs: Array.isArray(revision.faqs) ? revision.faqs : [],
+      bookingQuestions: revision.bookingQuestions,
+      meetingModel: revision.meetingModel,
+      meetingPoint: revision.meetingPoint,
+      address: revision.address,
+      coordinates: revision.lat != null && revision.lon != null
+        ? { lat: Number(revision.lat), lon: Number(revision.lon) }
+        : null,
+      destination: { city: revision.cityName, state: revision.stateName, country: revision.countryName },
+      media: revision.media.map((item: any) => this.safeMedia(item)).filter(Boolean),
+      variants: [...grouped.values()],
+    };
   }
 }

@@ -33,15 +33,17 @@ import ChangePasswordDialog from './components/ChangePasswordDialog';
 import AgentMarketplace, { type AgentSearchContext, type AgentSearchState } from './pages/AgentMarketplace';
 import AgentProductView from './pages/AgentProductView';
 import AgentBookings from './pages/AgentBookings';
+import AgentDashboard from './pages/AgentDashboard';
+import './agent-panel.css';
 import './login.css';
 
 const demoCredentials = { vendor: { email: import.meta.env.VITE_DEMO_VENDOR_EMAIL || '', password: import.meta.env.VITE_DEMO_VENDOR_PASSWORD || '' }, superAdmin: { email: import.meta.env.VITE_DEMO_SUPER_ADMIN_EMAIL || '', password: import.meta.env.VITE_DEMO_SUPER_ADMIN_PASSWORD || '' }, admin: { email: import.meta.env.VITE_DEMO_ADMIN_EMAIL || '', password: import.meta.env.VITE_DEMO_ADMIN_PASSWORD || '' }, agent: { email: import.meta.env.VITE_DEMO_AGENT_EMAIL || '', password: import.meta.env.VITE_DEMO_AGENT_PASSWORD || '' } } as const;
 const pages = { dashboard: { title: 'Overview', sub: 'Welcome back', component: Dashboard }, onboarding: { title: 'Onboarding', sub: 'Complete verification to unlock full catalogue access', component: Onboarding }, products: { title: 'Products', sub: 'Manage products, revisions, options and rate plans', component: Products }, availability: { title: 'Inventory', sub: 'Manage schedules, capacity, blackouts and operational resources', component: Inventory }, bookings: { title: 'Bookings', sub: 'Confirm, track and fulfil incoming reservations', component: Bookings }, fulfilment: { title: 'Fulfilment', sub: 'Service-day operations, evidence and vouchers', component: FulfilmentCentre }, payouts: { title: 'Payouts', sub: 'Track earnings and settlement cycles', component: Payouts }, performance: { title: 'Performance', sub: 'SLA, ratings and operational quality', component: Performance }, opportunities: { title: 'Opportunities', sub: 'Respond to targeted supply opportunities', component: Opportunities }, buybox: { title: 'Buy Box', sub: 'Bid for recommended marketplace placement', component: VendorBuyBox } } as const;
 export const vendorNavigation = Object.entries(pages).map(([key, value]) => ({ key: key as VendorPage, label: key === 'products' ? 'Products' : key === 'buybox' ? 'Buy Box' : key[0].toUpperCase() + key.slice(1), ...value }));
 type VendorPage = keyof typeof pages;
-type AgentPage = 'marketplace' | 'bookings';
-const agentPaths: Record<AgentPage, string> = { marketplace: '/agent/marketplace', bookings: '/agent/bookings' };
-export function agentPageFromPath(pathname: string): AgentPage { return routePath(pathname) === agentPaths.bookings ? 'bookings' : 'marketplace'; }
+type AgentPage = 'dashboard' | 'marketplace' | 'bookings';
+const agentPaths: Record<AgentPage, string> = { dashboard: '/agent/dashboard', marketplace: '/agent/marketplace', bookings: '/agent/bookings' };
+export function agentPageFromPath(pathname: string): AgentPage { const path = routePath(pathname); return path === agentPaths.bookings ? 'bookings' : path === agentPaths.marketplace ? 'marketplace' : 'dashboard'; }
 export function agentCanBook(role: User['organizationRole']): boolean { return role === 'OWNER' || role === 'CATALOGUE' || role === 'OPERATIONS'; }
 export type AdminPage = 'dashboard' | 'users' | 'agents' | 'vendors' | 'products' | 'matching' | 'review' | 'commercial' | 'eligibility' | 'bookings' | 'refunds' | 'fulfilment' | 'settlements' | 'quality' | 'demand' | 'distribution' | 'buybox' | 'settings';
 const vendorPaths: Record<VendorPage, string> = { dashboard: '/vendor/dashboard', onboarding: '/vendor/onboarding', products: '/vendor/products', availability: '/vendor/availability', bookings: '/vendor/bookings', fulfilment: '/vendor/fulfilment', payouts: '/vendor/payouts', performance: '/vendor/performance', opportunities: '/vendor/opportunities', buybox: '/vendor/buy-box' };
@@ -103,7 +105,120 @@ function AdminApp({ user, logout }: { user: User; logout: () => void }) {
   return <div className="admin-shell"><aside className="admin-sidebar"><div className="brand"><div className="brand-mark">V</div><div><b>Voya</b><small>{roleLabel} Console</small></div></div><nav className="admin-nav">{nav.map(([key, label]) => key === 'vendors' ? <div className="admin-nav-group" key={key}><button className={page === key ? 'active' : ''} onClick={() => navigate(key)}>{label}</button><button className={`admin-nav-subitem ${page === 'products' ? 'active' : ''}`} onClick={() => navigate('products')}>Products</button></div> : <button key={key} className={page === key ? 'active' : ''} onClick={() => navigate(key)}>{label}</button>)}</nav><div className="sidebar-foot"><span>Platform account</span><b>{user.email}</b><small>{roleLabel}</small></div></aside><main className="admin-main"><header className="topbar"><div><h1>{title}</h1><p>Manage the Voya product catalogue and booking operations</p></div><div className="top-actions"><span className="verified">{roleLabel}</span><div className="avatar">{user.fullName?.[0] || 'A'}</div><button className="logout" onClick={logout}>Sign out</button></div></header><div className="content">{page === 'dashboard' ? <AdminDashboard onNavigate={navigate} /> : page === 'users' ? <AdminUsers /> : page === 'agents' ? <AdminAgents canImpersonate={user.role === 'SUPER_ADMIN'} /> : page === 'vendors' ? <AdminVendors canImpersonate={user.role === 'SUPER_ADMIN'} canCreateVendor={user.role === 'SUPER_ADMIN'} onViewProducts={(vendorId) => navigate('products', { vendorId })} /> : page === 'products' ? <AdminProducts /> : page === 'matching' ? <AdminExperienceMatching /> : page === 'review' ? <AdminReview /> : page === 'commercial' ? <AdminCommercial /> : page === 'bookings' ? <AdminBookings /> : page === 'refunds' ? <AdminRefunds /> : page === 'fulfilment' ? <AdminFulfilment /> : page === 'settlements' ? <AdminSettlements /> : page === 'quality' ? <AdminQuality /> : page === 'demand' ? <AdminDemand /> : page === 'distribution' ? <AdminDistribution /> : page === 'buybox' ? <AdminBuyBox /> : page === 'settings' ? <AdminSettings /> : <AdminEligibility />}</div></main></div>;
 }
 
-function AgentApp({ user, logout }: { user: User; logout: () => void }) { const [productId, setProductId] = useState<string | null>(null); const [context, setContext] = useState<AgentSearchContext | null>(null); const [searchState, setSearchState] = useState<AgentSearchState>(); const [page, setPage] = useState<AgentPage>(() => agentPageFromPath(window.location.pathname)); const canBook = agentCanBook(user.organizationRole); useEffect(() => { const requested = agentPageFromPath(window.location.pathname); if (!routePath(window.location.pathname).startsWith('/agent/')) window.history.replaceState({}, '', appPath(agentPaths[requested])); const onPopState = () => { setPage(agentPageFromPath(window.location.pathname)); setProductId(null); }; window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState); }, []); function navigate(next: AgentPage) { setPage(next); setProductId(null); const nextPath = appPath(agentPaths[next]); if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath); } return <div className="app-shell"><aside className="sidebar"><div className="brand"><div className="brand-mark">V</div><div><b>Voya</b><small>Agent Marketplace</small></div></div><nav><button className={page === 'marketplace' ? 'active' : ''} onClick={() => navigate('marketplace')}>Marketplace</button><button className={page === 'bookings' ? 'active' : ''} onClick={() => navigate('bookings')}>My bookings</button></nav></aside><main className="main"><header className="topbar"><div><h1>{productId ? 'Customer View' : page === 'bookings' ? 'My bookings' : 'Marketplace'}</h1><p>Voya Agent Console</p></div><button className="logout" onClick={logout}>Sign out</button></header><div className="content">{page === 'bookings' ? <AgentBookings canBook={canBook} /> : productId && context ? <AgentProductView productId={productId} context={context} canBook={canBook} onBack={() => setProductId(null)} /> : <AgentMarketplace initial={searchState} onStateChange={setSearchState} onView={(id, next) => { setProductId(id); setContext(next); }} />}</div></main></div>; }
+function AgentApp({ user, logout }: { user: User; logout: () => void }) {
+  const [productId, setProductId] = useState<string | null>(null);
+  const [context, setContext] = useState<AgentSearchContext | null>(null);
+  const [searchState, setSearchState] = useState<AgentSearchState>();
+  const [page, setPage] = useState<AgentPage>(() => agentPageFromPath(window.location.pathname));
+  const canBook = agentCanBook(user.organizationRole);
+
+  useEffect(() => {
+    const path = routePath(window.location.pathname);
+    const requested = agentPageFromPath(window.location.pathname);
+    if (!Object.values(agentPaths).includes(path)) {
+      window.history.replaceState({}, '', appPath(agentPaths[requested]));
+    }
+    const onPopState = () => {
+      setPage(agentPageFromPath(window.location.pathname));
+      setProductId(null);
+      setContext(null);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  function navigate(next: AgentPage) {
+    setPage(next);
+    setProductId(null);
+    setContext(null);
+    const nextPath = appPath(agentPaths[next]);
+    if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath);
+  }
+
+  function explore(search: AgentSearchState) {
+    setSearchState({ ...search, results: undefined });
+    navigate('marketplace');
+  }
+
+  const displayName = user.fullName?.trim() || user.email.split('@')[0] || 'Agent';
+  const initial = displayName.charAt(0).toUpperCase();
+  const pageName = productId ? 'Experience details' : page === 'dashboard' ? 'Overview' : page === 'marketplace' ? 'Marketplace' : 'My bookings';
+  const today = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date());
+  const accessLabel = canBook ? 'Booking access' : 'View-only access';
+
+  return (
+    <div className="voya-agent-shell">
+      <aside className="voya-agent-sidebar" aria-label="Agent panel sidebar">
+        <div className="voya-agent-sidebar-brand">
+          <span className="voya-agent-logo" aria-hidden="true">V<span>.</span></span>
+          <div><b>VOYA</b><small>AGENT NETWORK</small></div>
+        </div>
+        <span className="voya-agent-nav-label">WORKSPACE</span>
+        <nav aria-label="Agent navigation">
+          {([
+            { key: 'dashboard', label: 'Overview', icon: '◫' },
+            { key: 'marketplace', label: 'Marketplace', icon: '✧' },
+            { key: 'bookings', label: 'My bookings', icon: '▤' },
+          ] as const).map((item) => (
+            <button
+              type="button"
+              key={item.key}
+              className={page === item.key ? 'active' : ''}
+              onClick={() => navigate(item.key)}
+              title={item.label}
+              aria-current={page === item.key ? 'page' : undefined}
+            >
+              <span className="voya-agent-nav-symbol" aria-hidden="true">{item.icon}</span>
+              <span>{item.label}</span>
+              {page === item.key && <span className="voya-agent-nav-active-indicator" aria-hidden="true" />}
+            </button>
+          ))}
+        </nav>
+        <div className="voya-agent-sidebar-spacer" />
+        <div className="voya-agent-sidebar-tip">
+          <span aria-hidden="true">✧</span>
+          <b>Make every journey count.</b>
+          <p>Your partner workspace for discovering experiences and managing bookings.</p>
+        </div>
+        <div className="voya-agent-sidebar-user">
+          <span className="voya-agent-user-avatar" aria-hidden="true">{initial}</span>
+          <div><b title={displayName}>{displayName}</b><small>Travel agent</small></div>
+        </div>
+      </aside>
+
+      <div className="voya-agent-main">
+        <header className="voya-agent-topbar">
+          <div className="voya-agent-breadcrumb"><span>VOYA Agent Network</span><i aria-hidden="true">/</i><strong>{pageName}</strong></div>
+          <div className="voya-agent-topbar-right">
+            <span className="voya-agent-topbar-date">{today}</span>
+            <span className="voya-agent-role-pill">{accessLabel}</span>
+            <button type="button" className="voya-agent-signout" onClick={logout}>Sign out ↗</button>
+          </div>
+        </header>
+
+        <main className="voya-agent-content">
+          {page !== 'dashboard' && <div className="voya-agent-page-heading">
+            <div><h1>{pageName}</h1><p>{page === 'bookings' ? 'Your reservations, confirmations and vouchers' : 'Discover and book eligible experiences for your travellers'}</p></div>
+            <span className="voya-agent-page-mark">VOYA / AGENT PORTAL</span>
+          </div>}
+          {page === 'dashboard' ? (
+            <AgentDashboard user={user} canBook={canBook} onExplore={explore} onViewBookings={() => navigate('bookings')} />
+          ) : page === 'bookings' ? (
+            <AgentBookings canBook={canBook} />
+          ) : productId && context ? (
+            <AgentProductView productId={productId} context={context} canBook={canBook} onBack={() => setProductId(null)} />
+          ) : (
+            <AgentMarketplace
+              initial={searchState}
+              onStateChange={setSearchState}
+              onView={(id, next) => { setProductId(id); setContext(next); }}
+            />
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
 
 function Login({ onLogin }: { onLogin: (user: User) => void | Promise<void> }) {
   const [mode, setMode] = useState<'password' | 'email'>('password');
