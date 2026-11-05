@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -18,5 +18,15 @@ export class DashboardController {
   @Get('summary')
   summary(@CurrentUser() user: AuthUser) {
     return this.service.summary(user);
+  }
+
+  @Get('departures')
+  departures(@CurrentUser() user: AuthUser) {
+    return this.service.summary(user).then((data) => ({ departures: data.todayDepartures || [] }));
+  }
+
+  @Get('bookings-trend')
+  bookingTrend(@CurrentUser() user: AuthUser, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.bookingTrend(user, from, to);
   }
 }

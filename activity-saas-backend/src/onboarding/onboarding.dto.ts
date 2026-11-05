@@ -1,9 +1,10 @@
 import { VendorGstStatus, VendorOnboardingStatus } from '@prisma/client';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class UpdateOnboardingDto {
   @IsOptional() @IsBoolean() started?: boolean;
-  @IsOptional() @IsInt() @Min(1) @Max(6) currentStep?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(8) currentStep?: number;
+  @IsOptional() @IsObject() supplementalData?: Record<string, unknown>;
   @IsOptional() @IsString() @MaxLength(80) firstName?: string;
   @IsOptional() @IsString() @MaxLength(80) lastName?: string;
   @IsOptional() @IsString() @MaxLength(20) contactNumber?: string;

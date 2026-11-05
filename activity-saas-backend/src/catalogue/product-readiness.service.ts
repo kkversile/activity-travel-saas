@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { ProductRevisionStatus, ProductType, ScheduleStatus, SessionStatus, VariantStatus } from '@prisma/client';
+import { ProductRevisionStatus, ProductType, ScheduleStatus, SessionStatus, UserRole, VariantStatus } from '@prisma/client';
 import { CommercialService } from '../commercial/commercial.service';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
@@ -14,6 +14,8 @@ export type ProductReadiness = {
   sections: {
     basicInfo: ReadinessSection;
     experience: ReadinessSection;
+    policies: ReadinessSection;
+    voucher: ReadinessSection;
     options: ReadinessSection;
     rates: ReadinessSection;
     availability: ReadinessSection;
@@ -37,13 +39,13 @@ export class ProductReadinessService {
   constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService) {}
 
   async evaluate(user: AuthUser, productId: string, client: any = this.prisma): Promise<ProductReadiness> {
-    const tenantId = requireTenant(user);
+    const tenantId = user.role === UserRole.VENDOR ? requireTenant(user) : undefined;
     const product = await client.product.findFirst({
-      where: { id: productId, tenantId },
+      where: { id: productId, ...(tenantId ? { tenantId } : { tenant: { kind: 'VENDOR' } }) },
       include: {
         revisions: {
           orderBy: { versionNumber: 'desc' },
-          include: { media: { where: { archivedAt: null } }, fulfilmentPolicy: true },
+          include: { media: { where: { archivedAt: null } }, fulfilmentPolicy: true, itineraryStops: { orderBy: { sequence: 'asc' } } },
         },
         variants: {
           where: { status: VariantStatus.ACTIVE, archivedAt: null },
@@ -77,6 +79,7 @@ export class ProductReadinessService {
       },
     });
     if (!product) throw new NotFoundException('Product not found');
+    const commercialActor = tenantId ? user : { ...user, role: UserRole.VENDOR, tenantId: product.tenantId };
 
     const revision = product.revisions.find((item: any) => item.status === ProductRevisionStatus.DRAFT || item.status === ProductRevisionStatus.UNDER_REVIEW) || product.revisions.find((item: any) => item.id === product.currentRevisionId) || product.revisions[0] || null;
     const section = (reasonCodes: string[], details?: Record<string, unknown>): ReadinessSection => ({ ready: reasonCodes.length === 0, reasonCodes, ...(details ? { details } : {}) });
@@ -84,13 +87,33 @@ export class ProductReadinessService {
     if (!revision?.productName?.trim()) basicReasons.push('PRODUCT_NAME_MISSING');
     if (!revision?.type) basicReasons.push('PRODUCT_TYPE_MISSING');
     if (!revision?.subType?.trim()) basicReasons.push('PRODUCT_SUBTYPE_MISSING');
-    if (!revision?.subCategory?.trim()) basicReasons.push('SUBCATEGORY_MISSING');
+    // The Partner Hub prototype treats sub-category tags as optional. Keep the
+    // canonical readiness contract aligned with that UI; category itself is
+    // the required taxonomy field.
+    if (!revision?.category?.trim()) basicReasons.push('CATEGORY_MISSING');
     if (!revision?.cityName?.trim() || !revision?.stateName?.trim() || !revision?.countryName?.trim()) basicReasons.push('DESTINATION_MISSING');
     if (!revision?.meetingModel) basicReasons.push('MEETING_MODEL_MISSING');
 
     const experienceReasons: string[] = [];
+    if (!revision?.shortDescription?.trim()) experienceReasons.push('SHORT_SUMMARY_MISSING');
     if (!revision?.description?.trim()) experienceReasons.push('EXPERIENCE_DESCRIPTION_MISSING');
+    const highlights = Array.isArray(revision?.highlights) ? revision.highlights.filter((item: unknown) => String(item || '').trim()) : [];
+    if (highlights.length < 3 || highlights.length > 6) experienceReasons.push('HIGHLIGHTS_COUNT_INVALID');
+    if (!Array.isArray(revision?.included) || !revision.included.some((item: unknown) => String(item || '').trim())) experienceReasons.push('INCLUDED_MISSING');
+    if (!Array.isArray(revision?.notIncluded) || !revision.notIncluded.some((item: unknown) => String(item || '').trim())) experienceReasons.push('NOT_INCLUDED_MISSING');
     if (revision?.meetingModel === 'FIXED_MEETING_POINT' && !revision.meetingPoint?.trim()) experienceReasons.push('MEETING_POINT_MISSING');
+    if (!revision?.endPoint?.trim()) experienceReasons.push('END_POINT_MISSING');
+    const prototype = (revision?.sourcePayload as any)?.prototype;
+    const followItinerary = revision?.followItinerary !== false && prototype?.followItinerary !== false;
+    if (followItinerary && !(revision as any).itineraryStops?.length) experienceReasons.push('ITINERARY_STOPS_MISSING');
+    if (followItinerary && (revision as any).itineraryStops?.some((stop: any) => !String(stop.stopName || '').trim())) experienceReasons.push('ITINERARY_STOP_NAME_MISSING');
+
+    const policiesReasons: string[] = [];
+    if (!revision?.cancellationPreset?.trim() && !prototype?.cancellationPreset) policiesReasons.push('CANCELLATION_POLICY_MISSING');
+    const voucherReasons: string[] = [];
+    if (!revision?.voucherCodeSource && !prototype?.voucherCodeSource) voucherReasons.push('VOUCHER_CONFIGURATION_MISSING');
+    if (!revision?.voucherAcceptedAs && !prototype?.voucherAcceptedAs) voucherReasons.push('VOUCHER_CONFIGURATION_MISSING');
+    if (!revision?.voucherInstructions?.trim() && !prototype?.voucherInstructions) voucherReasons.push('VOUCHER_INSTRUCTIONS_MISSING');
 
     const optionsReasons: string[] = [];
     const variants = (product.variants as any[]).filter((variant: any) => !revision || variant.revisionId === revision.id || (!variant.revisionId && product.currentRevisionId === revision.id));
@@ -110,7 +133,7 @@ export class ProductReadinessService {
     const availabilityReasons: string[] = [];
     const activeSchedules = variants.flatMap((variant) => variant.schedules || []);
     if (!activeSchedules.length) availabilityReasons.push('SCHEDULE_MISSING');
-    const commercialResults = await Promise.all(activePlans.map((plan) => this.commercial.readiness(user, plan.id, new Date(), undefined, client)));
+    const commercialResults = await Promise.all(activePlans.map((plan) => this.commercial.readiness(commercialActor, plan.id, new Date(), undefined, client)));
     const offerChecks = activePlans.map((plan: any, index) => {
       const variant = variants.find((candidate: any) => candidate.ratePlans?.some((item: any) => item.id === plan.id));
       const mappedSchedules = (variant?.schedules || []).filter((schedule: any) => schedule.ratePlanMappings?.some((mapping: any) => mapping.ratePlanId === plan.id));
@@ -131,7 +154,12 @@ export class ProductReadinessService {
 
     const mediaReasons: string[] = [];
     if (!revision?.media?.some((media: any) => media.kind === 'IMAGE')) mediaReasons.push('COVER_IMAGE_MISSING');
+    if (revision?.media?.some((media: any) => media.kind === 'IMAGE' && (media.externalUrl || media.sourceUrl))) mediaReasons.push('EXTERNAL_IMAGE_QUALITY_UNVERIFIED');
     if (!revision?.fulfilmentPolicy?.mode) mediaReasons.push('FULFILMENT_POLICY_MISSING');
+
+    if (['SUPPLIER_BARCODE_POOL', 'SUPPLIER_API'].includes(String(revision?.voucherCodeSource || prototype?.voucherCodeSource || ''))) {
+      voucherReasons.push('SUPPLIER_VOUCHER_INTEGRATION_MISSING');
+    }
 
     const distribution: ProductDistributionReadiness = this.distributionReadiness
       ? await this.distributionReadiness.evaluate(productId, client)
@@ -143,6 +171,8 @@ export class ProductReadinessService {
     const sections = {
       basicInfo: section(basicReasons),
       experience: section(experienceReasons),
+      policies: section([...new Set(policiesReasons)]),
+      voucher: section([...new Set(voucherReasons)]),
       options: section(optionsReasons, { activeVariantCount: variants.length }),
       rates: section([...new Set(ratesReasons)], { activeRatePlanCount: activePlans.length, readyRatePlanCount: readyOffers.length }),
       availability: section([...new Set(availabilityReasons)], { activeScheduleCount: activeSchedules.length }),

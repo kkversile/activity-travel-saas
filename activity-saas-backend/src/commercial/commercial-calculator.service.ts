@@ -49,6 +49,26 @@ export class CommercialCalculatorService {
       if (!travellers.length) add('TRAVELLER_PRICE_MISSING');
     } else if (unit === 'PER_BOOKING' || unit === 'PER_UNIT' || unit === 'GROUP') supplierBasis = D(version?.supplierBaseAmount).times(input.units);
 
+    // Activity-builder rate periods are persisted in the commercial version payload.
+    // Apply the matching seasonal adjustment before commission/tax rules are evaluated.
+    const ratePeriods = Array.isArray((version?.sourcePayload as any)?.ratePeriods) ? (version.sourcePayload as any).ratePeriods : [];
+    const serviceDate = new Date(input.serviceDate);
+    const day = serviceDate.getUTCDay();
+    const matchingPeriod = ratePeriods.find((period: any) => {
+      const from = period?.from ? new Date(`${String(period.from).slice(0, 10)}T00:00:00Z`) : null;
+      const to = period?.to ? new Date(`${String(period.to).slice(0, 10)}T23:59:59.999Z`) : null;
+      if (!from || !to || Number.isNaN(from.valueOf()) || Number.isNaN(to.valueOf()) || serviceDate < from || serviceDate > to) return false;
+      const days = String(period.days || 'ALL').toUpperCase();
+      return days === 'ALL' || (days === 'WEEKDAYS' && day >= 1 && day <= 5) || (days === 'WEEKENDS' && (day === 0 || day === 6));
+    });
+    if (matchingPeriod) {
+      const adjustment = D(matchingPeriod.adjustmentValue);
+      supplierBasis = String(matchingPeriod.adjustmentType || 'PERCENT').toUpperCase() === 'FLAT'
+        ? supplierBasis.plus(adjustment)
+        : supplierBasis.plus(supplierBasis.times(adjustment).div(100));
+      if (supplierBasis.lessThan(0)) supplierBasis = D(0);
+    }
+
     const focRule = rules.find((r) => r.rule.kind === 'FOC');
     let focApplied = false; let freeChargeableQuantity = 0; let focDiscount = D(0); let focFunder: string | undefined;
     if (focRule) {
@@ -107,9 +127,11 @@ export class CommercialCalculatorService {
     }
 
     const promotions = rules.filter((r) => r.rule.kind === 'PROMOTION');
-    let promotionPreTax = D(0); let promotionPostTax = D(0); const funding: Record<string, Prisma.Decimal> = { SUPPLIER: D(0), VOYA: D(0), AGENT: D(0) }; let promotionFunder: string | null = null; let promotionStage: string | null = null;
+    let promotionPreTax = D(0); let promotionPostTax = D(0); let totalPromotionDiscount = D(0); const funding: Record<string, Prisma.Decimal> = { SUPPLIER: D(0), VOYA: D(0), AGENT: D(0) }; let promotionFunder: string | null = null; let promotionStage: string | null = null;
     for (const promotion of promotions) {
-      const c: any = promotion.config; const amount = c.discountType === 'PERCENT' ? agentFacingPreTax.times(D(c.value)).div(100) : D(c.value);
+      const c: any = promotion.config; const rawAmount = c.discountType === 'PERCENT' ? agentFacingPreTax.times(D(c.value)).div(100) : D(c.value); const remainingDiscount = agentFacingPreTax.minus(totalPromotionDiscount); const amount = rawAmount.greaterThan(remainingDiscount) ? remainingDiscount : rawAmount;
+      if (!amount.greaterThan(0)) continue;
+      totalPromotionDiscount = totalPromotionDiscount.plus(amount);
       if (c.applicationStage === 'PRE_TAX') promotionPreTax = promotionPreTax.plus(amount); else promotionPostTax = promotionPostTax.plus(amount);
       promotionFunder = promotionFunder && promotionFunder !== c.funder ? 'MULTIPLE' : c.funder; promotionStage = promotionStage && promotionStage !== c.applicationStage ? 'MIXED' : c.applicationStage;
       if (c.funder === 'SHARED') { const split = c.funding; funding.SUPPLIER = funding.SUPPLIER.plus(amount.times(D(split.vendorPercent)).div(100)); funding.VOYA = funding.VOYA.plus(amount.times(D(split.voyaPercent)).div(100)); funding.AGENT = funding.AGENT.plus(amount.times(D(split.agentPercent)).div(100)); }

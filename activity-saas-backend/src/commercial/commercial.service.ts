@@ -2,10 +2,12 @@ import { ConflictException, ForbiddenException, Injectable, NotFoundException } 
 import { CommercialRuleKind, CommercialRuleVersionStatus, CommercialScopeType, CommercialStackingMode, CommercialVersionStatus, Prisma, TenantKind } from '@prisma/client';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
+import { PublicEntity, allocatePublicCode, ensurePublicIdentifier, publicIdentifierMap } from '../common/public-identifiers';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { AgentGroupMemberDto, CreateAgentGroupDto, CreateCommercialRuleDto, CreateCommercialRuleVersionDto, CreateCommercialVersionDto, QuoteDto, UpdateCommercialVersionDto } from './commercial.dto';
+import { AgentGroupMemberDto, CreateAgentGroupDto, CreateCommercialRuleDto, CreateCommercialRuleVersionDto, CreateCommercialRuleWithVersionDto, CreateCommercialVersionDto, QuoteDto, UpdateCommercialVersionDto } from './commercial.dto';
+import { getQaOnlyEligibilityOverride } from '../qa/qa-only-eligibility';
 import { CommercialCalculatorService } from './commercial-calculator.service';
 import { validateRuleConfig } from './commercial-validation';
 import { selectEffectiveVersion } from './commercial-resolution';
@@ -100,7 +102,7 @@ export class CommercialService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "RatePlan" WHERE "id" = ${id} FOR UPDATE`;
       const latest = await tx.ratePlanCommercialVersion.findFirst({ where: { ratePlanId: id }, orderBy: { versionNumber: 'desc' }, select: { versionNumber: true } });
-      const version = await tx.ratePlanCommercialVersion.create({ data: { ratePlanId: id, versionNumber: (latest?.versionNumber || 0) + 1, effectiveFrom: from, effectiveTo: to, supplierModel: dto.supplierModel, currency: dto.currency || plan.currency, pricingUnit: dto.pricingUnit, supplierBaseAmount: dto.supplierBaseAmount, supplierCommissionPercent: dto.supplierCommissionPercent, bookingMode: dto.bookingMode, confirmationSlaMinutes: dto.confirmationSlaMinutes, createdById: user.sub, travellerPrices: dto.travellerPrices?.length ? { create: dto.travellerPrices.map((p) => ({ travellerType: p.travellerType, amount: p.amount })) } : undefined }, include: versionSelect });
+      const version = await tx.ratePlanCommercialVersion.create({ data: { ratePlanId: id, versionNumber: (latest?.versionNumber || 0) + 1, effectiveFrom: from, effectiveTo: to, supplierModel: dto.supplierModel, currency: dto.currency || plan.currency, pricingUnit: dto.pricingUnit, supplierBaseAmount: dto.supplierBaseAmount, supplierCommissionPercent: dto.supplierCommissionPercent, bookingMode: dto.bookingMode, confirmationSlaMinutes: dto.confirmationSlaMinutes, sourcePayload: dto.sourcePayload as Prisma.InputJsonValue | undefined, createdById: user.sub, travellerPrices: dto.travellerPrices?.length ? { create: dto.travellerPrices.map((p) => ({ travellerType: p.travellerType, amount: p.amount })) } : undefined }, include: versionSelect });
       await this.audit.write(tx, { actor: user, tenantId: this.tenantId(user), action: 'COMMERCIAL_VERSION_CREATED', entityType: 'RatePlanCommercialVersion', entityId: version.id, afterState: { ratePlanId: id, versionNumber: version.versionNumber, status: version.status } });
       await this.outbox.enqueue(tx, { tenantId: this.tenantId(user), eventType: 'COMMERCIAL_VERSION_CREATED', aggregateType: 'RatePlanCommercialVersion', aggregateId: version.id, payload: { ratePlanId: id, versionNumber: version.versionNumber } });
       return version;
@@ -191,7 +193,7 @@ export class CommercialService {
    * uses vendor-user ownership checks and returns the full internal result
    * only to other backend services.
    */
-  async evaluateInternal(input: { ratePlanId: string; serviceDate: Date; units: number; travellers: Array<{ travellerType: string; quantity: number }>; agentTenantId?: string; channel?: string; agentFacingRequired?: boolean; slotCode?: string; visitorCategory?: 'INDIAN' | 'FOREIGN'; visitorEligibilityVerified?: boolean }, client: PrismaService | Prisma.TransactionClient = this.prisma) {
+  async evaluateInternal(input: { ratePlanId: string; serviceDate: Date; activityStartsAt?: Date | null; units: number; travellers: Array<{ travellerType: string; quantity: number }>; agentTenantId?: string; channel?: string; agentFacingRequired?: boolean; slotCode?: string; visitorCategory?: 'INDIAN' | 'FOREIGN'; visitorEligibilityVerified?: boolean }, client: PrismaService | Prisma.TransactionClient = this.prisma) {
     const plan = await client.ratePlan.findUnique({ where: { id: input.ratePlanId }, include: { variant: { include: { product: true } } } });
     if (!plan) throw new NotFoundException('Rate plan not found');
     const versions = await client.ratePlanCommercialVersion.findMany({ where: { ratePlanId: plan.id, status: CommercialVersionStatus.ACTIVE, ...dateWindow(input.serviceDate) }, include: versionSelect });
@@ -202,12 +204,67 @@ export class CommercialService {
     let version: any = null;
     let ambiguousVersion = false;
     try { version = selectEffectiveVersion(selectedVersions as any, input.serviceDate); } catch { ambiguousVersion = true; }
-    const result = this.calculator.calculate(input, version, await this.resolveRules({ ...input, serviceDate: input.serviceDate.toISOString() } as QuoteDto, client));
+    let rules = await this.resolveRules({ ...input, serviceDate: input.serviceDate.toISOString() } as QuoteDto, client);
+    const qaOverride = await getQaOnlyEligibilityOverride(client, plan.variant.productId, input.agentTenantId);
+    if (qaOverride && input.channel === 'VOYA_AGENT') {
+      rules = rules.filter((item) => item.rule.kind !== CommercialRuleKind.VOYA_REVENUE && item.rule.kind !== CommercialRuleKind.AGENT_COMMERCIAL);
+      const qaVersion = { id: `qa-only:${plan.id}:${input.agentTenantId}`, priority: 1_000_000, stackingMode: CommercialStackingMode.EXCLUSIVE, effectiveFrom: new Date(input.serviceDate), effectiveTo: new Date(qaOverride.expiresAt) };
+      rules.push({ rule: { id: `qa-only-voya-revenue:${plan.id}:${input.agentTenantId}`, kind: CommercialRuleKind.VOYA_REVENUE, scopeType: CommercialScopeType.RATE_PLAN, versions: [qaVersion] }, config: { model: 'MARKUP_PERCENT', percent: String(qaOverride.voyaRevenuePercent) } });
+      rules.push({ rule: { id: `qa-only-agent-commercial:${plan.id}:${input.agentTenantId}`, kind: CommercialRuleKind.AGENT_COMMERCIAL, scopeType: CommercialScopeType.AGENT, versions: [qaVersion] }, config: { model: 'NET_PLUS_MARKUP', markupAmount: String(qaOverride.agentMarkupAmount) } });
+    }
+    await this.appendVendorPromotion(rules, plan.variant.productId, input, client);
+    const result = this.calculator.calculate(input, version, rules);
+    if (qaOverride && input.channel === 'VOYA_AGENT') (result as any).qaOnlyTestFixture = true;
     if (ambiguousVersion && !result.reasonCodes.includes('AMBIGUOUS_RULE')) { result.reasonCodes.push('AMBIGUOUS_RULE'); result.ready = false; }
+    const availabilityPayload = version?.sourcePayload as any;
+    if (availabilityPayload?.availabilityBookingType === 'OPEN' && Number.isInteger(availabilityPayload.openDatedValidityDays)) {
+      const latestAllowed = new Date();
+      latestAllowed.setHours(23, 59, 59, 999);
+      latestAllowed.setDate(latestAllowed.getDate() + Number(availabilityPayload.openDatedValidityDays));
+      if (input.serviceDate > latestAllowed) {
+        result.reasonCodes.push('OPEN_DATED_VALIDITY_EXCEEDED');
+        result.ready = false;
+      }
+    }
     if (version?.bookingMode !== 'INSTANT' && (!Number.isInteger(version?.confirmationSlaMinutes) || version.confirmationSlaMinutes <= 0)) { if (!result.reasonCodes.includes('CONFIRMATION_SLA_MISSING')) result.reasonCodes.push('CONFIRMATION_SLA_MISSING'); result.ready = false; }
     result.confirmationSlaMinutes = version?.confirmationSlaMinutes ?? null;
     result.quoteFingerprint = this.quoteFingerprint(result);
     return result;
+  }
+
+  private async appendVendorPromotion(rules: Array<{ rule: any; config: any }>, productId: string, input: { serviceDate: Date; activityStartsAt?: Date | null; travellers: Array<{ travellerType: string; quantity: number }> }, client: PrismaService | Prisma.TransactionClient) {
+    const db = client as any;
+    if (typeof db.promotion?.findFirst !== 'function') return;
+    const now = new Date();
+    const promotion = await db.promotion.findFirst({ where: { productId, active: true, startsAt: { lte: input.serviceDate }, endsAt: { gte: input.serviceDate }, OR: [{ bookingStartsAt: null }, { bookingStartsAt: { lte: now } }], AND: [{ OR: [{ bookingEndsAt: null }, { bookingEndsAt: { gte: now } }] }] }, orderBy: { createdAt: 'asc' } });
+    if (!promotion) return;
+    if (promotion.validWeekdays?.length) {
+      const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(input.serviceDate).toUpperCase();
+      const weekdayCode = ({ MON: 'MON', TUE: 'TUE', WED: 'WED', THU: 'THU', FRI: 'FRI', SAT: 'SAT', SUN: 'SUN' } as Record<string, string>)[weekday];
+      if (!promotion.validWeekdays.includes(weekdayCode)) return;
+    }
+    if (promotion.promotionType === 'EARLY_BIRD') {
+      const target = input.activityStartsAt ? new Date(input.activityStartsAt) : new Date(input.serviceDate);
+      const leadDays = Math.floor((Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), target.getUTCDate()) - Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) / 86400000);
+      if (leadDays < Number(promotion.conditionValue || 0)) return;
+    } else if (promotion.promotionType === 'LAST_MINUTE') {
+      const hoursUntilStart = input.activityStartsAt ? (new Date(input.activityStartsAt).getTime() - now.getTime()) / 3600000 : Number.POSITIVE_INFINITY;
+      if (!promotion.conditionValue || hoursUntilStart < 0 || hoursUntilStart > Number(promotion.conditionValue)) return;
+    } else if (promotion.promotionType === 'GROUP_DISCOUNT') {
+      const pax = input.travellers.reduce((total, traveller) => total + Number(traveller.quantity || 0), 0);
+      if (pax < Number(promotion.conditionValue || 0)) return;
+    }
+    if (rules.some((item) => item.rule.kind === 'PROMOTION') && !promotion.stackWithPlatform) return;
+    if (promotion.maxDiscountedBookings != null) {
+      if (typeof db.$queryRaw !== 'function') return;
+      await db.$queryRaw`SELECT "id" FROM "Promotion" WHERE "id" = ${promotion.id} FOR UPDATE`;
+      const rows = await db.$queryRaw<Array<{ count: bigint | number }>>`SELECT COUNT(*)::bigint AS "count" FROM "BookingEconomicsSnapshot" WHERE "promotionContext"->>'vendorPromotionId' = ${promotion.id}`;
+      if (Number(rows[0]?.count || 0) >= Number(promotion.maxDiscountedBookings)) return;
+    }
+    const value = promotion.promotionType === 'FLAT_OFF' ? Number(promotion.discountAmount || 0) : Number(promotion.discountPercent || 0);
+    if (!(value > 0)) return;
+    const config = { discountType: promotion.promotionType === 'FLAT_OFF' ? 'FIXED' : 'PERCENT', value: String(value), funder: 'SUPPLIER', applicationStage: 'POST_TAX', vendorPromotionId: promotion.id, vendorPromotionName: promotion.name };
+    rules.push({ rule: { id: `vendor-promotion:${promotion.id}`, kind: 'PROMOTION', scopeType: 'PRODUCT', versions: [{ id: `vendor-promotion:${promotion.id}`, priority: 0, stackingMode: 'STACK', effectiveFrom: promotion.startsAt, effectiveTo: promotion.endsAt }] }, config });
   }
 
   projectForAgent(result: any) {
@@ -256,13 +313,13 @@ export class CommercialService {
       voyaRevenueModel: quote.voya?.model, voyaRevenue: quote.voya?.revenue || '0.00', agentCommercialModel: quote.agent?.model,
       agentFacingAmount: quote.agentFacingAmount, agentCommission: quote.agent?.commission || '0.00', taxMode: quote.tax?.mode || 'NONE',
       taxAmount: quote.tax?.amount || '0.00', taxContext: quote.tax?.context || quote.tax || {}, promotionAmount: quote.promotionAmount,
-      promotionFunder: ['SUPPLIER', 'VOYA', 'AGENT', 'SHARED'].includes(quote.promotionFunder) ? quote.promotionFunder : null, promotionContext: { applicationStage: quote.promotionApplicationStage, fundingBreakdown: quote.promotionFundingBreakdown },
+      promotionFunder: ['SUPPLIER', 'VOYA', 'AGENT', 'SHARED'].includes(quote.promotionFunder) ? quote.promotionFunder : null, promotionContext: { applicationStage: quote.promotionApplicationStage, fundingBreakdown: quote.promotionFundingBreakdown, vendorPromotionId: quote.appliedRules?.find((rule: any) => rule.config?.vendorPromotionId)?.config?.vendorPromotionId ?? null },
       focAmount: quote.foc?.discountAmount || quote.focAmount || '0.00', focContext: quote.foc || {}, finalAmount: quote.finalAmount,
       commercialEligibility: { decision: quote.commercialEligibility }, calculationInputs: quote.calculationInputs, calculationOutputs: quote.calculationOutputs, ruleTrace: quote.appliedRules,
     };
   }
 
-  async listRules() { return this.prisma.commercialRule.findMany({ where: { archivedAt: null }, include: { versions: { orderBy: { versionNumber: 'desc' } } }, orderBy: { createdAt: 'desc' } }); }
+  async listRules() { const rows = await this.prisma.commercialRule.findMany({ where: { archivedAt: null }, include: { versions: { orderBy: { versionNumber: 'desc' } } }, orderBy: { createdAt: 'desc' } }); const publicCodes = await publicIdentifierMap(this.prisma, PublicEntity.COMMERCIAL_RULE, rows.map((row) => row.id)); return rows.map((row) => ({ ...row, publicCode: publicCodes.get(row.id) || null })); }
   private async validateScope(dto: CreateCommercialRuleDto) {
     const ids: Record<string, string | undefined> = { VENDOR: dto.vendorTenantId, PRODUCT: dto.productId, VARIANT: dto.variantId, RATE_PLAN: dto.ratePlanId, AGENT_GROUP: dto.agentGroupId, AGENT: dto.agentTenantId };
     const fields = Object.entries(ids).filter(([, value]) => Boolean(value));
@@ -282,9 +339,33 @@ export class CommercialService {
     const scopeFields: any = { vendorTenantId: dto.vendorTenantId, productId: dto.productId, variantId: dto.variantId, ratePlanId: dto.ratePlanId, agentGroupId: dto.agentGroupId, agentTenantId: dto.agentTenantId };
     return this.prisma.$transaction(async (tx) => {
       const rule = await tx.commercialRule.create({ data: { code: dto.code, name: dto.name, kind: dto.kind, scopeType: dto.scopeType, ...scopeFields, distributionChannelId: dto.distributionChannelId, createdById: user.sub } });
+      await ensurePublicIdentifier(tx, PublicEntity.COMMERCIAL_RULE, rule.id, await allocatePublicCode(tx, PublicEntity.COMMERCIAL_RULE, 'RULE-', 4));
       await this.audit.write(tx, { actor: user, action: 'COMMERCIAL_RULE_CREATED', entityType: 'CommercialRule', entityId: rule.id, afterState: { code: rule.code, kind: rule.kind, scopeType: rule.scopeType } });
       await this.outbox.enqueue(tx, { eventType: 'COMMERCIAL_RULE_CREATED', aggregateType: 'CommercialRule', aggregateId: rule.id, payload: { code: rule.code, kind: rule.kind, scopeType: rule.scopeType } });
       return rule;
+    }).catch((error) => {
+      if (error?.code === 'P2002') throw new ConflictException('A commercial rule with this code and scope already exists');
+      throw error;
+    });
+  }
+  async createRuleWithInitialVersion(user: AuthUser, dto: CreateCommercialRuleWithVersionDto) {
+    if (!user.sub) throw new ForbiddenException();
+    await this.validateScope(dto.rule);
+    validateRuleConfig(dto.rule.kind, dto.version.config as any);
+    if (dto.version.stackingMode === CommercialStackingMode.STACKABLE && dto.rule.kind !== CommercialRuleKind.PROMOTION) throw new ConflictException({ code: 'STACKING_NOT_SUPPORTED_FOR_RULE_KIND', message: 'STACKABLE is supported only for PROMOTION rules' });
+    const effectiveFrom = new Date(dto.version.effectiveFrom);
+    const effectiveTo = dto.version.effectiveTo ? new Date(dto.version.effectiveTo) : null;
+    if (effectiveTo && effectiveTo <= effectiveFrom) throw new ConflictException('effectiveTo must be after effectiveFrom');
+    const scopeFields: any = { vendorTenantId: dto.rule.vendorTenantId, productId: dto.rule.productId, variantId: dto.rule.variantId, ratePlanId: dto.rule.ratePlanId, agentGroupId: dto.rule.agentGroupId, agentTenantId: dto.rule.agentTenantId };
+    return this.prisma.$transaction(async (tx) => {
+      const rule = await tx.commercialRule.create({ data: { code: dto.rule.code, name: dto.rule.name, kind: dto.rule.kind, scopeType: dto.rule.scopeType, ...scopeFields, distributionChannelId: dto.rule.distributionChannelId, createdById: user.sub } });
+      await ensurePublicIdentifier(tx, PublicEntity.COMMERCIAL_RULE, rule.id, await allocatePublicCode(tx, PublicEntity.COMMERCIAL_RULE, 'RULE-', 4));
+      const version = await tx.commercialRuleVersion.create({ data: { ruleId: rule.id, versionNumber: 1, effectiveFrom, effectiveTo, priority: dto.version.priority, stackingMode: dto.version.stackingMode || CommercialStackingMode.EXCLUSIVE, config: dto.version.config as Prisma.InputJsonValue, createdById: user.sub } });
+      await this.audit.write(tx, { actor: user, action: 'COMMERCIAL_RULE_CREATED', entityType: 'CommercialRule', entityId: rule.id, afterState: { code: rule.code, kind: rule.kind, scopeType: rule.scopeType, initialVersionId: version.id } });
+      await this.outbox.enqueue(tx, { eventType: 'COMMERCIAL_RULE_CREATED', aggregateType: 'CommercialRule', aggregateId: rule.id, payload: { code: rule.code, kind: rule.kind, scopeType: rule.scopeType, initialVersionId: version.id } });
+      await this.audit.write(tx, { actor: user, action: 'COMMERCIAL_RULE_VERSION_CREATED', entityType: 'CommercialRuleVersion', entityId: version.id, afterState: { ruleId: rule.id, versionNumber: 1 } });
+      await this.outbox.enqueue(tx, { eventType: 'COMMERCIAL_RULE_VERSION_CREATED', aggregateType: 'CommercialRuleVersion', aggregateId: version.id, payload: { ruleId: rule.id, versionNumber: 1 } });
+      return { rule, version };
     }).catch((error) => {
       if (error?.code === 'P2002') throw new ConflictException('A commercial rule with this code and scope already exists');
       throw error;
@@ -314,6 +395,7 @@ export class CommercialService {
       await tx.$queryRaw`SELECT "id" FROM "CommercialRule" WHERE "id" = ${version.ruleId} FOR UPDATE`;
       const candidate = await tx.commercialRuleVersion.findUniqueOrThrow({ where: { id }, include: { rule: true } });
       if (candidate.status !== CommercialRuleVersionStatus.DRAFT) throw new ConflictException('Only draft rule versions can be activated');
+      if (candidate.createdById === user.sub) throw new ConflictException('COMMERCIAL_RULE_MAKER_CANNOT_APPROVE');
       if (candidate.rule.archivedAt) throw new ConflictException({ code: 'COMMERCIAL_RULE_ARCHIVED', message: 'Archived commercial rules cannot activate new versions' });
       if (candidate.stackingMode === CommercialStackingMode.STACKABLE && candidate.rule.kind !== CommercialRuleKind.PROMOTION) throw new ConflictException({ code: 'STACKING_NOT_SUPPORTED_FOR_RULE_KIND', message: `STACKABLE is supported only for PROMOTION rules` });
       const overlapping = await tx.commercialRuleVersion.findMany({ where: { ruleId: candidate.ruleId, status: CommercialRuleVersionStatus.ACTIVE, effectiveFrom: { lt: candidate.effectiveTo || new Date('9999-12-31') }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: candidate.effectiveFrom } }] } });

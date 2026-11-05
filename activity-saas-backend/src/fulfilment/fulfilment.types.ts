@@ -23,7 +23,6 @@ export type PolicyInput = {
 
 export function validateFulfilmentPolicy(policy: PolicyInput | null | undefined) {
   if (!policy || !policy.mode) return { valid: false, reason: FULFILMENT_REASON.POLICY_MISSING };
-  if (policy.reviewRequired) return { valid: false, reason: FULFILMENT_REASON.POLICY_REVIEW };
   const kinds = policy.requiredEvidenceKinds ?? [];
   if (policy.mode === FulfilmentMode.AUTO && kinds.length) return { valid: false, reason: FULFILMENT_REASON.POLICY_INVALID };
   if (policy.mode === FulfilmentMode.PNR_ONLY && (kinds.length !== 1 || kinds[0] !== FulfilmentEvidenceKind.PNR_REFERENCE)) return { valid: false, reason: FULFILMENT_REASON.POLICY_INVALID };
@@ -54,7 +53,10 @@ export function policySnapshot(policy: any, revision: any) {
     operationsContact: { name: policy?.operationsContactName ?? null, phone: policy?.operationsContactPhone ?? null, email: policy?.operationsContactEmail ?? null },
     emergencyContact: { name: policy?.emergencyContactName ?? null, phone: policy?.emergencyContactPhone ?? null, email: policy?.emergencyContactEmail ?? null },
     voucherNotes: policy?.voucherNotes ?? [],
-    howToRedeem: revision?.howToRedeem ?? [],
+    voucherCodeSource: revision?.voucherCodeSource ?? null,
+    voucherAcceptedAs: revision?.voucherAcceptedAs ?? null,
+    voucherInstructions: revision?.voucherInstructions ?? null,
+    howToRedeem: revision?.voucherInstructions ? [revision.voucherInstructions] : (revision?.howToRedeem ?? []),
   };
 }
 

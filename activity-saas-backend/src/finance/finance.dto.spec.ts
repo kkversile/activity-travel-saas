@@ -57,4 +57,20 @@ describe("finance DTO contracts", () => {
       );
     }
   });
+  it("validates optional finance tax rates from zero to one hundred percent", async () => {
+    const valid = await validate(plainToInstance(FinanceConfigurationDto, {
+      paymentCollectionMode: PaymentCollectionMode.UNCONFIGURED,
+      gstOnCommissionPercent: "18.0000",
+      tds194OPercent: "0.1",
+      gstTcsPercent: "0.5",
+      expectedVersion: 1,
+    }));
+    expect(valid).toHaveLength(0);
+    const invalid = await validate(plainToInstance(FinanceConfigurationDto, {
+      paymentCollectionMode: PaymentCollectionMode.UNCONFIGURED,
+      gstTcsPercent: "100.001",
+      expectedVersion: 1,
+    }));
+    expect(invalid.some((error) => error.property === "gstTcsPercent")).toBe(true);
+  });
 });

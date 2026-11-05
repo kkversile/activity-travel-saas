@@ -23,12 +23,14 @@ export type EligibilityResult = {
   capacityConsumption?: number;
   gates: EligibilityGate[];
   commercial?: Record<string, unknown>;
+  selectionMetrics?: { netMarginAmount: number; netMarginPercent: number };
   inventory?: Record<string, unknown>;
   resource?: Record<string, unknown>;
   productId?: string;
   variantId?: string;
   ratePlanId: string;
   sessionId: string;
+  qaOnlyTestFixture?: boolean;
 };
 
 export const REASON_MESSAGES: Record<string, string> = {
@@ -60,6 +62,8 @@ export const REASON_MESSAGES: Record<string, string> = {
   MINIMUM_ADULTS_NOT_MET: 'The minimum adult count was not met.',
   TRAVELLER_COUNT_INVALID: 'The requested traveller mix is not supported by the rate plan.',
   COMMERCIAL_NOT_READY: 'The commercial quote is not ready.',
+  NET_MARGIN_BELOW_FLOOR: 'The channel quote is below the 4% net-margin floor.',
+  PLATFORM_MARGIN_UNAVAILABLE: 'The channel quote cannot be checked against the net-margin floor.',
   VISITOR_CATEGORY_NOT_CONFIGURED: 'The selected visitor category has no configured price.',
   VISITOR_ELIGIBILITY_VERIFICATION_REQUIRED: 'Visitor eligibility verification is required before quoting this price.',
   AGENT_COMMERCIAL_UNCONFIGURED: 'No agent commercial terms are configured.',

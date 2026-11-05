@@ -1,9 +1,15 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { Equals, IsBoolean, IsEmail, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @IsString() @MinLength(2) fullName!: string;
+  @IsOptional() @IsString() @MinLength(2) businessName?: string;
   @IsEmail() email!: string;
-  @IsString() @MinLength(6) password!: string;
+  @IsOptional() @IsString() mobile?: string;
+  @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsString() city?: string;
+  @IsString() @MinLength(8) @Matches(/^(?=.*\d).{8,}$/) password!: string;
+  @IsBoolean() @Equals(true) acceptedTerms!: boolean;
+  @IsOptional() @IsString() @MinLength(40) teamInviteToken?: string;
 }
 
 export class RequestVendorEmailCodeDto {

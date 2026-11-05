@@ -14,11 +14,12 @@ export type User = {
   impersonatorEmail?: string;
 };
 
-export type PlatformAdmin = { id: string; email: string; fullName: string; role: 'SUPER_ADMIN' | 'ADMIN'; active: boolean; createdAt: string; updatedAt: string };
-export type ImpersonationTarget = { id: string; email: string; fullName: string; role: 'ADMIN' | 'VENDOR' | 'TRAVEL_AGENT'; tenantId: string | null; organizationRole?: User['organizationRole']; active: boolean; createdAt: string };
+export type PlatformAdmin = { id: string; publicCode?: string | null; email: string; fullName: string; role: 'SUPER_ADMIN' | 'ADMIN'; active: boolean; createdAt: string; updatedAt: string };
+export type ImpersonationTarget = { id: string; publicCode?: string | null; email: string; fullName: string; role: 'ADMIN' | 'VENDOR' | 'TRAVEL_AGENT'; tenantId: string | null; organizationRole?: User['organizationRole']; active: boolean; createdAt: string };
 
 export type VendorProfile = {
   id: string;
+  displayName?: string | null;
   legalBusinessName: string;
   operatingCity: string;
   operatingRegion: string;
@@ -29,14 +30,14 @@ export type VendorProfile = {
   vendorDocuments?: Array<{ id: string; type: string; currentStatus: string; versions: Array<{ id: string; versionNumber: number; status: string; rejectionReason?: string | null; fileAsset: { id: string; originalName: string; mimeType: string; sizeBytes: number; visibility: string } }> }>;
 };
 
-export type VendorOnboardingDocument = { id: string; type: 'GSTIN' | 'PAN' | 'BANK_PROOF' | 'TRADE_LICENSE'; currentStatus: string; latestVersion: { id: string; versionNumber: number; status: string; rejectionReason?: string | null; fileAsset: { id: string; originalName: string; mimeType: string; sizeBytes: number; visibility: string } } | null };
+export type VendorOnboardingDocument = { id: string; type: 'GSTIN' | 'PAN' | 'BANK_PROOF' | 'TRADE_LICENSE' | 'LLP_AGREEMENT' | 'LLPIN_CERTIFICATE' | 'AUTH_SIGNATORY_ID' | 'AUTHORIZATION_LETTER' | 'ADDRESS_PROOF' | 'UDYAM_CERTIFICATE' | 'TOURISM_REGISTRATION' | 'VEHICLE_PERMIT' | 'PUBLIC_LIABILITY_INSURANCE' | 'BOAT_LICENSE' | 'ADVENTURE_WATER_SPORTS_LICENSE' | 'FSSAI_LICENSE'; currentStatus: string; latestVersion: { id: string; versionNumber: number; status: string; expiresAt?: string | null; rejectionReason?: string | null; fileAsset: { id: string; originalName: string; mimeType: string; sizeBytes: number; visibility: string } } | null };
 export type VendorOnboardingApplication = {
   id: string; status: 'DRAFT' | 'SUBMITTED' | 'UNDER_REVIEW' | 'CHANGES_REQUESTED' | 'APPROVED' | 'REJECTED'; currentStep: number;
-  firstName?: string | null; lastName?: string | null; contactNumber?: string | null; phoneVerifiedAt?: string | null;
+  firstName?: string | null; lastName?: string | null; contactNumber?: string | null; contactEmail?: string | null; phoneVerifiedAt?: string | null;
   businessDisplayName?: string | null; legalBusinessName?: string | null; panNumber?: string | null; gstStatus?: 'REGISTERED' | 'NOT_REGISTERED' | 'PENDING_REVIEW' | 'REJECTED' | null; gstin?: string | null; gstDeclarationAccepted: boolean;
   addressLine?: string | null; city?: string | null; state?: string | null; pinCode?: string | null; latitude?: string | number | null; longitude?: string | number | null;
   accountHolderName?: string | null; bankName?: string | null; bankAccountMasked?: string | null; ifscCode?: string | null; accountType?: string | null; bankOwnershipConfirmed: boolean; bankVerificationStatus: string;
-  agreementVersion?: string | null; agreementAcceptedAt?: string | null; authorizedBusinessName?: string | null; authorizedRepresentative?: string | null; signatureData?: string | null; startedAt?: string | null; submittedAt?: string | null; reviewedAt?: string | null; reviewReason?: string | null; updatedAt: string;
+  agreementVersion?: string | null; agreementAcceptedAt?: string | null; agreementSentAt?: string | null; agreementOpenedAt?: string | null; agreementCountersignedAt?: string | null; authorizedBusinessName?: string | null; authorizedRepresentative?: string | null; signatureData?: string | null; supplementalData?: Record<string, unknown> | null; startedAt?: string | null; submittedAt?: string | null; reviewedAt?: string | null; reviewReason?: string | null; updatedAt: string;
   hasSignature: boolean; documents: VendorOnboardingDocument[];
 };
 
@@ -48,6 +49,7 @@ export type ProductRevision = {
   productName: string;
   type: 'ACTIVITY' | 'MEALS' | 'TRANSFER' | 'PACKAGE_ADDON' | 'OTHERS';
   subType: string;
+  category?: string | null;
   meetingModel?: 'FIXED_MEETING_POINT' | 'PICKUP_AVAILABLE' | 'FLEXIBLE_ENTRY' | null;
   meetingPoint?: string | null;
   description: string;
@@ -68,14 +70,30 @@ export type ProductRevision = {
   address?: string;
   lat?: string | number;
   lon?: string | number;
-  media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; externalUrl?: string | null; fileAssetId?: string | null; description?: string; seoTitle?: string; seoDescription?: string; rank: number }>;
+  durationValue?: string | null;
+  durationUnit?: string | null;
+  guideIncluded?: string | null;
+  guideLanguages?: string[];
+  included?: string[];
+  notIncluded?: string[];
+  endPoint?: string | null;
+  thingsToKnow?: string | null;
+  accessibility?: string[];
+  followItinerary?: boolean;
+  voucherCodeSource?: string | null;
+  voucherAcceptedAs?: string | null;
+  voucherInstructions?: string | null;
+  cancellationPreset?: string | null;
+  travellerDetails?: string | null;
+  amendmentPolicy?: string | null;
+  media?: Array<{ id: string; kind: 'IMAGE' | 'VIDEO'; externalUrl?: string | null; fileAssetId?: string | null; description?: string; seoTitle?: string; seoDescription?: string; sourceType?: string | null; sourceUrl?: string | null; rightsStatus?: string | null; rightsNote?: string | null; providerPlaceId?: string | null; rank: number }>;
   bookingQuestions?: Array<{ id: string; code: string; label: string; helpText?: string | null; type: 'TEXT' | 'NUMBER' | 'BOOLEAN' | 'SELECT'; required: boolean; options?: unknown; appliesPerTraveller: boolean; rank: number }>;
   fulfilmentPolicy?: { id?: string; mode?: 'AUTO' | 'AFTER_FULFILMENT' | 'PNR_ONLY' | 'TICKET_QR' | null; requiredEvidenceKinds?: string[]; evidenceMatchMode?: 'ALL' | 'ANY'; reviewRequired?: boolean; operationsContactName?: string | null; operationsContactPhone?: string | null; operationsContactEmail?: string | null; emergencyContactName?: string | null; emergencyContactPhone?: string | null; emergencyContactEmail?: string | null; voucherNotes?: string[] } | null;
   sourcePayload?: Record<string, unknown> | null;
 };
 
-export type ProductVariant = { id: string; productId: string; variantCode: string; name: string; description?: string; status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'; version: number; durationMinutes?: number; minPax?: number | null; maxPax?: number | null; cutOffMinutes?: number | null; privateShared?: string; vehicleType?: string; pickupIncluded: boolean; pickupType?: string; pickupInput?: string; pickupTimings?: string; dropoffIncluded: boolean; dropoffTimings?: string; mealIncluded: boolean; mealType?: string; menu?: string[]; mealVariety?: string; pointsOfInterest?: string[]; inclusions: string[]; exclusions: string[]; suitableFor: string[]; ratePlans?: RatePlan[] };
-export type Product = { id: string; tenantId: string; productCode: string; currency?: string; status: 'DRAFT' | 'LIVE' | 'SUSPENDED' | 'ARCHIVED'; currentRevisionId?: string | null; currentRevision?: ProductRevision | null; revisions?: ProductRevision[]; variants?: ProductVariant[]; _count?: { variants: number; bookings: number } };
+export type ProductVariant = { id: string; productId: string; variantCode: string; name: string; description?: string; status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'; version: number; durationMinutes?: number; minPax?: number | null; maxPax?: number | null; cutOffMinutes?: number | null; privateShared?: string; vehicleType?: string; pickupIncluded: boolean; pickupType?: string; pickupInput?: string; pickupTimings?: string; dropoffIncluded: boolean; dropoffTimings?: string; mealIncluded: boolean; mealType?: string; menu?: string[]; mealVariety?: string; pointsOfInterest?: string[]; inclusions: string[]; exclusions: string[]; suitableFor: string[]; sourcePayload?: Record<string, unknown> | null; ticketTypes?: Array<{ id: string; name: string; ageFrom?: number | null; ageTo?: number | null; needsAdult: boolean; countsCapacity: boolean; rank: number }>; unitRows?: Array<{ id: string; name: string; minPax: number; maxPax: number; paxIncluded: number; extraPerPerson?: number | string | null; unitsPerSlot: number; rank: number }>; ratePlans?: RatePlan[]; schedules?: Array<{ id: string; effectiveFrom: string; effectiveTo?: string | null; timezone?: string; operatingDays?: string[]; capacityUnit?: string; defaultCapacity?: number | null; sessions?: Array<{ serviceDate: string; status: string; inventoryState?: { totalCapacity: number; blockedCapacity: number; heldCapacity: number; confirmedCapacity: number } | null }> }> };
+export type Product = { id: string; tenantId: string; productCode: string; publicCode?: string | null; currency?: string; status: 'DRAFT' | 'LIVE' | 'SUSPENDED' | 'ARCHIVED'; currentRevisionId?: string | null; currentRevision?: ProductRevision | null; revisions?: ProductRevision[]; variants?: ProductVariant[]; _count?: { variants: number; bookings: number } };
 export type ProductDistribution = { channelCode: 'VOYA_AGENT' | string; ready: boolean; status: 'READY' | 'PENDING'; reasonCodes: string[]; details?: Record<string, unknown> };
 export const distributionReasonLabel: Record<string, string> = {
   CHANNEL_PRODUCT_NOT_MAPPED: 'Not connected to Agent Marketplace',
@@ -87,10 +105,10 @@ export const distributionReasonLabel: Record<string, string> = {
   CHANNEL_INVENTORY_NOT_EXPOSED: 'Inventory not available to Agent Marketplace',
 };
 export type ProductLifecycleAction = 'OPEN' | 'FIX' | 'EDIT' | 'SUBMIT' | 'DELETE' | 'WITHDRAW' | 'DEACTIVATE' | 'REACTIVATE' | 'ARCHIVE';
-export type ProductListingItem = { id: string; productCode: string; experienceName: string; destination: string | null; optionCount: number; productStatus: Product['status']; displayStatus: 'PUBLISHED' | 'UNDER_REVIEW' | 'DRAFT' | 'NEEDS_CHANGES' | 'SUSPENDED' | 'ARCHIVED'; currentRevisionId: string | null; workingRevisionId: string | null; workingRevisionStatus: ProductRevision['status'] | null; updatedAt: string; bookability: { status: 'BOOKABLE' | 'NOT_BOOKABLE' | 'LOW_INVENTORY' | 'NOT_EVALUATED'; reasonCodes: string[] }; distribution?: ProductDistribution; quality: { score: number | null; status: 'SCORED' | 'NOT_SCORED' }; action: 'OPEN' | 'FIX'; actions?: ProductLifecycleAction[] };
+export type ProductListingItem = { id: string; productCode: string; publicCode?: string | null; experienceName: string; type: string | null; subType: string | null; destination: string | null; optionCount: number; bookings30d: number; startingPrice?: number | null; productStatus: Product['status']; displayStatus: 'PUBLISHED' | 'UNDER_REVIEW' | 'DRAFT' | 'NEEDS_CHANGES' | 'SUSPENDED' | 'ARCHIVED'; currentRevisionId: string | null; workingRevisionId: string | null; workingRevisionStatus: ProductRevision['status'] | null; updatedAt: string; bookability: { status: 'BOOKABLE' | 'NOT_BOOKABLE' | 'LOW_INVENTORY' | 'NOT_EVALUATED'; reasonCodes: string[] }; distribution?: ProductDistribution; quality: { score: number | null; status: 'SCORED' | 'NOT_SCORED' }; action: 'OPEN' | 'FIX'; actions?: ProductLifecycleAction[] };
 export type ProductListingResponse = { items: ProductListingItem[]; summary: { live: number; review: number; draft: number }; pagination: { page: number; limit: number; total: number; totalPages: number } };
 export type ProductReadinessSection = { ready: boolean; reasonCodes: string[]; details?: Record<string, unknown> };
-export type ProductReadiness = { productId: string; revisionId: string | null; ready: boolean; sections: { basicInfo: ProductReadinessSection; experience: ProductReadinessSection; options: ProductReadinessSection; rates: ProductReadinessSection; availability: ProductReadinessSection; mediaFulfilment: ProductReadinessSection; distribution: ProductReadinessSection }; distributionReady: boolean; distributionReasonCodes: string[]; reasonCodes: string[]; evaluatedAt: string };
+export type ProductReadiness = { productId: string; revisionId: string | null; ready: boolean; sections: { basicInfo: ProductReadinessSection; experience: ProductReadinessSection; policies: ProductReadinessSection; voucher: ProductReadinessSection; options: ProductReadinessSection; rates: ProductReadinessSection; availability: ProductReadinessSection; mediaFulfilment: ProductReadinessSection; distribution: ProductReadinessSection }; distributionReady: boolean; distributionReasonCodes: string[]; reasonCodes: string[]; evaluatedAt: string };
 
 export type TravellerRule = {
   id?: string;
@@ -152,12 +170,13 @@ export type Booking = {
 };
 
 export type BookingTimelineEvent = { eventType: string; fromStatus?: string | null; toStatus?: string | null; createdAt: string; reason?: string | null; metadata?: Record<string, unknown> | null; actorRole?: string | null };
-export type BookingSnapshot = { productSnapshot: Record<string, any>; variantSnapshot: Record<string, any>; ratePlanSnapshot: Record<string, any>; sessionSnapshot: Record<string, any>; travellerSummary: Record<string, any>; cancellationPolicySnapshot: Array<Record<string, any>>; pickupSnapshot?: Record<string, any> | null; questionsSnapshot: Array<Record<string, any>>; agentSnapshot: { tenantId: string; tenantName: string; userId: string; userName?: string; email?: string } };
+export type BookingSnapshot = { productSnapshot: Record<string, any>; variantSnapshot: Record<string, any>; ratePlanSnapshot: Record<string, any>; sessionSnapshot: Record<string, any>; travellerSummary: Record<string, any>; cancellationPolicySnapshot: Array<Record<string, any>>; pickupSnapshot?: Record<string, any> | null; questionsSnapshot: Array<Record<string, any>>; agentSnapshot: { tenantId: string; tenantName: string; userId: string; userName?: string; email?: string }; channelSnapshot?: { id?: string; code?: string; name?: string; type?: string; publicCode?: string | null } | null };
 export type BookingCancellation = { id: string; initiator: string; reasonCategory: string; reason: string; financialState: string; cancellationCharge: string | number; refundEntitlement: string | number; refund?: { id: string; amount: string | number; currency: string; status: string; externalReference?: string | null } | null };
-export type CanonicalBooking = { id: string; bookingCode: string; recordType: 'CANONICAL' | 'LEGACY'; status: string; bookingMode?: string | null; serviceDate: string; serviceTimezone?: string | null; confirmationDueAt?: string | null; confirmedAt?: string | null; rejectedAt?: string | null; expiredAt?: string | null; customerName: string; customerEmail?: string | null; amount?: number; currency?: string; snapshot?: BookingSnapshot | null; travellers: Array<Record<string, any>>; timeline: BookingTimelineEvent[]; cancellation?: BookingCancellation | null };
+export type CanonicalBooking = { id: string; bookingCode: string; publicCode?: string | null; recordType: 'CANONICAL' | 'LEGACY'; status: string; bookingMode?: string | null; channel?: string | null; serviceDate: string; serviceTimezone?: string | null; confirmationDueAt?: string | null; confirmedAt?: string | null; rejectedAt?: string | null; expiredAt?: string | null; customerName: string; customerEmail?: string | null; customerPhone?: string | null; voucherCode?: string | null; amount?: number; currency?: string; snapshot?: BookingSnapshot | null; travellers: Array<Record<string, any>>; timeline: BookingTimelineEvent[]; cancellation?: BookingCancellation | null };
 export type AgentBooking = CanonicalBooking & { economics?: Record<string, any> | null };
 export type VendorBooking = CanonicalBooking & { vendor: { id?: string; name?: string }; agent?: { id: string; name: string } | null; economics?: Record<string, any> | null };
 export type AdminBooking = CanonicalBooking & { vendorTenant?: Record<string, any>; agentTenant?: Record<string, any>; agentUser?: Record<string, any>; product?: Record<string, any>; ratePlan?: Record<string, any>; economicsSnapshot?: Record<string, any> | null; inventoryHolds?: Array<Record<string, any>>; inventoryAllocations?: Array<Record<string, any>> };
+export type AdminBookingPage = { items: AdminBooking[]; pagination: { page: number; limit: number; total: number; totalPages: number } };
 
 export type InventoryRow = {
   id: string; productId: string; productCode: string; productName?: string | null; variantId: string; scheduleId: string; scheduleName: string;
@@ -218,14 +237,22 @@ class ApiClient {
     return res.blob();
   }
 
-  login(email: string, password: string) {
-    return this.request<{ accessToken: string; user: User }>('/auth/login', {
-      method: 'POST', body: JSON.stringify({ email, password }),
+  login(email: string, password: string, deviceToken?: string) {
+    return this.request<{ accessToken: string; user: User } | { mfaRequired: true; challengeId: string; message: string; demoOtp?: string }>('/auth/login', {
+      method: 'POST', body: JSON.stringify({ email, password, deviceToken }),
     });
   }
 
-  register(fullName: string, email: string, password: string) {
-    return this.request<{ accessToken: string; user: User }>('/auth/register', { method: 'POST', body: JSON.stringify({ fullName, email, password }) });
+  verifyVendorLoginCode(challengeId: string, code: string, deviceToken: string) {
+    return this.request<{ accessToken: string; user: User }>('/auth/vendor/login/verify', { method: 'POST', body: JSON.stringify({ challengeId, code, deviceToken }) });
+  }
+
+  requestVendorLoginCode(email: string) {
+    return this.request<{ challengeId: string; message: string; demoOtp?: string }>('/auth/vendor/login/request', { method: 'POST', body: JSON.stringify({ email }) });
+  }
+
+  register(details: { fullName: string; businessName?: string; email: string; mobile?: string; password: string; category?: string; city?: string; acceptedTerms: boolean; teamInviteToken?: string }) {
+    return this.request<{ accessToken: string; user: User }>('/auth/register', { method: 'POST', body: JSON.stringify(details) });
   }
 
   requestVendorEmailCode(email: string) {

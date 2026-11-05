@@ -13,7 +13,7 @@ const swaggerDemoPassword = process.env.SWAGGER_DEMO_PASSWORD || process.env.DEM
 export const swaggerExamples = {
   auth: {
     login: { email: swaggerDemoEmail, password: swaggerDemoPassword },
-    register: { fullName: 'Demo Supplier User', email: '', password: swaggerDemoPassword },
+    register: { fullName: 'Demo Supplier User', businessName: 'Demo Tours', email: 'supplier@example.com', mobile: '+919876543210', category: 'Day tours & sightseeing', city: 'Panaji', password: 'ChangeMe1234', acceptedTerms: true },
   },
   vendor: {
     updateProfile: {

@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { ApiBody, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser } from '../common/auth.types';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { LoginDto } from './login.dto';
+import { LoginDto, RequestVendorLoginCodeDto, VerifyVendorLoginDto } from './login.dto';
 import { ChangePasswordDto, RegisterDto, RequestVendorEmailCodeDto, SetVendorPasswordDto, VerifyVendorEmailCodeDto } from './register.dto';
 import { swaggerExamples } from '../common/swagger-examples';
 import { Roles } from '../common/roles.decorator';
@@ -24,10 +24,25 @@ export class AuthController {
     return this.auth.login(dto);
   }
 
+  @Post('vendor/login/request')
+  requestVendorLoginCode(@Body() dto: RequestVendorLoginCodeDto) {
+    return this.auth.requestVendorLoginCode(dto.email);
+  }
+
+  @Post('vendor/login/verify')
+  verifyVendorLogin(@Body() dto: VerifyVendorLoginDto) {
+    return this.auth.verifyVendorLoginCode(dto.challengeId, dto.code, dto.deviceToken);
+  }
+
   @Post('register')
   @ApiBody({ schema: { type: 'object', example: swaggerExamples.auth.register } })
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
+  }
+
+  @Get('vendor/team-invitations/:token')
+  previewVendorTeamInvitation(@Param('token') token: string) {
+    return this.auth.previewVendorTeamInvitation(token);
   }
 
   @Post('vendor/email/request')

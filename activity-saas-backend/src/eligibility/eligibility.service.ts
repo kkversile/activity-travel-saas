@@ -8,6 +8,8 @@ import { CutoffService } from './cutoff.service';
 import { normalizeTravellers } from './traveller-normalization';
 import { EligibilityInput, EligibilityGate, EligibilityResult, messageFor } from './eligibility.types';
 import { validateFulfilmentPolicy } from '../fulfilment/fulfilment.types';
+import { DEFAULT_MIN_PLATFORM_MARGIN_PERCENT, DEFAULT_WEBSITE_GATEWAY_FEE_PERCENT, platformNetMarginAmount, platformNetMarginPercent } from '../commercial/commercial-margin';
+import { getQaOnlyEligibilityOverride } from '../qa/qa-only-eligibility';
 
 export type EligibilityDbClient = PrismaService | Prisma.TransactionClient;
 
@@ -46,13 +48,14 @@ export class EligibilityService {
     }
 
     const product = plan.variant.product; const vendor = product.tenant; const revision = product.currentRevision; const date = session?.serviceDate ? new Date(session.serviceDate) : now;
+    const qaOverride = await getQaOnlyEligibilityOverride(db, product.id, input.agentTenantId, now);
     if (!vendor?.vendorProfile) add('VENDOR', 'FAIL', 'VENDOR_NOT_VERIFIED'); else if (vendor.kind !== TenantKind.VENDOR || vendor.vendorProfile.verificationStatus === VendorVerificationStatus.SUSPENDED) add('VENDOR', 'FAIL', 'VENDOR_SUSPENDED'); else if (vendor.vendorProfile.verificationStatus !== VendorVerificationStatus.VERIFIED) add('VENDOR', 'FAIL', 'VENDOR_NOT_VERIFIED'); else add('VENDOR', 'PASS', undefined, { tenantId: vendor.id });
-    if (product.status !== ProductStatus.LIVE) add('PRODUCT', 'FAIL', 'PRODUCT_NOT_LIVE'); else if (!revision || product.currentRevisionId !== revision.id || revision.status !== ProductRevisionStatus.PUBLISHED) add('PRODUCT', 'FAIL', 'PRODUCT_PUBLISHED_REVISION_MISSING'); else add('PRODUCT', 'PASS', undefined, { revisionId: revision.id });
+    if (product.status !== ProductStatus.LIVE && qaOverride && product.status === ProductStatus.SUSPENDED && revision?.status === ProductRevisionStatus.PUBLISHED) add('PRODUCT', 'PASS', undefined, { revisionId: revision.id, qaOnlyTestFixture: true, insuranceDocumentStatus: qaOverride.documentStatus }); else if (product.status !== ProductStatus.LIVE) add('PRODUCT', 'FAIL', 'PRODUCT_NOT_LIVE'); else if (!revision || product.currentRevisionId !== revision.id || revision.status !== ProductRevisionStatus.PUBLISHED) add('PRODUCT', 'FAIL', 'PRODUCT_PUBLISHED_REVISION_MISSING'); else add('PRODUCT', 'PASS', undefined, { revisionId: revision.id });
     if (!revision || product.currentRevisionId !== revision.id || revision.status !== ProductRevisionStatus.PUBLISHED || !revision.fulfilmentPolicy) add('FULFILMENT_POLICY', 'FAIL', 'FULFILMENT_POLICY_MISSING'); else { const policy = validateFulfilmentPolicy(revision.fulfilmentPolicy); add('FULFILMENT_POLICY', policy.valid ? 'PASS' : 'FAIL', policy.valid ? undefined : policy.reason, { policyId: revision.fulfilmentPolicy.id, mode: revision.fulfilmentPolicy.mode }); }
     if (plan.variant.status !== VariantStatus.ACTIVE || plan.variant.archivedAt) add('VARIANT', 'FAIL', 'VARIANT_NOT_ACTIVE'); else add('VARIANT', 'PASS', undefined, { variantId: plan.variantId });
     if (plan.status !== RatePlanStatus.ACTIVE) add('RATE_PLAN', 'FAIL', 'RATEPLAN_NOT_ACTIVE'); else if (date < new Date(plan.validFrom) || date >= new Date(plan.validTo)) add('RATE_PLAN', 'FAIL', 'RATEPLAN_OUTSIDE_EFFECTIVE_RANGE'); else add('RATE_PLAN', 'PASS', undefined);
     if (input.skipChannelGovernance) notEvaluated('CHANNEL');
-    else { const channelMapping = plan.channelMappings.find((item: any) => item.channel.code === (input.channelCode ?? 'VOYA_AGENT')); if (!channelMapping) add('CHANNEL', 'FAIL', 'MARKETPLACE_CHANNEL_NOT_CONFIGURED'); else if ((channelMapping.status && channelMapping.status !== 'ACTIVE') || !channelMapping.enabled || !channelMapping.channel.active) add('CHANNEL', 'FAIL', 'MARKETPLACE_CHANNEL_DISABLED'); else add('CHANNEL', 'PASS', undefined, { channelCode: channelMapping.channel.code }); }
+    else { const channelMapping = plan.channelMappings.find((item: any) => item.channel.code === (input.channelCode ?? 'VOYA_AGENT')); if (qaOverride && (input.channelCode ?? 'VOYA_AGENT') === 'VOYA_AGENT' && (!channelMapping || channelMapping.status !== 'ACTIVE' || !channelMapping.enabled)) add('CHANNEL', 'PASS', undefined, { channelCode: 'VOYA_AGENT', qaOnlyTestFixture: true }); else if (!channelMapping) add('CHANNEL', 'FAIL', 'MARKETPLACE_CHANNEL_NOT_CONFIGURED'); else if ((channelMapping.status && channelMapping.status !== 'ACTIVE') || !channelMapping.enabled || !channelMapping.channel.active) add('CHANNEL', 'FAIL', 'MARKETPLACE_CHANNEL_DISABLED'); else add('CHANNEL', 'PASS', undefined, { channelCode: channelMapping.channel.code }); }
     const mapped = session && plan.scheduleMappings?.some((item: any) => item.scheduleTemplateId === session.scheduleTemplateId && item.active);
     if (!session || !mapped || session.scheduleTemplate.variantId !== plan.variantId) add('SCHEDULE', 'FAIL', 'RATEPLAN_SCHEDULE_NOT_ELIGIBLE'); else if (session.scheduleTemplate.status !== 'ACTIVE' || session.scheduleTemplate.archivedAt) add('SCHEDULE', 'FAIL', 'SCHEDULE_NOT_ACTIVE'); else if (date < new Date(session.scheduleTemplate.effectiveFrom) || (session.scheduleTemplate.effectiveTo && date >= new Date(session.scheduleTemplate.effectiveTo))) add('SCHEDULE', 'FAIL', 'SCHEDULE_OUTSIDE_EFFECTIVE_RANGE'); else if (session.scheduleTemplate.capacityUnitReviewRequired) add('SCHEDULE', 'FAIL', 'CAPACITY_UNIT_REVIEW_REQUIRED'); else add('SCHEDULE', 'PASS', undefined, { scheduleId: session.scheduleTemplateId });
     if (!session) add('SESSION', 'FAIL', 'SESSION_NOT_FOUND'); else if (session.archivedAt || session.status === SessionStatus.ARCHIVED) add('SESSION', 'FAIL', 'SESSION_ARCHIVED'); else if (session.status === SessionStatus.BLACKOUT) add('SESSION', 'FAIL', 'SESSION_BLACKOUT'); else if (session.status !== SessionStatus.OPEN) add('SESSION', 'FAIL', 'SESSION_CLOSED'); else add('SESSION', 'PASS', undefined, { sessionId: session.id });
@@ -75,13 +78,37 @@ export class EligibilityService {
     } else { notEvaluated('CUTOFF'); notEvaluated('TRAVELLER'); notEvaluated('CAPACITY'); notEvaluated('INVENTORY'); }
 
     let commercial: any = null;
+    let selectionMetrics: { netMarginAmount: number; netMarginPercent: number } | undefined;
     if (session && capacityConsumption != null && travellerPass) {
       try {
-        commercial = await this.commercial.evaluateInternal({ ratePlanId: plan.id, serviceDate: date, units: input.units ?? 1, travellers: travellers.normalizedTravellers, agentTenantId: input.agentTenantId, channel: input.channelCode ?? 'VOYA_AGENT', agentFacingRequired: !input.skipAgentGovernance, visitorCategory: input.visitorCategory, visitorEligibilityVerified: input.visitorEligibilityVerified }, db);
+        commercial = await this.commercial.evaluateInternal({ ratePlanId: plan.id, serviceDate: date, activityStartsAt: session.startsAt, units: input.units ?? 1, travellers: travellers.normalizedTravellers, agentTenantId: input.agentTenantId, channel: input.channelCode ?? 'VOYA_AGENT', agentFacingRequired: !input.skipAgentGovernance, visitorCategory: input.visitorCategory, visitorEligibilityVerified: input.visitorEligibilityVerified }, db);
         bookingMode = commercial.bookingMode;
         const amount = Number(commercial.finalAmount); let code: string | undefined;
         if (!Number.isFinite(amount)) code = 'PRICE_NOT_CALCULABLE'; else if (!commercial.ready || (commercial.commercialEligibility !== 'ALLOWED' && !(input.skipAgentGovernance && commercial.commercialEligibility === 'NOT_APPLICABLE'))) code = commercial.reasonCodes?.find((item: string) => ['AGENT_COMMERCIAL_DENIED', 'AGENT_ELIGIBILITY_UNCONFIGURED', 'AGENT_COMMERCIAL_UNCONFIGURED', 'VOYA_REVENUE_RULE_MISSING', 'TAX_CONFIGURATION_MISSING'].includes(item)) ?? 'COMMERCIAL_NOT_READY';
         add('COMMERCIAL', code ? 'FAIL' : 'PASS', code, { reasonCodes: commercial.reasonCodes, commercialVersionId: commercial.ratePlanCommercialVersionId });
+        if (commercial.ready && Number.isFinite(amount)) {
+          const guardrail = await db.commercialGuardrailConfiguration?.findUnique?.({ where: { id: 'default' } });
+          const minimumMarginPercent = Number(guardrail?.minimumNetMarginPercent ?? DEFAULT_MIN_PLATFORM_MARGIN_PERCENT);
+          const websiteGatewayFeePercent = Number(guardrail?.websiteGatewayFeePercent ?? DEFAULT_WEBSITE_GATEWAY_FEE_PERCENT);
+          const netMarginPercent = platformNetMarginPercent({
+            finalAmount: commercial.finalAmount,
+            voyaRevenue: commercial.voya?.revenue,
+            agentCommission: commercial.agent?.commission,
+            voyaPromotionFunding: commercial.promotionFundingBreakdown?.VOYA,
+            channelCode: input.channelCode ?? 'VOYA_AGENT',
+          }, websiteGatewayFeePercent);
+          const netMarginAmount = platformNetMarginAmount({
+            finalAmount: commercial.finalAmount,
+            voyaRevenue: commercial.voya?.revenue,
+            agentCommission: commercial.agent?.commission,
+            voyaPromotionFunding: commercial.promotionFundingBreakdown?.VOYA,
+            channelCode: input.channelCode ?? 'VOYA_AGENT',
+          }, websiteGatewayFeePercent);
+          if (netMarginAmount != null && netMarginPercent != null) selectionMetrics = { netMarginAmount, netMarginPercent };
+          if (netMarginPercent == null) add('MARGIN_FLOOR', 'FAIL', 'PLATFORM_MARGIN_UNAVAILABLE', { minimumPercent: minimumMarginPercent });
+          else if (netMarginPercent < minimumMarginPercent) add('MARGIN_FLOOR', 'FAIL', 'NET_MARGIN_BELOW_FLOOR', { minimumPercent: minimumMarginPercent, channelCode: input.channelCode ?? 'VOYA_AGENT' });
+          else add('MARGIN_FLOOR', 'PASS', undefined, { minimumPercent: minimumMarginPercent });
+        } else notEvaluated('MARGIN_FLOOR');
       } catch (error: any) { add('COMMERCIAL', 'FAIL', error?.response?.code ?? 'COMMERCIAL_NOT_READY'); }
     } else notEvaluated('COMMERCIAL');
     if (session && capacityConsumption != null && travellerPass) {
@@ -90,6 +117,6 @@ export class EligibilityService {
     } else if (session) notEvaluated('INVENTORY');
     if (session) { const readiness = await this.resources.resourceReadiness(session.id, db); add('RESOURCES', readiness.ready ? 'PASS' : 'FAIL', readiness.ready ? undefined : 'RESOURCE_NOT_READY', { reasonCodes: readiness.reasonCodes }); } else notEvaluated('RESOURCES');
     const failed = gates.filter((gate) => gate.status === 'FAIL');
-    return { eligible: failed.length === 0, bookingMode, evaluatedAt: now.toISOString(), capacityConsumption, gates, commercial: commercial ? this.commercial.projectForAgent(commercial) : undefined, inventory: gates.find((g) => g.gate === 'INVENTORY')?.details, resource: gates.find((g) => g.gate === 'RESOURCES')?.details, productId: product.id, variantId: plan.variantId, ratePlanId: plan.id, sessionId: input.sessionId };
+    return { eligible: failed.length === 0, bookingMode, evaluatedAt: now.toISOString(), capacityConsumption, gates, commercial: commercial ? { ...this.commercial.projectForAgent(commercial), ...(qaOverride ? { qaOnlyTestFixture: true, insuranceDocumentStatus: qaOverride.documentStatus } : {}) } : undefined, selectionMetrics, inventory: gates.find((g) => g.gate === 'INVENTORY')?.details, resource: gates.find((g) => g.gate === 'RESOURCES')?.details, productId: product.id, variantId: plan.variantId, ratePlanId: plan.id, sessionId: input.sessionId, ...(qaOverride ? { qaOnlyTestFixture: true } : {}) };
   }
 }

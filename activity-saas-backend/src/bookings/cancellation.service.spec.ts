@@ -6,6 +6,16 @@ const booking = (agentTenantId = 'agent-a', vendorTenantId = 'vendor-a'): any =>
 const cancellation = (initiator: CancellationInitiator = CancellationInitiator.AGENT): any => ({ id: 'cancel-1', initiator, reasonCategory: 'CUSTOMER_REQUEST', reason: 'test', financialState: 'REFUND_PENDING', cancellationCharge: new Prisma.Decimal('100.00'), refundEntitlement: new Prisma.Decimal('900.00'), currency: 'INR', cancelledAt: new Date(), daysBeforeService: 3, refund: null, financialEvents: [] });
 
 describe('CancellationService authorization and invariants', () => {
+  it('includes the public booking code in finance refund rows', async () => {
+    const refund = { id: 'refund-1', booking: { id: 'booking-1', bookingCode: 'VY-1' }, cancellation: {} };
+    const prisma: any = {
+      refund: { findMany: jest.fn().mockResolvedValue([refund]) },
+      publicIdentifier: { findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.entityType === 'BOOKING' ? [{ entityId: 'booking-1', publicCode: 'VYB-000001' }] : [{ entityId: 'refund-1', publicCode: 'RF-26110001' }])) },
+    };
+    const service = new CancellationService(prisma, {} as any, {} as any, {} as any);
+    await expect(service.refunds()).resolves.toEqual([{ ...refund, publicCode: 'RF-26110001', booking: { ...refund.booking, publicCode: 'VYB-000001' } }]);
+  });
+
   it('returns an own existing agent cancellation with the stored initiator', async () => {
     const prisma: any = { bookingCancellation: { findFirst: jest.fn().mockResolvedValue(null) } };
     const service = new CancellationService(prisma, {} as any, {} as any, {} as any);

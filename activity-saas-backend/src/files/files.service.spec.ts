@@ -10,6 +10,14 @@ describe('FilesService tenant isolation', () => {
     expect(storage.read).not.toHaveBeenCalled();
   });
 
+  it('serves a vendor document when its relationship points to the vendor document', async () => {
+    const asset = { id: 'f3', tenantId: 'tenant-a', visibility: FileVisibility.PRIVATE, purpose: FilePurpose.VENDOR_DOCUMENT, entityType: 'VendorDocument', entityId: 'doc-a', storageKey: 'private/pan.pdf', originalName: 'pan.pdf', mimeType: 'application/pdf' };
+    const storage = { read: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.7\n')) };
+    const service = new FilesService({ fileAsset: { findUnique: jest.fn().mockResolvedValue(asset) } } as any, storage as any);
+    await expect(service.content({ sub: 'u1', email: 'a@x', role: UserRole.VENDOR, tenantId: 'tenant-a', organizationRole: OrganizationRole.OWNER }, 'f3')).resolves.toMatchObject({ asset });
+    expect(storage.read).toHaveBeenCalledWith('private/pan.pdf');
+  });
+
   it('requires a valid booking relationship for private vouchers', async () => {
     const prisma = { fileAsset: { findUnique: jest.fn().mockResolvedValue({ id: 'v1', tenantId: 'tenant-a', visibility: FileVisibility.PRIVATE, purpose: FilePurpose.BOOKING_VOUCHER, entityType: 'Booking', entityId: 'b1', storageKey: 'private/v', originalName: 'v.pdf', mimeType: 'application/pdf' }) }, booking: { findFirst: jest.fn().mockResolvedValue(null) } };
     const service = new FilesService(prisma as any, { read: jest.fn() } as any);

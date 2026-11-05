@@ -1,22 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { api } from '../api';
 
 const DEFAULT_LOCATION: [number, number] = [10.2381, 77.4892];
 
 export type ReverseGeocodeDetails = { address?: string; city?: string; state?: string; country?: string; pincode?: string };
-type SearchResult = { place_id: number; display_name: string; lat: string; lon: string; address?: Record<string, string> };
+type SearchResult = { id: string; name: string; address: string; lat: number; lon: number; provider?: string; providerPlaceId?: string; sourceUrl?: string };
 
 function resultDetails(result: SearchResult): ReverseGeocodeDetails {
-  const address = result.address ?? {};
   return {
-    address: result.display_name,
-    city: address.city ?? address.town ?? address.village ?? address.municipality,
-    state: address.state,
-    country: address.country,
-    pincode: address.postcode,
+    address: result.address,
   };
 }
 
-export function OnboardingLocationMap({ latitude, longitude, address, city, state, country, autoGeocodeAddress = false, onChange, onReverseGeocode, searchId = 'onboarding-location-search', mapLabel = 'Business location map' }: { latitude?: string | number | null; longitude?: string | number | null; address?: string | null; city?: string | null; state?: string | null; country?: string | null; autoGeocodeAddress?: boolean; onChange: (latitude: string, longitude: string) => void; onReverseGeocode?: (details: ReverseGeocodeDetails) => void; searchId?: string; mapLabel?: string }) {
+export function OnboardingLocationMap({ latitude, longitude, address, city, state, country, autoGeocodeAddress = false, interactive = true, onChange, onReverseGeocode, searchId = 'onboarding-location-search', mapLabel = 'Business location map' }: { latitude?: string | number | null; longitude?: string | number | null; address?: string | null; city?: string | null; state?: string | null; country?: string | null; autoGeocodeAddress?: boolean; interactive?: boolean; onChange: (latitude: string, longitude: string) => void; onReverseGeocode?: (details: ReverseGeocodeDetails) => void; searchId?: string; mapLabel?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
@@ -58,18 +54,18 @@ export function OnboardingLocationMap({ latitude, longitude, address, city, stat
     let disposed = false;
     import('leaflet').then((L) => {
       if (disposed || !containerRef.current || mapRef.current) return;
-      const map = L.map(containerRef.current, { zoomControl: true, attributionControl: true }).setView(center, hasCoordinates ? 14 : 10);
+      const map = L.map(containerRef.current, { zoomControl: true, attributionControl: true, dragging: interactive, scrollWheelZoom: interactive, doubleClickZoom: interactive, boxZoom: interactive, keyboard: interactive, touchZoom: interactive }).setView(center, hasCoordinates ? 14 : 10);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }).addTo(map);
-      const marker = L.marker(center, { draggable: true, icon: L.divIcon({ className: 'voyaMapMarker', html: '<span></span>', iconSize: [24, 32], iconAnchor: [12, 30] }) }).addTo(map);
+      const marker = L.marker(center, { draggable: interactive, icon: L.divIcon({ className: 'voyaMapMarker', html: '<span></span>', iconSize: [24, 32], iconAnchor: [12, 30] }) }).addTo(map);
       const updateLocation = (latitudeValue: number, longitudeValue: number) => { onChangeRef.current(latitudeValue.toFixed(6), longitudeValue.toFixed(6)); void reverseGeocode(latitudeValue, longitudeValue); };
       marker.on('dragend', () => { const position = marker.getLatLng(); updateLocation(position.lat, position.lng); });
-      map.on('click', (event: any) => { marker.setLatLng(event.latlng); updateLocation(event.latlng.lat, event.latlng.lng); });
+      if (interactive) map.on('click', (event: any) => { marker.setLatLng(event.latlng); updateLocation(event.latlng.lat, event.latlng.lng); });
       mapRef.current = map;
       markerRef.current = marker;
       window.setTimeout(() => map.invalidateSize(), 0);
     });
     return () => { disposed = true; if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; markerRef.current = null; } };
-  }, []);
+  }, [interactive]);
 
   useEffect(() => {
     if (!mapRef.current || !markerRef.current || !hasCoordinates) return;
@@ -79,6 +75,7 @@ export function OnboardingLocationMap({ latitude, longitude, address, city, stat
   }, [latitude, longitude, lat, lng, hasCoordinates]);
 
   async function searchLocation(searchValue = query) {
+    if (!interactive) return;
     const search = searchValue.trim();
     if (!search) {
       setResults([]);
@@ -88,10 +85,7 @@ export function OnboardingLocationMap({ latitude, longitude, address, city, stat
     setSearching(true);
     setSearchError('');
     try {
-      const params = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', limit: '5', q: search });
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`);
-      if (!response.ok) throw new Error('Location search is unavailable right now.');
-      const matches = await response.json() as SearchResult[];
+      const matches = await api.request<SearchResult[]>(`/vendor/locations/search?q=${encodeURIComponent(search)}`);
       setResults(matches);
       if (!matches.length) setSearchError('No matching locations found. Try a broader search.');
     } catch (error) {
@@ -104,7 +98,7 @@ export function OnboardingLocationMap({ latitude, longitude, address, city, stat
 
   useEffect(() => {
     const search = query.trim();
-    if (search.length < 3 || lastSelectedQueryRef.current === search) {
+    if (!interactive || search.length < 3 || lastSelectedQueryRef.current === search) {
       if (search.length < 3) {
         setResults([]);
         setSearchError('');
@@ -113,7 +107,7 @@ export function OnboardingLocationMap({ latitude, longitude, address, city, stat
     }
     const timer = window.setTimeout(() => { void searchLocation(search); }, 350);
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [interactive, query]);
 
   useEffect(() => {
     if (!autoGeocodeAddress || hasCoordinates || !address?.trim()) return;
@@ -124,13 +118,8 @@ export function OnboardingLocationMap({ latitude, longitude, address, city, stat
     const timer = window.setTimeout(async () => {
       try {
         for (const query of queries) {
-          const params = new URLSearchParams({ format: 'jsonv2', addressdetails: '1', limit: '1', q: query });
-          const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`);
-          if (!response.ok || disposed) {
-            if (disposed) return;
-            continue;
-          }
-          const matches = await response.json() as SearchResult[];
+          const matches = await api.request<SearchResult[]>(`/vendor/locations/search?q=${encodeURIComponent(query)}`);
+          if (disposed) return;
           const result = matches[0];
           const nextLatitude = Number(result?.lat);
           const nextLongitude = Number(result?.lon);
@@ -153,11 +142,11 @@ export function OnboardingLocationMap({ latitude, longitude, address, city, stat
     if (!Number.isFinite(nextLatitude) || !Number.isFinite(nextLongitude)) return;
     onChange(nextLatitude.toFixed(6), nextLongitude.toFixed(6));
     onReverseGeocode?.(resultDetails(result));
-    lastSelectedQueryRef.current = result.display_name;
-    setQuery(result.display_name);
+    lastSelectedQueryRef.current = result.address;
+    setQuery(result.address);
     setResults([]);
     setSearchError('');
   }
 
-  return <div className="onboarding-location-widget"><form className="location-search" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void searchLocation(); }}><label htmlFor={searchId}>Search location</label><div className="location-search-row"><input id={searchId} value={query} onChange={(event) => { lastSelectedQueryRef.current = ''; setQuery(event.target.value); }} placeholder="Type a city, address or landmark" autoComplete="off" aria-autocomplete="list" aria-controls={`${searchId}-results`} />{searching && <span className="location-search-status" aria-live="polite">Searching…</span>}</div>{searchError && <small className="field-error" role="alert">{searchError}</small>}{results.length > 0 && <div id={`${searchId}-results`} className="location-search-results" role="listbox" aria-label="Location search results">{results.map((result) => <button key={result.place_id} type="button" role="option" onClick={() => selectResult(result)}><b>{result.display_name}</b><small>Select this location to move the map</small></button>)}</div>}</form><div className="onboarding-location-map" ref={containerRef} aria-label={mapLabel} /></div>;
+  return <div className="onboarding-location-widget"><form className="location-search" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void searchLocation(); }}><label htmlFor={searchId}>Search location</label><div className="location-search-row"><input id={searchId} value={query} onChange={(event) => { lastSelectedQueryRef.current = ''; setQuery(event.target.value); }} placeholder="Type a city, address or landmark" autoComplete="off" aria-autocomplete="list" aria-controls={`${searchId}-results`} disabled={!interactive} />{searching && <span className="location-search-status" aria-live="polite">Searching…</span>}</div>{searchError && <small className="field-error" role="alert">{searchError}</small>}{results.length > 0 && <div id={`${searchId}-results`} className="location-search-results" role="listbox" aria-label="Location search results">{results.map((result) => <button key={result.id} type="button" role="option" onClick={() => selectResult(result)}><b>{result.name}</b><small>{result.address}</small></button>)}</div>}</form><div className="onboarding-location-map" ref={containerRef} aria-label={mapLabel} /></div>;
 }

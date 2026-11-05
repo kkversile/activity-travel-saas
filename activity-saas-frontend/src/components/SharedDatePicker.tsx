@@ -10,6 +10,7 @@ type SharedDatePickerProps = {
   id?: string;
   ariaLabel?: string;
   ariaInvalid?: boolean;
+  includeTime?: boolean;
 };
 
 const MONTHS = Array.from({ length: 12 }, (_, month) => new Intl.DateTimeFormat('en', { month: 'long' }).format(new Date(2020, month, 1)));
@@ -27,7 +28,7 @@ function toIso(date: Date) {
 }
 
 function displayDate(value: string) {
-  const date = parseDate(value);
+  const date = parseDate(value.slice(0, 10));
   return date ? `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}` : '';
 }
 
@@ -47,14 +48,14 @@ function isAfter(value: string, other?: string) {
   return Boolean(other && value > other);
 }
 
-export function SharedDatePicker({ value, onChange, min, max, disabled = false, placeholder = 'Select date', id, ariaLabel, ariaInvalid = false }: SharedDatePickerProps) {
-  const selected = parseDate(value);
+export function SharedDatePicker({ value, onChange, min, max, disabled = false, placeholder = 'Select date', id, ariaLabel, ariaInvalid = false, includeTime = false }: SharedDatePickerProps) {
+  const selected = parseDate(value.slice(0, 10));
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(() => monthStart(selected || parseDate(min) || new Date()));
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const next = parseDate(value) || parseDate(min);
+    const next = parseDate(value.slice(0, 10)) || parseDate(min?.slice(0, 10));
     if (next) setMonth(monthStart(next));
   }, [value, min]);
 
@@ -74,8 +75,8 @@ export function SharedDatePicker({ value, onChange, min, max, disabled = false, 
 
   const years = useMemo(() => {
     const currentYear = new Date().getFullYear();
-    const minYear = parseDate(min)?.getFullYear() ?? currentYear - 2;
-    const maxYear = parseDate(max)?.getFullYear() ?? currentYear + 8;
+    const minYear = parseDate(min?.slice(0, 10))?.getFullYear() ?? currentYear - 2;
+    const maxYear = parseDate(max?.slice(0, 10))?.getFullYear() ?? currentYear + 8;
     const start = Math.min(minYear, selected?.getFullYear() ?? currentYear) - 1;
     const end = Math.max(maxYear, selected?.getFullYear() ?? currentYear) + 1;
     return Array.from({ length: end - start + 1 }, (_, index) => start + index);
@@ -95,8 +96,8 @@ export function SharedDatePicker({ value, onChange, min, max, disabled = false, 
 
   const choose = (date: Date) => {
     const next = toIso(date);
-    if (isBefore(next, min) || isAfter(next, max)) return;
-    onChange(next);
+    if (isBefore(next, min?.slice(0, 10)) || isAfter(next, max?.slice(0, 10))) return;
+    onChange(includeTime ? `${next}T${value.slice(11, 16) || '00:00'}` : next);
     setOpen(false);
   };
 
@@ -113,7 +114,7 @@ export function SharedDatePicker({ value, onChange, min, max, disabled = false, 
       onClick={() => setOpen((current) => !current)}
     >
       <svg className="shared-date-picker-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-      <span>{displayDate(value) || placeholder}</span>
+      <span>{displayDate(value) || placeholder}{includeTime && value.includes('T') ? ` · ${value.slice(11, 16)}` : ''}</span>
     </button>
     {open && <div className="shared-date-picker-popover" role="dialog" aria-label={`${ariaLabel || placeholder} calendar`}>
       <div className="shared-date-picker-toolbar">
@@ -135,9 +136,9 @@ export function SharedDatePicker({ value, onChange, min, max, disabled = false, 
       <div className="shared-date-picker-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
       <div className="shared-date-picker-grid">{days.map(({ date, outside }) => {
         const dateValue = toIso(date);
-        const blocked = outside || isBefore(dateValue, min) || isAfter(dateValue, max);
-        return <button type="button" key={dateValue} className={`${selected && dateValue === value ? 'is-selected ' : ''}${outside ? 'is-outside ' : ''}${blocked ? 'is-disabled' : ''}`} disabled={blocked} onClick={() => choose(date)}>{date.getDate()}</button>;
-      })}</div>
+        const blocked = outside || isBefore(dateValue, min?.slice(0, 10)) || isAfter(dateValue, max?.slice(0, 10));
+        return <button type="button" key={dateValue} className={`${selected && dateValue === value.slice(0, 10) ? 'is-selected ' : ''}${outside ? 'is-outside ' : ''}${blocked ? 'is-disabled' : ''}`} disabled={blocked} onClick={() => choose(date)}>{date.getDate()}</button>;
+      })}</div>{includeTime && <label className="shared-date-picker-time"><span>Time</span><input type="time" value={value.slice(11, 16)} onChange={(event) => { const dateValue = toIso(selected || month); onChange(`${dateValue}T${event.target.value}`); }} /></label>}
     </div>}
   </div>;
 }

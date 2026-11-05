@@ -49,6 +49,33 @@ describe('simplified prices and availability editor', () => {
     expect(result).toMatchObject({ valid: true, options: [{ pricingUnit: PricingUnit.PER_BOOKING, travellerPrices: 0 }] });
   });
 
+  it('rejects sell prices above the configured MRP / gate price', async () => {
+    const s = makeService();
+    s.prisma.product.findFirst.mockResolvedValue({ id: 'p1', tenantId: 't1' });
+    s.prisma.productVariant.findMany.mockResolvedValue([{ id: 'v1', variantCode: 'STD', name: 'Standard' }]);
+    const result = await s.service.previewActivityPricesAvailability(vendor, 'p1', {
+      options: [{ variantId: 'v1', pricingUnit: PricingUnit.PER_PERSON, mrpMode: 'YES', mrpAmount: '100', travellerPrices: [{ travellerType: 'ADULT', amount: '125' }] }],
+    } as any);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain('Standard: selling prices cannot be above the MRP / gate price');
+  });
+
+  it('persists MRP metadata in the activity editor source payload', () => {
+    const payload = buildActivityEditorSourcePayload({}, true, { mrpMode: 'YES', mrpAmount: '250', mrpProof: 'counter board' });
+    expect(payload).toMatchObject({ mrpMode: 'YES', mrpAmount: '250', mrpProof: 'counter board' });
+  });
+
+  it('persists availability status states alongside blackout dates', () => {
+    const payload = buildActivityEditorSourcePayload({}, true, {
+      availabilityBlackouts: ['2026-11-02'],
+      availabilityStates: { '2026-11-01': 'LOW', '2026-11-02': 'BLACKOUT' },
+    });
+    expect(payload).toMatchObject({
+      availabilityBlackouts: ['2026-11-02'],
+      availabilityStates: { '2026-11-01': 'LOW', '2026-11-02': 'BLACKOUT' },
+    });
+  });
+
   it('requires visitor prices when differential visitor pricing is enabled', async () => {
     const s = makeService();
     s.prisma.product.findFirst.mockResolvedValue({ id: 'p1', tenantId: 't1' });

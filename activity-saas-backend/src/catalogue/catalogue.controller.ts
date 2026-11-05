@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
-import { ApiBody, ApiConsumes, ApiHeader, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { ApiBody, ApiConsumes, ApiHeader, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -10,13 +10,13 @@ import { PermissionsGuard } from '../common/permissions.guard';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
 import { CatalogueService } from './catalogue.service';
-import { ActivityPricesAvailabilityDto, ArchiveVariantDto, BookingQuestionDto, CreateProductDto, CreateProductDraftDto, CreateProductRevisionDto, ImportProductJsonDto, ProductListingQueryDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, RejectProductRevisionDto, UpdateBookingQuestionDto, UpdateProductCurrencyDto, UpdateProductMediaRankDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto } from './catalogue.dto';
+import { ActivityPricesAvailabilityDto, ArchiveVariantDto, BookingQuestionDto, CreateProductDto, CreateProductDraftDto, CreateProductRevisionDto, ImportProductBatchDto, ImportProductJsonDto, ProductListingQueryDto, ProductMediaDto, ProductMediaUploadDto, ProductQueryDto, RejectProductRevisionDto, UpdateBookingQuestionDto, UpdateProductCurrencyDto, UpdateProductMediaRankDto, UpdateProductRevisionDto, UpdateVariantDto, VariantDto, VendorBulkRateUpdateDto } from './catalogue.dto';
 import { swaggerExamples } from '../common/swagger-examples';
 
 @Controller()
 @ApiTags('Catalogue')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
-@Roles(UserRole.VENDOR)
+@Roles(UserRole.VENDOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
 export class CatalogueController {
   constructor(private readonly service: CatalogueService) {}
   @Get('products') @Permissions('product.view') list(@CurrentUser() user: AuthUser, @Query() query: ProductQueryDto) { return this.service.list(user, query); }
@@ -46,12 +46,21 @@ export class CatalogueController {
         Media: { type: 'array', items: { type: 'object', additionalProperties: true } },
         Booking_Questions: { type: 'array', items: { type: 'object', additionalProperties: true } },
         Fulfilment: { type: 'array', items: { type: 'object', additionalProperties: true } },
+        Ticket_Types: { type: 'array', items: { type: 'object', additionalProperties: true } },
       },
       example: swaggerExamples.catalogue.productImportJson,
     },
   })
   @Permissions('product.edit')
   importJson(@CurrentUser() user: AuthUser, @Headers('idempotency-key') idempotencyKey: string | undefined, @Body() dto: ImportProductJsonDto) { return this.service.importJson(user, dto, idempotencyKey); }
+  @Post('products/import/batch')
+  @ApiBody({ description: 'Creates multiple draft products after validating every product import in the batch. The payload is limited to 2,000 section rows and 200 products; existing products are rejected by this create-only endpoint.', schema: { type: 'object', required: ['products'], properties: { products: { type: 'array', maxItems: 200, items: { type: 'object', additionalProperties: true } } } } })
+  @Permissions('product.edit')
+  importBatch(@CurrentUser() user: AuthUser, @Body() dto: ImportProductBatchDto) { return this.service.importBatch(user, dto); }
+  @Post('products/rates/import/batch')
+  @ApiBody({ description: 'Applies rate changes to existing vendor products by productCode and optionCode. Every row is preview-validated before any product is changed.', schema: { type: 'object', required: ['rows'], properties: { rows: { type: 'array', maxItems: 2000, items: { type: 'object', required: ['productCode', 'optionCode', 'validFrom', 'validTo'], properties: { productCode: { type: 'string' }, optionCode: { type: 'string' }, validFrom: { type: 'string', format: 'date' }, validTo: { type: 'string', format: 'date' }, adultSellInr: { type: 'string' }, childSellInr: { type: 'string' }, seniorSellInr: { type: 'string' }, mrpInr: { type: 'string' } } } } } } })
+  @Permissions('product.edit')
+  importRateBatch(@CurrentUser() user: AuthUser, @Body() dto: VendorBulkRateUpdateDto) { return this.service.importRateBatch(user, dto); }
   @Post('products/:productId/prices-availability/preview') @ApiBody({ description: 'Validates the simplified prices and availability editor without writing catalogue records.', schema: { type: 'object', example: { options: [{ variantId: 'OPTION_ID', pricingUnit: 'PER_PERSON', effectiveFrom: '2026-10-26', effectiveTo: '2027-10-26', travellerPrices: [{ travellerType: 'ADULT', amount: '1200' }], availability: { operatingModel: 'MULTIPLE_SLOTS', timezone: 'Asia/Kolkata', operatingDays: ['MON', 'TUE', 'WED', 'THU', 'FRI'], capacityUnit: 'PERSON', defaultCapacity: 12, slots: [{ slotCode: '10:00', startTime: '10:00', endTime: '12:00' }] } }] } } }) @Permissions('product.view') previewActivityPricesAvailability(@CurrentUser() user: AuthUser, @Param('productId') id: string, @Body() dto: ActivityPricesAvailabilityDto) { return this.service.previewActivityPricesAvailability(user, id, dto); }
   @Get('products/:productId/prices-availability') @Permissions('product.view') activityPricesAvailability(@CurrentUser() user: AuthUser, @Param('productId') id: string) { return this.service.activityPricesAvailability(user, id); }
   @Post('products/:productId/prices-availability/apply') @ApiHeader({ name: 'Idempotency-Key', required: true, description: 'Stable key for safe retries of the same prices and availability save.' }) @ApiBody({ description: 'Atomically saves prices and optional availability using the canonical rate-plan, commercial-version, schedule, slot, and mapping records. Existing special contracts are not modified.', schema: { type: 'object', example: { options: [{ variantId: 'OPTION_ID', pricingUnit: 'PER_PERSON', supplierModel: 'NET_RATE', bookingMode: 'INSTANT', effectiveFrom: '2026-10-26', effectiveTo: '2027-10-26', expectedVersion: 1, pricingDays: ['MON', 'TUE', 'WED', 'THU', 'FRI'], travellerPrices: [{ travellerType: 'ADULT', amount: '1200' }, { travellerType: 'CHILD', amount: '800' }], availability: { updateCapacity: false, scheduleCode: 'ACTIVITY-STANDARD', name: 'Standard operating hours', operatingModel: 'MULTIPLE_SLOTS', timezone: 'Asia/Kolkata', operatingDays: ['MON', 'TUE', 'WED', 'THU', 'FRI'], capacityUnit: 'PERSON', defaultCapacity: 12, slots: [{ slotCode: '10:00', startTime: '10:00', endTime: '12:00' }] } }] } } }) @Permissions('product.edit') applyActivityPricesAvailability(@CurrentUser() user: AuthUser, @Param('productId') id: string, @Headers('idempotency-key') idempotencyKey: string, @Body() dto: ActivityPricesAvailabilityDto) { return this.service.applyActivityPricesAvailability(user, id, dto, idempotencyKey); }
@@ -65,15 +74,40 @@ export class CatalogueController {
   @Patch('booking-questions/:id') @Permissions('product.edit') updateBookingQuestion(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateBookingQuestionDto) { return this.service.updateBookingQuestion(user, id, dto); }
   @Delete('booking-questions/:id') @Permissions('product.edit') archiveBookingQuestion(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.archiveBookingQuestion(user, id); }
   @Post('product-revisions/:revisionId/media') @ApiBody({ schema: { type: 'object', example: swaggerExamples.catalogue.media } }) @Permissions('product.edit') addMedia(@CurrentUser() user: AuthUser, @Param('revisionId') id: string, @Body() dto: ProductMediaDto) { return this.service.addMedia(user, id, dto); }
-  @Post('product-revisions/:revisionId/media/upload') @ApiConsumes('multipart/form-data') @ApiBody({ schema: { type: 'object', required: ['file', 'kind'], properties: { file: { type: 'string', format: 'binary' }, kind: { type: 'string', enum: ['IMAGE', 'VIDEO'], example: 'IMAGE' }, description: { type: 'string', example: 'Sunrise viewpoint at Top Station' }, seoTitle: { type: 'string', example: 'Sunrise Trek to Top Station in Munnar' }, seoDescription: { type: 'string', example: 'Guided sunrise trek and viewpoint experience in Munnar.' }, rank: { type: 'integer', example: 1 } } } }) @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } })) @Permissions('product.edit') uploadMedia(@CurrentUser() user: AuthUser, @Param('revisionId') id: string, @UploadedFile() file: any, @Body() dto: ProductMediaUploadDto) { return this.service.uploadMedia(user, id, file, dto); }
+  @Post('product-revisions/:revisionId/media/upload') @ApiConsumes('multipart/form-data') @ApiBody({ schema: { type: 'object', required: ['file', 'kind'], properties: { file: { type: 'string', format: 'binary' }, kind: { type: 'string', enum: ['IMAGE', 'VIDEO'], example: 'IMAGE' }, description: { type: 'string', example: 'Sunrise viewpoint at Top Station' }, seoTitle: { type: 'string', example: 'Sunrise Trek to Top Station in Munnar' }, seoDescription: { type: 'string', example: 'Guided sunrise trek and viewpoint description.' }, rank: { type: 'integer', example: 1 } } } }) @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } })) @Permissions('product.edit') uploadMedia(@CurrentUser() user: AuthUser, @Param('revisionId') id: string, @UploadedFile() file: any, @Body() dto: ProductMediaUploadDto) { this.service.validateMediaFile(file, dto.kind); return this.service.uploadMedia(user, id, file, dto); }
+  @Post('product-revisions/:revisionId/rate-proof/upload') @ApiConsumes('multipart/form-data') @ApiBody({ schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } } }) @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } })) @Permissions('product.edit') uploadRateProof(@CurrentUser() user: AuthUser, @Param('revisionId') id: string, @UploadedFile() file: any) { return this.service.uploadRateProof(user, id, file); }
   @Delete('product-revisions/:revisionId/media/:mediaId') @Permissions('product.edit') archiveMedia(@CurrentUser() user: AuthUser, @Param('revisionId') id: string, @Param('mediaId') mediaId: string) { return this.service.archiveMedia(user, id, mediaId); }
   @Patch('product-revisions/:revisionId/media/:mediaId') @Permissions('product.edit') rankMedia(@CurrentUser() user: AuthUser, @Param('revisionId') id: string, @Param('mediaId') mediaId: string, @Body() dto: UpdateProductMediaRankDto) { return this.service.rankMedia(user, id, mediaId, dto); }
   @Get('products/:productId/variants') @Permissions('product.view') variants(@CurrentUser() user: AuthUser, @Param('productId') id: string) { return this.service.variants(user, id); }
+  @Get('variants/:id/blueprint') @Permissions('product.view') variantBlueprint(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.getVariantBlueprint(user, id); }
+  @Put('variants/:id/blueprint') @Permissions('product.edit') replaceVariantBlueprint(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: Record<string, unknown>) { return this.service.replaceVariantBlueprint(user, id, body); }
   @Post('products/:productId/variants') @ApiBody({ schema: { type: 'object', example: swaggerExamples.catalogue.variant } }) @Permissions('product.edit') createVariant(@CurrentUser() user: AuthUser, @Param('productId') id: string, @Body() dto: VariantDto) { return this.service.createVariant(user, id, dto); }
   @Patch('variants/:id') @ApiBody({ schema: { type: 'object', example: swaggerExamples.catalogue.updateVariant } }) @Permissions('product.edit') updateVariant(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateVariantDto) { return this.service.updateVariant(user, id, dto); }
   @Post('variants/:id/archive') @ApiBody({ schema: { type: 'object', example: swaggerExamples.catalogue.archiveVariant } }) @Permissions('product.edit') archiveVariant(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ArchiveVariantDto) { return this.service.archiveVariant(user, id, dto); }
   @Get('admin/product-revisions/review') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('product.view') reviewQueue() { return this.service.listReview(); }
-  @Get('admin/products/:id/detail') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('product.view') adminDetail(@Param('id') id: string) { return this.service.adminDetail(id); }
+  @Get('admin/products/:id/detail')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Permissions('product.view')
+  @ApiOkResponse({
+    description: 'Read-only vendor product detail for Admin. Internal UUIDs remain action keys; publicCode is the stable product identifier.',
+    schema: {
+      type: 'object',
+      required: ['productId', 'publicCode', 'id', 'product'],
+      properties: {
+        productId: { type: 'string', description: 'Product database UUID.' },
+        publicCode: { type: 'string', nullable: true, example: 'TA-GA-0318' },
+        id: { type: 'string', description: 'Selected product revision UUID.' },
+        versionNumber: { type: 'integer' },
+        status: { type: 'string' },
+        productName: { type: 'string' },
+        product: { type: 'object', additionalProperties: true },
+      },
+    },
+  })
+  adminDetail(@Param('id') id: string) { return this.service.adminDetail(id); }
+  @Get('admin/product-revisions/:revisionId/itinerary') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('product.view') adminItinerary(@Param('revisionId') revisionId: string) { return this.service.adminItinerary(revisionId); }
+  @Put('admin/product-revisions/:revisionId/itinerary') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('product.edit') replaceAdminItinerary(@CurrentUser() user: AuthUser, @Param('revisionId') revisionId: string, @Body() body: Record<string, unknown>) { return this.service.replaceAdminItinerary(user, revisionId, body); }
+  @Put('admin/product-revisions/:revisionId/location') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('product.edit') saveAdminLocation(@CurrentUser() user: AuthUser, @Param('revisionId') revisionId: string, @Body() body: Record<string, unknown>) { return this.service.saveAdminLocation(user, revisionId, body); }
   @Post('admin/product-revisions/:id/publish') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('product.publish') publish(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.review(user, id, 'publish'); }
   @Post('admin/product-revisions/:id/reject') @ApiBody({ schema: { type: 'object', example: swaggerExamples.catalogue.rejectRevision } }) @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('product.publish') reject(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: RejectProductRevisionDto) { return this.service.review(user, id, 'reject', dto); }
 }

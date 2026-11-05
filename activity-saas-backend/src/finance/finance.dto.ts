@@ -32,9 +32,15 @@ export class SettlementBatchDto extends SettlementPreviewDto {
   @IsString({ each: true })
   selectedSourceEventIds?: string[];
 }
+export class CreateCommissionInvoiceDto {
+  @IsString() @MinLength(1) settlementBatchId!: string;
+}
 export class FinanceConfigurationDto {
   @IsEnum(PaymentCollectionMode) paymentCollectionMode!: PaymentCollectionMode;
   @IsOptional() @IsString() @Matches(/^[A-Za-z]{3}$/) baseCurrency?: string;
+  @IsOptional() @IsString() @Matches(/^(?:100(?:\.0{1,4})?|\d{1,2}(?:\.\d{1,4})?)$/) gstOnCommissionPercent?: string | null;
+  @IsOptional() @IsString() @Matches(/^(?:100(?:\.0{1,4})?|\d{1,2}(?:\.\d{1,4})?)$/) tds194OPercent?: string | null;
+  @IsOptional() @IsString() @Matches(/^(?:100(?:\.0{1,4})?|\d{1,2}(?:\.\d{1,4})?)$/) gstTcsPercent?: string | null;
   @Type(() => Number) @IsInt() @Min(1) expectedVersion!: number;
 }
 export class VendorSettlementPolicyDto {
@@ -83,6 +89,12 @@ export class ReleasePayoutDto {
   @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
   externalReference!: string;
   @IsOptional() @IsString() note?: string;
+}
+export class RejectPayoutReleaseDto {
+  @IsString()
+  @MinLength(1)
+  @Transform(({ value }) => (typeof value === "string" ? value.trim() : value))
+  reason!: string;
 }
 export class FailPayoutDto {
   @IsString()

@@ -9,6 +9,31 @@ const event = (id: string, type: FinancialEventType, amount: string, b?: any, cu
 function service(events: any[], holds: any[] = []) { const prisma: any = { financeConfiguration: { upsert: jest.fn().mockResolvedValue({ paymentCollectionMode: PaymentCollectionMode.UNCONFIGURED, baseCurrency: 'INR' }) }, vendorSettlementPolicy: { findUnique: jest.fn().mockResolvedValue(policy) }, financialEvent: { findMany: jest.fn().mockResolvedValue(events) }, settlementHold: { findMany: jest.fn().mockResolvedValue(holds) } }; return new FinanceService(prisma, {} as any, {} as any); }
 
 describe('FinanceService settlement reconciliation', () => {
+  it('returns the next payout activity period from its settlement batch', async () => {
+    const nextPayout = { id: 'payout-1', amount: new Prisma.Decimal('4500'), dueDate: new Date('2026-11-04T00:00:00.000Z'), currency: 'INR', status: 'PENDING', createdAt: new Date('2026-11-01T00:00:00.000Z'), settlementBatch: { periodFrom: new Date('2026-10-19T00:00:00.000Z'), periodTo: new Date('2026-10-25T00:00:00.000Z') } };
+    const prisma: any = {
+      settlementBatch: { findMany: jest.fn().mockResolvedValue([]) },
+      payout: { findMany: jest.fn(({ where }: any) => Promise.resolve(where.recordType === 'CANONICAL' ? [nextPayout] : [])) },
+      vendorProfile: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    const finance = new FinanceService(prisma, {} as any, {} as any);
+
+    const result = await finance.vendorSettlements({ role: UserRole.VENDOR, tenantId: 'vendor-1' } as any);
+
+    expect(result.summary.nextPayout).toEqual({ amount: 4500, dueDate: nextPayout.dueDate, currency: 'INR', periodFrom: nextPayout.settlementBatch.periodFrom, periodTo: nextPayout.settlementBatch.periodTo });
+  });
+
+  it('snapshots explicit commission GST and statutory withholding components without deriving rates', () => {
+    const finance: any = service([]);
+    expect(finance.vendorComponents({ vendorAmount: new Prisma.Decimal('870'), components: { supplierCommission: '100', gstOnCommissionAmount: '18', tds194OAmount: '10', gstTcsAmount: '2', taxAmount: '7' } }, { amount: new Prisma.Decimal('1000') })).toMatchObject({
+      supplierCommission: '100',
+      gstOnCommissionAmount: '18',
+      tds194OAmount: '10',
+      gstTcsAmount: '2',
+      taxInformational: '7',
+    });
+  });
+
   it('groups a booking base and linked adjustment without treating the adjustment as base', async () => {
     const base = event('base-1', FinancialEventType.BOOKING_CONFIRMED, '8000', booking('booking-1', '8000'));
     const debit = event('adjustment-1', FinancialEventType.VENDOR_ADJUSTMENT, '-6000', base.booking);
@@ -23,6 +48,30 @@ describe('FinanceService settlement reconciliation', () => {
     const result: any = await service([base], holds).preview(admin, { vendorTenantId: 'vendor-1', currency: 'INR' } as any);
     expect(result.eligibleLines).toHaveLength(0); expect(result.blocked[0].reasonCodes).toEqual(expect.arrayContaining(['SETTLEMENT_VENDOR_HOLD', 'SETTLEMENT_BOOKING_HOLD', 'SETTLEMENT_EVENT_HOLD']));
     expect(new Set(result.blocked.map((row: any) => row.eventId)).size).toBe(result.blocked.length);
+  });
+
+  it('maps active holds to exact settlement-line payable amounts without double counting', () => {
+    const finance: any = service([]);
+    const batch = {
+      vendorTenantId: 'vendor-1',
+      lines: [
+        { bookingId: 'booking-1', netVendorPayable: new Prisma.Decimal('120.25'), allocations: [{ financialEventId: 'base-1', financialEvent: { vendorAmount: new Prisma.Decimal('100'), amount: new Prisma.Decimal('100') } }, { financialEventId: 'adj-1', financialEvent: { vendorAmount: new Prisma.Decimal('20.25'), amount: new Prisma.Decimal('20.25') } }] },
+        { bookingId: 'booking-2', netVendorPayable: new Prisma.Decimal('80.50'), allocations: [{ financialEventId: 'base-2', financialEvent: { vendorAmount: new Prisma.Decimal('80.50'), amount: new Prisma.Decimal('80.50') } }] },
+      ],
+    };
+    const holds = [
+      { scope: SettlementHoldScope.BOOKING, vendorTenantId: 'vendor-1', bookingId: 'booking-1' },
+      { scope: SettlementHoldScope.FINANCIAL_EVENT, vendorTenantId: 'vendor-1', financialEventId: 'adj-1' },
+      { scope: SettlementHoldScope.FINANCIAL_EVENT, vendorTenantId: 'vendor-2', financialEventId: 'base-2' },
+    ];
+
+    expect(finance.heldAmountForBatch(batch, holds).toFixed(2)).toBe('120.25');
+    expect(finance.heldAmountForBatch(batch, [{ scope: SettlementHoldScope.VENDOR, vendorTenantId: 'vendor-1' }]).toFixed(2)).toBe('200.75');
+    expect(finance.heldAmountForBatch(batch, [
+      { scope: SettlementHoldScope.FINANCIAL_EVENT, vendorTenantId: 'vendor-1', financialEventId: 'adj-1' },
+      { scope: SettlementHoldScope.FINANCIAL_EVENT, vendorTenantId: 'vendor-1', financialEventId: 'adj-1' },
+      { scope: SettlementHoldScope.FINANCIAL_EVENT, vendorTenantId: 'vendor-2', financialEventId: 'base-2' },
+    ]).toFixed(2)).toBe('20.25');
   });
 
   it('keeps unrelated blocked rows from changing eligible reconciliation lines', async () => {

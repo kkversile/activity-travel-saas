@@ -35,6 +35,41 @@ export class FulfilmentService {
     return { bookingCode: booking.bookingCode, readiness, reason, travellerEvidence, currentVoucher: current ? { id: current.id, version: current.versionNumber, voucherCode: current.voucherCode, generatedAt: current.generatedAt, fileId: current.fileAssetId, contentFingerprint: current.contentFingerprint } : null };
   }
 
+  async lookupVendorVoucher(user: AuthUser, voucherCode: string) {
+    const code = voucherCode.trim();
+    if (!code) throw new NotFoundException('Voucher not found');
+    const voucher: any = await this.prisma.voucherVersion.findFirst({
+      where: {
+        voucherCode: code,
+        status: VoucherVersionStatus.CURRENT,
+        booking: { vendorTenantId: this.vendor(user), recordType: 'CANONICAL' },
+      },
+      select: {
+        booking: {
+          select: {
+            id: true,
+            bookingCode: true,
+            status: true,
+            serviceDate: true,
+            customerName: true,
+            redemption: { select: { id: true, redeemedAt: true } },
+            product: { select: { currentRevision: { select: { productName: true } } } },
+          },
+        },
+      },
+    });
+    if (!voucher?.booking) throw new NotFoundException('Voucher not found for this supplier account');
+    return {
+      bookingId: voucher.booking.id,
+      bookingCode: voucher.booking.bookingCode,
+      status: voucher.booking.status,
+      serviceDate: voucher.booking.serviceDate,
+      guestName: voucher.booking.customerName,
+      productName: voucher.booking.product?.currentRevision?.productName || 'Experience',
+      redeemed: Boolean(voucher.booking.redemption),
+    };
+  }
+
   async share(user: AuthUser, bookingId: string, dto: VoucherShareDto) {
     if (user.role !== UserRole.TRAVEL_AGENT || !user.tenantId) throw new ForbiddenException('Agent voucher sharing required');
     const recipient = dto.recipient?.trim(); if (dto.channel === VoucherShareChannel.EMAIL && (!recipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient))) throw new ConflictException('VALID_EMAIL_RECIPIENT_REQUIRED'); if (dto.channel === VoucherShareChannel.WHATSAPP && (!recipient || !/^\+[1-9]\d{7,14}$/.test(recipient))) throw new ConflictException('VALID_E164_PHONE_REQUIRED'); if (dto.channel === VoucherShareChannel.DOWNLOAD && recipient) throw new ConflictException('DOWNLOAD_RECIPIENT_NOT_ALLOWED');

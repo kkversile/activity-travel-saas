@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/current-user.decorator';
 import { Permissions } from '../common/permissions.decorator';
@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { PermissionsGuard } from '../common/permissions.guard';
 import { AuthUser } from '../common/auth.types';
-import { CancellationResolutionDto, FailPayoutDto, FinanceConfigurationDto, ReconcilePayoutDto, ReleasePayoutDto, SettlementBatchDto, SettlementHoldDto, SettlementHoldReleaseDto, SettlementPreviewDto, VendorAdjustmentDto, VendorSettlementPolicyDto } from './finance.dto';
+import { CancellationResolutionDto, CreateCommissionInvoiceDto, FailPayoutDto, FinanceConfigurationDto, ReconcilePayoutDto, RejectPayoutReleaseDto, ReleasePayoutDto, SettlementBatchDto, SettlementHoldDto, SettlementHoldReleaseDto, SettlementPreviewDto, VendorAdjustmentDto, VendorSettlementPolicyDto } from './finance.dto';
 import { FinanceService } from './finance.service';
 
 @Controller()
@@ -20,6 +20,9 @@ export class FinanceController {
   @Post('admin/settlements/:id/re-evaluate-payout-readiness') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.manage') reEvaluate(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.finance.reEvaluatePayoutReadiness(u, id); }
   @Get('admin/settlements') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.view') batches(@Query('vendorTenantId') v?: string) { return this.finance.listBatches(v); }
   @Get('admin/settlements/:id') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.view') batch(@Param('id') id: string) { return this.finance.batch(id); }
+  @Get('admin/commission-invoices') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.view') commissionInvoices() { return this.finance.commissionInvoices(); }
+  @Post('admin/commission-invoices') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.manage') createCommissionInvoice(@CurrentUser() u: AuthUser, @Body() d: CreateCommissionInvoiceDto) { return this.finance.createCommissionInvoice(u, d.settlementBatchId); }
+  @Post('admin/commission-invoices/:id/issue') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.manage') issueCommissionInvoice(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.finance.issueCommissionInvoice(u, id); }
   @Get('admin/financial-events') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('financial.event.view') events(@Query('vendorTenantId') v?: string) { return this.finance.events(v); }
   @Post('admin/financial-events/vendor-adjustment') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('vendor.adjustment.manage') adjustment(@CurrentUser() u: AuthUser, @Body() d: VendorAdjustmentDto) { return this.finance.adjustment(u, d); }
   @Post('admin/cancellations/:id/vendor-settlement-resolution') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('financial.cancellation.resolve') resolve(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: CancellationResolutionDto) { return this.finance.resolveCancellation(u, id, d); }
@@ -27,13 +30,16 @@ export class FinanceController {
   @Get('admin/settlement-holds') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.view') holds() { return this.finance.holds(); }
   @Post('admin/settlement-holds/:id/release') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.hold') releaseHold(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: SettlementHoldReleaseDto) { return this.finance.releaseHold(u, id, d.reason); }
   @Get('admin/finance/configuration') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('reconciliation.view') configuration() { return this.finance.configuration(); }
-  @Post('admin/finance/configuration') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('finance.config.manage') configure(@CurrentUser() u: AuthUser, @Body() d: FinanceConfigurationDto) { return this.finance.updateConfiguration(u, d); }
+  @Post('admin/finance/configuration') @Roles(UserRole.SUPER_ADMIN) @Permissions('finance.config.manage') configure(@CurrentUser() u: AuthUser, @Body() d: FinanceConfigurationDto) { return this.finance.updateConfiguration(u, d); }
   @Get('admin/vendor-settlement-policies') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.policy.manage') policies() { return this.finance.policies(); }
   @Post('admin/vendor-settlement-policies/:vendorTenantId') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('settlement.policy.manage') policy(@CurrentUser() u: AuthUser, @Param('vendorTenantId') v: string, @Body() d: VendorSettlementPolicyDto) { return this.finance.updatePolicy(u, v, d); }
-  @Get('admin/payouts') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('payout.view') adminPayouts(@Query('vendorTenantId') v?: string) { return this.finance.payouts(v); }
-  @Post('admin/payouts/:id/record-release') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('payout.release') recordRelease(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: ReleasePayoutDto) { return this.finance.recordRelease(u, id, d); }
-  @Post('admin/payouts/:id/record-failure') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('payout.release') recordFailure(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: FailPayoutDto) { return this.finance.recordFailure(u, id, d); }
-  @Post('admin/payouts/:id/retry') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('payout.release') retry(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.finance.retry(u, id); }
-  @Post('admin/payouts/:id/reconcile') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('payout.reconcile') reconcile(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: ReconcilePayoutDto) { return this.finance.reconcile(u, id, d); }
+  @Get('admin/payouts') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('payout.view') adminPayouts(@CurrentUser() u: AuthUser, @Query('vendorTenantId') v?: string) { return this.finance.payouts(v, u.sub, u.role === UserRole.SUPER_ADMIN); }
+  @Post('admin/payouts/:id/record-release') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('payout.release.request') recordRelease(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: ReleasePayoutDto) { return this.finance.requestRelease(u, id, d); }
+  @Post('admin/payout-release-requests/:requestId/approve') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('payout.release.approve') approveRelease(@CurrentUser() u: AuthUser, @Param('requestId') id: string) { return this.finance.approveRelease(u, id); }
+  @Post('admin/payout-release-requests/:requestId/reject') @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN) @Permissions('payout.release.approve') rejectRelease(@CurrentUser() u: AuthUser, @Param('requestId') id: string, @Body() d: RejectPayoutReleaseDto) { return this.finance.rejectRelease(u, id, d.reason); }
+  @Post('admin/payouts/:id/record-failure') @Roles(UserRole.SUPER_ADMIN) @Permissions('payout.release') recordFailure(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: FailPayoutDto) { return this.finance.recordFailure(u, id, d); }
+  @Post('admin/payouts/:id/retry') @Roles(UserRole.SUPER_ADMIN) @Permissions('payout.release') retry(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.finance.retry(u, id); }
+  @Post('admin/payouts/:id/reconcile') @Roles(UserRole.SUPER_ADMIN) @Permissions('payout.reconcile') reconcile(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: ReconcilePayoutDto) { return this.finance.reconcile(u, id, d); }
   @Get('settlements') @Roles(UserRole.VENDOR) @Permissions('settlement.view') vendorSettlements(@CurrentUser() u: AuthUser) { return this.finance.vendorSettlements(u); }
+  @Get('settlements/:id/statement.csv') @Header('Content-Type', 'text/csv; charset=utf-8') @Header('Content-Disposition', 'attachment; filename="settlement-statement.csv"') @Roles(UserRole.VENDOR) @Permissions('settlement.view') vendorSettlementStatement(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.finance.vendorSettlementStatement(u, id); }
 }

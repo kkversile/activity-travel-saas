@@ -78,6 +78,7 @@ export class MarketplaceSearchDto {
 
 export class MarketplaceProductViewDto {
   @IsDateString() @Matches(/^\d{4}-\d{2}-\d{2}$/) serviceDate!: string;
+  @IsOptional() @IsUUID("4") searchAttemptId?: string;
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => EligibilityTravellerDto)

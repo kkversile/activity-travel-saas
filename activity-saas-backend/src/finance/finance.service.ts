@@ -7,9 +7,11 @@ import { createHash, randomUUID } from "crypto";
 import {
   FinancialEventStatus,
   FinancialEventType,
+  CommissionInvoiceStatus,
   PaymentCollectionMode,
   PayoutAttemptStatus,
   PayoutRecordType,
+  PayoutReleaseApprovalStatus,
   PayoutStatus,
   Prisma,
   SettlementAllocationStatus,
@@ -22,6 +24,7 @@ import {
 import { AuditService } from "../audit/audit.service";
 import { AuthUser } from "../common/auth.types";
 import { requireTenant } from "../common/tenant";
+import { PublicEntity, allocatePublicCode, ensurePublicIdentifier, isoWeekInfo, publicIdentifier, publicIdentifierMap, vendorPayoutPublicCode } from "../common/public-identifiers";
 import { OutboxService } from "../outbox/outbox.service";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -41,6 +44,12 @@ const settlementTypes = [
   FinancialEventType.BOOKING_CONFIRMED,
   FinancialEventType.VENDOR_ADJUSTMENT,
 ];
+
+function indianFinancialYear(date: Date) {
+  const indiaTime = new Date(date.getTime() + 330 * 60 * 1000);
+  const startYear = indiaTime.getUTCMonth() >= 3 ? indiaTime.getUTCFullYear() : indiaTime.getUTCFullYear() - 1;
+  return `${String(startYear).slice(-2)}${String(startYear + 1).slice(-2)}`;
+}
 
 @Injectable()
 export class FinanceService {
@@ -69,11 +78,26 @@ export class FinanceService {
         const baseCurrency = this.requireCurrency(
           dto.baseCurrency ?? current.baseCurrency,
         );
+        const gstOnCommissionPercent = this.nullablePercent(
+          dto.gstOnCommissionPercent,
+          current.gstOnCommissionPercent,
+        );
+        const tds194OPercent = this.nullablePercent(
+          dto.tds194OPercent,
+          current.tds194OPercent,
+        );
+        const gstTcsPercent = this.nullablePercent(
+          dto.gstTcsPercent,
+          current.gstTcsPercent,
+        );
         const updated = await tx.financeConfiguration.update({
           where: { id: "default" },
           data: {
             paymentCollectionMode: dto.paymentCollectionMode,
             baseCurrency,
+            gstOnCommissionPercent,
+            tds194OPercent,
+            gstTcsPercent,
             version: { increment: 1 },
             updatedById: user.sub,
           },
@@ -408,6 +432,8 @@ export class FinanceService {
       throw new ConflictException("SETTLEMENT_PREVIEW_FINGERPRINT_REQUIRED");
     const currency = this.requireCurrency(dto.currency);
     const vendorTenantId = this.scopeVendor(user, dto.vendorTenantId);
+    const payoutCreatedAt = new Date();
+    const payoutWeek = isoWeekInfo(payoutCreatedAt);
     const initial: any = await this.buildPreview(this.prisma, user, {
       ...dto,
       currency,
@@ -444,6 +470,12 @@ export class FinanceService {
           await tx.$queryRawUnsafe(
             `SELECT "id" FROM "FinanceConfiguration" WHERE "id" = 'default' FOR UPDATE`,
           );
+          const vendorPublicCode = await publicIdentifier(tx, PublicEntity.VENDOR, vendorTenantId);
+          const payoutPublicCode = vendorPublicCode
+            ? vendorPayoutPublicCode(vendorPublicCode, payoutCreatedAt)
+            : null;
+          if (!payoutPublicCode)
+            throw new ConflictException("VENDOR_PUBLIC_IDENTIFIER_REQUIRED_FOR_PAYOUT");
           await tx.$queryRawUnsafe(
             `SELECT "id" FROM "VendorSettlementPolicy" WHERE "vendorTenantId" = $1 FOR UPDATE`,
             vendorTenantId,
@@ -473,6 +505,9 @@ export class FinanceService {
                 PaymentCollectionMode.VOYA_COLLECTS
               ? SettlementBatchStatus.READY_FOR_PAYOUT
               : SettlementBatchStatus.PAYOUT_BLOCKED;
+          if (status === SettlementBatchStatus.READY_FOR_PAYOUT) {
+            await this.assertNoWeeklyVendorPayout(tx, vendorTenantId, payoutWeek);
+          }
           const batch: any = await tx.settlementBatch.create({
             data: {
               batchCode: `SET-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${randomUUID().slice(0, 8).toUpperCase()}`,
@@ -501,6 +536,12 @@ export class FinanceService {
               createdById: user.sub,
             },
           });
+          const batchDateCode = `PB-${payoutCreatedAt.toISOString().slice(0, 10).replace(/-/g, "")}`;
+          const existingBaseBatchCode = await tx.publicIdentifier.findUnique({ where: { publicCode: batchDateCode }, select: { id: true } });
+          const batchPublicCode = existingBaseBatchCode
+            ? await allocatePublicCode(tx, PublicEntity.SETTLEMENT_BATCH, `${batchDateCode}-`, 2)
+            : batchDateCode;
+          await ensurePublicIdentifier(tx, PublicEntity.SETTLEMENT_BATCH, batch.id, batchPublicCode);
           for (const line of selectedPreview.eligibleLines) {
             const created: any = await tx.settlementLine.create({
               data: {
@@ -549,18 +590,21 @@ export class FinanceService {
               occurredAt: new Date(),
             },
           });
-          if (status === SettlementBatchStatus.READY_FOR_PAYOUT)
-            await tx.payout.create({
+          if (status === SettlementBatchStatus.READY_FOR_PAYOUT) {
+            const payout: any = await tx.payout.create({
               data: {
                 tenantId: vendorTenantId,
                 recordType: PayoutRecordType.CANONICAL,
                 settlementBatchId: batch.id,
                 amount: net,
                 status: PayoutStatus.READY_TO_RELEASE,
-                dueDate: new Date(),
+                dueDate: payoutCreatedAt,
                 currency,
+                createdAt: payoutCreatedAt,
               },
             });
+            await ensurePublicIdentifier(tx, PublicEntity.PAYOUT, payout.id, payoutPublicCode);
+          }
           await this.audit.write(tx, {
             actor: user,
             tenantId: vendorTenantId,
@@ -596,6 +640,29 @@ export class FinanceService {
         throw new ConflictException("SETTLEMENT_EVENT_ALREADY_ALLOCATED");
       throw error;
     }
+  }
+
+  private async assertNoWeeklyVendorPayout(
+    tx: Prisma.TransactionClient,
+    vendorTenantId: string,
+    week: { start: Date; end: Date },
+  ) {
+    // Serialize all payout creation for this vendor. The weekly uniqueness
+    // check must run after acquiring this row lock, otherwise two batches
+    // built from different events can both pass the check concurrently.
+    await tx.$queryRawUnsafe(
+      `SELECT "id" FROM "Tenant" WHERE "id" = $1 FOR UPDATE`,
+      vendorTenantId,
+    );
+    const existing = await tx.payout.findFirst({
+      where: {
+        tenantId: vendorTenantId,
+        recordType: PayoutRecordType.CANONICAL,
+        createdAt: { gte: week.start, lt: week.end },
+      },
+      select: { id: true },
+    });
+    if (existing) throw new ConflictException("WEEKLY_VENDOR_PAYOUT_ALREADY_EXISTS");
   }
 
   async adjustment(user: AuthUser, dto: VendorAdjustmentDto) {
@@ -864,6 +931,7 @@ export class FinanceService {
           entityId: id,
           reason: releaseReason,
         });
+        await this.releaseHeldPayoutAmount(tx, result, user);
         return result;
       },
       {
@@ -945,20 +1013,19 @@ export class FinanceService {
     );
   }
 
-  async recordRelease(user: AuthUser, id: string, dto: ReleasePayoutDto) {
+  async requestRelease(user: AuthUser, id: string, dto: ReleasePayoutDto) {
     const reference = dto.externalReference?.trim();
     if (!reference)
       throw new ConflictException("PAYOUT_EXTERNAL_REFERENCE_REQUIRED");
     const note = dto.note?.trim() || undefined;
     return this.payoutTransition(user, id, async (tx: any, payout: any) => {
-      if (payout.status === PayoutStatus.RELEASED) {
-        if (payout.reference === reference) return payout;
-        throw new ConflictException(
-          "PAYOUT_ALREADY_RELEASED_DIFFERENT_REFERENCE",
-        );
-      }
       if (payout.status !== PayoutStatus.READY_TO_RELEASE)
         throw new ConflictException(`PAYOUT_NOT_READY:${payout.status}`);
+      if (payout.recordType !== PayoutRecordType.CANONICAL)
+        throw new ConflictException("CANONICAL_PAYOUT_REQUIRED");
+      const releaseAmounts = await this.payoutReleaseAmounts(tx, payout);
+      if (!releaseAmounts.amount.gt(0))
+        throw new ConflictException("PAYOUT_AMOUNT_FULLY_HELD");
       const config = await tx.financeConfiguration.findUnique({
         where: { id: "default" },
       });
@@ -966,84 +1033,112 @@ export class FinanceService {
         throw new ConflictException(
           "PAYMENT_COLLECTION_MODEL_NOT_VOYA_COLLECTS",
         );
-      const attempt = await this.nextAttempt(
-        tx,
-        payout,
-        PayoutAttemptStatus.RELEASE_RECORDED,
-        reference,
-        undefined,
-        user.sub,
-      );
-      const updated = await tx.payout.update({
-        where: { id },
-        data: {
-          status: PayoutStatus.RELEASED,
-          reference,
-          releasedAt: new Date(),
-          releasedById: user.sub,
-          version: { increment: 1 },
-        },
+      const pending = await tx.payoutReleaseApprovalRequest.findFirst({
+        where: { payoutId: id, status: PayoutReleaseApprovalStatus.PENDING },
       });
-      await tx.settlementBatch.update({
-        where: { id: payout.settlementBatchId },
-        data: {
-          status: SettlementBatchStatus.RELEASED,
-          releasedAt: new Date(),
-          version: { increment: 1 },
-        },
-      });
-      await tx.settlementEventAllocation.updateMany({
-        where: {
-          batchId: payout.settlementBatchId,
-          status: SettlementAllocationStatus.ALLOCATED,
-        },
-        data: {
-          status: SettlementAllocationStatus.SETTLED,
-          releasedAt: new Date(),
-        },
-      });
-      await tx.financialEvent.create({
-        data: {
-          eventKey: `payout-released:${id}:${attempt.id}`,
-          vendorTenantId: payout.tenantId,
-          settlementBatchId: payout.settlementBatchId,
-          payoutId: id,
-          type: FinancialEventType.PAYOUT_RELEASED,
-          status: FinancialEventStatus.POSTED,
-          currency: payout.currency,
-          amount: payout.amount,
-          vendorAmount: payout.amount,
-          components: { externalReference: reference, note: note ?? null },
-          reference,
-          actorUserId: user.sub,
-          occurredAt: new Date(),
-        },
+      if (pending) throw new ConflictException("PAYOUT_RELEASE_APPROVAL_ALREADY_PENDING");
+      const request = await tx.payoutReleaseApprovalRequest.create({
+        data: { payoutId: id, externalReference: reference, requestedAmount: releaseAmounts.amount, note: note ?? null, requestedById: user.sub },
       });
       await this.audit.write(tx, {
         actor: user,
         tenantId: payout.tenantId,
-        action: "PAYOUT_RELEASE_RECORDED",
-        entityType: "Payout",
-        entityId: id,
-        metadata: {
-          externalReference: reference,
-          note: note ?? null,
-          attemptId: attempt.id,
-        },
+        action: "PAYOUT_RELEASE_REQUESTED",
+        entityType: "PayoutReleaseApprovalRequest",
+        entityId: request.id,
+        metadata: { payoutId: id, externalReference: reference, requestedAmount: releaseAmounts.amount.toString(), heldAmount: releaseAmounts.heldAmount.toString(), note: note ?? null },
       });
       await this.outbox.enqueue(tx, {
         tenantId: payout.tenantId,
-        eventType: "PAYOUT_RELEASE_RECORDED",
+        eventType: "PAYOUT_RELEASE_REQUESTED",
         aggregateType: "Payout",
         aggregateId: id,
-        payload: {
-          externalReference: reference,
-          amount: payout.amount.toString(),
-          currency: payout.currency,
+        payload: { requestId: request.id, amount: releaseAmounts.amount.toString(), heldAmount: releaseAmounts.heldAmount.toString(), currency: payout.currency },
+      });
+      return request;
+    });
+  }
+
+  async approveRelease(user: AuthUser, requestId: string) {
+    const request = await this.prisma.payoutReleaseApprovalRequest.findUnique({
+      where: { id: requestId },
+      select: { payoutId: true },
+    });
+    if (!request) throw new NotFoundException("Payout release request not found");
+    return this.payoutTransition(user, request.payoutId, async (tx: any, payout: any) => {
+      const current = await tx.payoutReleaseApprovalRequest.findUnique({ where: { id: requestId } });
+      if (!current || current.status !== PayoutReleaseApprovalStatus.PENDING)
+        throw new ConflictException("PAYOUT_RELEASE_REQUEST_NOT_PENDING");
+      if (current.requestedById === user.sub)
+        throw new ConflictException("PAYOUT_RELEASE_MAKER_CANNOT_APPROVE");
+      if (payout.status !== PayoutStatus.READY_TO_RELEASE)
+        throw new ConflictException(`PAYOUT_NOT_READY:${payout.status}`);
+      const releaseAmounts = await this.payoutReleaseAmounts(tx, payout);
+      if (!releaseAmounts.amount.gt(0))
+        throw new ConflictException("PAYOUT_AMOUNT_FULLY_HELD");
+      if (!this.decimal(current.requestedAmount).eq(releaseAmounts.amount))
+        throw new ConflictException("PAYOUT_RELEASE_AMOUNT_CHANGED");
+      const config = await tx.financeConfiguration.findUnique({ where: { id: "default" } });
+      if (config?.paymentCollectionMode !== PaymentCollectionMode.VOYA_COLLECTS)
+        throw new ConflictException("PAYMENT_COLLECTION_MODEL_NOT_VOYA_COLLECTS");
+      const attempt = await this.nextAttempt(tx, { ...payout, amount: releaseAmounts.amount }, PayoutAttemptStatus.RELEASE_RECORDED, current.externalReference, undefined, user.sub);
+      const updated = await tx.payout.update({
+        where: { id: payout.id },
+        data: { amount: releaseAmounts.amount, heldAmount: releaseAmounts.heldAmount, heldHoldIds: releaseAmounts.holdIds as Prisma.InputJsonValue, status: PayoutStatus.RELEASED, reference: current.externalReference, releasedAt: new Date(), releasedById: user.sub, version: { increment: 1 } },
+      });
+      await tx.settlementBatch.update({ where: { id: payout.settlementBatchId }, data: { status: SettlementBatchStatus.RELEASED, releasedAt: new Date(), version: { increment: 1 } } });
+      await tx.settlementEventAllocation.updateMany({
+        where: { batchId: payout.settlementBatchId, status: SettlementAllocationStatus.ALLOCATED },
+        data: { status: SettlementAllocationStatus.SETTLED, releasedAt: new Date() },
+      });
+      await tx.financialEvent.create({
+        data: {
+          eventKey: `payout-released:${payout.id}:${attempt.id}`, vendorTenantId: payout.tenantId,
+          settlementBatchId: payout.settlementBatchId, payoutId: payout.id, type: FinancialEventType.PAYOUT_RELEASED,
+          status: FinancialEventStatus.POSTED, currency: payout.currency, amount: releaseAmounts.amount, vendorAmount: releaseAmounts.amount,
+          components: { externalReference: current.externalReference, note: current.note }, reference: current.externalReference,
+          actorUserId: user.sub, occurredAt: new Date(),
         },
+      });
+      await tx.payoutReleaseApprovalRequest.update({
+        where: { id: requestId },
+        data: { status: PayoutReleaseApprovalStatus.APPROVED, reviewedById: user.sub, reviewedAt: new Date() },
+      });
+      await this.audit.write(tx, {
+        actor: user, tenantId: payout.tenantId, action: "PAYOUT_RELEASE_APPROVED",
+        entityType: "PayoutReleaseApprovalRequest", entityId: requestId,
+        metadata: { payoutId: payout.id, externalReference: current.externalReference, note: current.note, attemptId: attempt.id, requestedById: current.requestedById, requestedAmount: releaseAmounts.amount.toString(), heldAmount: releaseAmounts.heldAmount.toString() },
+      });
+      await this.outbox.enqueue(tx, {
+        tenantId: payout.tenantId, eventType: "PAYOUT_RELEASE_RECORDED", aggregateType: "Payout", aggregateId: payout.id,
+        payload: { externalReference: current.externalReference, amount: releaseAmounts.amount.toString(), heldAmount: releaseAmounts.heldAmount.toString(), currency: payout.currency, approvedById: user.sub },
       });
       return updated;
     });
+  }
+
+  async rejectRelease(user: AuthUser, requestId: string, reason: string) {
+    const request = await this.prisma.payoutReleaseApprovalRequest.findUnique({ where: { id: requestId }, select: { payoutId: true } });
+    if (!request) throw new NotFoundException("Payout release request not found");
+    const trimmed = reason?.trim();
+    if (!trimmed) throw new ConflictException("PAYOUT_RELEASE_REJECTION_REASON_REQUIRED");
+    return this.payoutTransition(user, request.payoutId, async (tx: any, payout: any) => {
+      const current = await tx.payoutReleaseApprovalRequest.findUnique({ where: { id: requestId } });
+      if (!current || current.status !== PayoutReleaseApprovalStatus.PENDING)
+        throw new ConflictException("PAYOUT_RELEASE_REQUEST_NOT_PENDING");
+      if (current.requestedById === user.sub)
+        throw new ConflictException("PAYOUT_RELEASE_MAKER_CANNOT_REJECT");
+      const rejected = await tx.payoutReleaseApprovalRequest.update({
+        where: { id: requestId },
+        data: { status: PayoutReleaseApprovalStatus.REJECTED, reviewedById: user.sub, reviewedAt: new Date(), reviewReason: trimmed },
+      });
+      await this.audit.write(tx, { actor: user, tenantId: payout.tenantId, action: "PAYOUT_RELEASE_REJECTED", entityType: "PayoutReleaseApprovalRequest", entityId: requestId, reason: trimmed, metadata: { payoutId: payout.id, requestedById: current.requestedById } });
+      return rejected;
+    });
+  }
+
+  async recordRelease(user: AuthUser, id: string, dto: ReleasePayoutDto) {
+    return this.requestRelease(user, id, dto);
   }
   async recordFailure(user: AuthUser, id: string, dto: FailPayoutDto) {
     const reason = dto.failureReason?.trim();
@@ -1231,13 +1326,318 @@ export class FinanceService {
     });
   }
 
-  listBatches(vendorTenantId?: string) {
-    return this.prisma.settlementBatch.findMany({
+  async listBatches(vendorTenantId?: string) {
+    const rows = await this.prisma.settlementBatch.findMany({
       where: vendorTenantId ? { vendorTenantId } : {},
-      include: { lines: true, payout: true },
+      include: {
+        lines: {
+          include: {
+            allocations: {
+              select: {
+                financialEventId: true,
+                financialEvent: { select: { amount: true, vendorAmount: true } },
+              },
+            },
+          },
+        },
+        payout: true,
+        commissionInvoice: { select: { id: true, invoiceNumber: true, status: true } },
+      },
       orderBy: { createdAt: "desc" },
       take: 200,
     });
+    const [codes, payoutCodes, holds] = await Promise.all([
+      publicIdentifierMap(this.prisma, PublicEntity.SETTLEMENT_BATCH, rows.map((row) => row.id)),
+      publicIdentifierMap(this.prisma, PublicEntity.PAYOUT, rows.map((row) => row.payout?.id).filter((value): value is string => Boolean(value))),
+      rows.length
+        ? this.prisma.settlementHold.findMany({
+            where: {
+              status: SettlementHoldStatus.ACTIVE,
+              vendorTenantId: { in: [...new Set(rows.map((row) => row.vendorTenantId))] },
+            },
+            select: { scope: true, vendorTenantId: true, bookingId: true, financialEventId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    return rows.map((row: any) => {
+      const activeHeld = this.heldAmountForBatch(row, holds);
+      const persistedHeld = this.decimal(row.payout?.heldAmount ?? 0);
+      const isReleased = [PayoutStatus.RELEASED, PayoutStatus.RECONCILED, PayoutStatus.RECONCILIATION_REQUIRED].includes(row.payout?.status);
+      const heldAmount = isReleased ? persistedHeld : activeHeld;
+      const netPayable = isReleased
+        ? this.decimal(row.payout.amount)
+        : Prisma.Decimal.max(this.decimal(row.netPayable).minus(activeHeld), 0);
+      return {
+        ...row,
+        lines: row.lines.map(({ allocations, ...line }: any) => line),
+        publicCode: codes.get(row.id) || null,
+        heldAmount: heldAmount.toFixed(2),
+        netPayable: netPayable.toFixed(2),
+        payout: row.payout ? { ...row.payout, publicCode: payoutCodes.get(row.payout.id) || null } : null,
+      };
+    });
+  }
+
+  async commissionInvoices() {
+    const rows = await this.prisma.commissionInvoice.findMany({
+      include: { vendorTenant: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    const codes = await publicIdentifierMap(this.prisma, PublicEntity.COMMISSION_INVOICE, rows.map((row) => row.id));
+    return rows.map((row) => ({ ...row, publicCode: codes.get(row.id) || row.invoiceNumber }));
+  }
+
+  async createCommissionInvoice(user: AuthUser, settlementBatchId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(`SELECT "id" FROM "SettlementBatch" WHERE "id" = $1 FOR UPDATE`, settlementBatchId);
+      const batch = await tx.settlementBatch.findUnique({
+        where: { id: settlementBatchId },
+        include: {
+          vendorTenant: { select: { name: true, vendorProfile: { select: { legalBusinessName: true, gstin: true } } } },
+          lines: { select: { id: true, bookingId: true, lineType: true, currency: true, components: true } },
+        },
+      });
+      if (!batch) throw new NotFoundException("Settlement batch not found");
+      if (batch.status !== SettlementBatchStatus.RECONCILED)
+        throw new ConflictException("COMMISSION_INVOICE_REQUIRES_RECONCILED_BATCH");
+      const existingInvoice = await tx.commissionInvoice.findUnique({ where: { settlementBatchId: batch.id } });
+      if (existingInvoice) return { ...existingInvoice, publicCode: existingInvoice.invoiceNumber };
+
+      const bookingLines = batch.lines.filter((line) => line.lineType !== "ADJUSTMENT");
+      if (!bookingLines.length) throw new ConflictException("COMMISSION_INVOICE_HAS_NO_BOOKING_LINES");
+      const sourceLineSnapshot = bookingLines.map((line) => {
+        const components = line.components && typeof line.components === "object" ? line.components as Record<string, unknown> : {};
+        let commission: Prisma.Decimal;
+        let gst: Prisma.Decimal;
+        try {
+          if (components.supplierCommission === null || components.supplierCommission === undefined || components.gstOnCommissionAmount === null || components.gstOnCommissionAmount === undefined)
+            throw new Error("Missing recorded tax or commission component");
+          commission = this.decimal(components.supplierCommission);
+          gst = this.decimal(components.gstOnCommissionAmount);
+        } catch {
+          throw new ConflictException("COMMISSION_INVOICE_REQUIRES_RECORDED_COMMISSION_AND_GST");
+        }
+        if (!commission.isFinite() || commission.isNegative() || !gst.isFinite() || gst.isNegative())
+          throw new ConflictException("COMMISSION_INVOICE_REQUIRES_RECORDED_COMMISSION_AND_GST");
+        return { settlementLineId: line.id, bookingId: line.bookingId, currency: line.currency, supplierCommission: commission.toFixed(4), gstOnCommissionAmount: gst.toFixed(4) };
+      });
+      const commissionSubtotal = sourceLineSnapshot.reduce((sum, line) => sum.plus(line.supplierCommission), this.zero());
+      const gstOnCommissionAmount = sourceLineSnapshot.reduce((sum, line) => sum.plus(line.gstOnCommissionAmount), this.zero());
+      if (!commissionSubtotal.gt(0)) throw new ConflictException("COMMISSION_INVOICE_AMOUNT_MUST_BE_POSITIVE");
+
+      const now = new Date();
+      const financialYear = indianFinancialYear(now);
+      const prefix = `INV/${financialYear}/`;
+      const invoiceNumber = await allocatePublicCode(tx, PublicEntity.COMMISSION_INVOICE, prefix, 6);
+      const invoice = await tx.commissionInvoice.create({
+        data: {
+          invoiceNumber,
+          financialYear,
+          settlementBatchId: batch.id,
+          vendorTenantId: batch.vendorTenantId,
+          vendorLegalName: batch.vendorTenant.vendorProfile?.legalBusinessName || batch.vendorTenant.name,
+          vendorGstin: batch.vendorTenant.vendorProfile?.gstin || null,
+          currency: batch.currency,
+          periodFrom: batch.periodFrom,
+          periodTo: batch.periodTo,
+          commissionSubtotal,
+          gstOnCommissionAmount,
+          totalAmount: commissionSubtotal.plus(gstOnCommissionAmount),
+          sourceLineSnapshot: sourceLineSnapshot as any,
+          createdById: user.sub,
+        },
+      });
+      await ensurePublicIdentifier(tx, PublicEntity.COMMISSION_INVOICE, invoice.id, invoiceNumber);
+      await this.audit.write(tx, { actor: user, tenantId: batch.vendorTenantId, action: "COMMISSION_INVOICE_DRAFT_CREATED", entityType: "CommissionInvoice", entityId: invoice.id, afterState: { invoiceNumber, settlementBatchId: batch.id, commissionSubtotal: commissionSubtotal.toString(), gstOnCommissionAmount: gstOnCommissionAmount.toString(), totalAmount: commissionSubtotal.plus(gstOnCommissionAmount).toString() } });
+      return { ...invoice, publicCode: invoiceNumber };
+    });
+  }
+
+  async issueCommissionInvoice(user: AuthUser, invoiceId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(`SELECT "id" FROM "CommissionInvoice" WHERE "id" = $1 FOR UPDATE`, invoiceId);
+      const existing = await tx.commissionInvoice.findUnique({ where: { id: invoiceId } });
+      if (!existing) throw new NotFoundException("Commission invoice not found");
+      if (existing.status !== CommissionInvoiceStatus.DRAFT) throw new ConflictException(`COMMISSION_INVOICE_IS_${existing.status}`);
+      if (existing.createdById === user.sub) throw new ConflictException("A different Admin must issue this commission invoice");
+      const issuedAt = new Date();
+      const row = await tx.commissionInvoice.update({ where: { id: invoiceId }, data: { status: CommissionInvoiceStatus.ISSUED, issuedById: user.sub, issuedAt } });
+      await this.audit.write(tx, { actor: user, tenantId: row.vendorTenantId, action: "COMMISSION_INVOICE_ISSUED", entityType: "CommissionInvoice", entityId: row.id, beforeState: { status: existing.status }, afterState: { invoiceNumber: row.invoiceNumber, status: row.status, issuedAt } });
+      return { ...row, publicCode: row.invoiceNumber };
+    });
+  }
+  private heldAmountForBatch(batch: any, holds: any[]) {
+    return (batch.lines || []).reduce((total: Prisma.Decimal, line: any) => {
+      const payable = this.decimal(line.netVendorPayable ?? this.decimal(line.vendorPayableBase).plus(line.adjustmentAmount));
+      if (!payable.gt(0)) return total;
+      const vendorHoldsLine = holds.some((hold) =>
+        hold.vendorTenantId === batch.vendorTenantId && (
+          hold.scope === SettlementHoldScope.VENDOR ||
+          (hold.scope === SettlementHoldScope.BOOKING && hold.bookingId && hold.bookingId === line.bookingId)
+        ),
+      );
+      if (vendorHoldsLine) return total.plus(payable);
+
+      const heldEventIds = new Set(holds
+        .filter((hold) => hold.vendorTenantId === batch.vendorTenantId && hold.scope === SettlementHoldScope.FINANCIAL_EVENT)
+        .map((hold) => hold.financialEventId));
+      const heldEvents = new Set<string>();
+      const eventHold = (line.allocations || []).reduce((sum: Prisma.Decimal, allocation: any) => {
+        if (!heldEventIds.has(allocation.financialEventId) || heldEvents.has(allocation.financialEventId)) return sum;
+        heldEvents.add(allocation.financialEventId);
+        const event = allocation.financialEvent;
+        const eventPayable = this.decimal(event?.vendorAmount ?? event?.amount ?? 0);
+        return eventPayable.gt(0) ? sum.plus(eventPayable) : sum;
+      }, this.zero());
+      return total.plus(Prisma.Decimal.min(payable, eventHold));
+    }, this.zero());
+  }
+  private async payoutReleaseAmounts(tx: any, payout: any) {
+    if (!payout.settlementBatchId) return { amount: this.decimal(payout.amount), heldAmount: this.zero(), holdIds: [] as string[] };
+    const batch = await tx.settlementBatch.findUnique({
+      where: { id: payout.settlementBatchId },
+      include: { lines: { include: { allocations: { include: { financialEvent: { select: { amount: true, vendorAmount: true } } } } } } },
+    });
+    const holds = await tx.settlementHold.findMany({
+      where: { vendorTenantId: payout.tenantId, status: SettlementHoldStatus.ACTIVE },
+      select: { id: true, scope: true, vendorTenantId: true, bookingId: true, financialEventId: true },
+    });
+    if (!batch) return { amount: this.decimal(payout.amount), heldAmount: this.zero(), holdIds: [] as string[] };
+    const heldAmount = this.heldAmountForBatch(batch, holds);
+    return {
+      amount: Prisma.Decimal.max(this.decimal(batch.netPayable).minus(heldAmount), 0),
+      heldAmount,
+      holdIds: this.holdsAffectingBatch(batch, holds).map((hold: any) => hold.id),
+    };
+  }
+  private holdsAffectingBatch(batch: any, holds: any[]) {
+    return holds.filter((hold: any) => (batch.lines || []).some((line: any) => {
+      if (hold.vendorTenantId !== batch.vendorTenantId) return false;
+      if (hold.scope === SettlementHoldScope.VENDOR) return true;
+      if (hold.scope === SettlementHoldScope.BOOKING && hold.bookingId === line.bookingId) return true;
+      return hold.scope === SettlementHoldScope.FINANCIAL_EVENT && (line.allocations || []).some((allocation: any) => allocation.financialEventId === hold.financialEventId);
+    }));
+  }
+  private heldAmountByLine(batch: any, holds: any[]) {
+    const result = new Map<string, Prisma.Decimal>();
+    for (const line of batch.lines || []) {
+      const payable = this.decimal(line.netVendorPayable ?? this.decimal(line.vendorPayableBase).plus(line.adjustmentAmount));
+      if (!payable.gt(0)) { result.set(line.id, this.zero()); continue; }
+      const lineHolds = holds.filter((hold: any) => hold.vendorTenantId === batch.vendorTenantId && (
+        hold.scope === SettlementHoldScope.VENDOR ||
+        (hold.scope === SettlementHoldScope.BOOKING && hold.bookingId && hold.bookingId === line.bookingId) ||
+        (hold.scope === SettlementHoldScope.FINANCIAL_EVENT && (line.allocations || []).some((allocation: any) => allocation.financialEventId === hold.financialEventId))
+      ));
+      if (lineHolds.some((hold: any) => hold.scope !== SettlementHoldScope.FINANCIAL_EVENT)) {
+        result.set(line.id, payable);
+        continue;
+      }
+      const holdEventIds = new Set(lineHolds.map((hold: any) => hold.financialEventId));
+      const heldEventIds = new Set<string>();
+      const heldEvents = (line.allocations || []).reduce((sum: Prisma.Decimal, allocation: any) => {
+        if (!holdEventIds.has(allocation.financialEventId) || heldEventIds.has(allocation.financialEventId)) return sum;
+        heldEventIds.add(allocation.financialEventId);
+        const event = allocation.financialEvent;
+        const eventPayable = this.decimal(event?.vendorAmount ?? event?.amount ?? 0);
+        return eventPayable.gt(0) ? sum.plus(eventPayable) : sum;
+      }, this.zero());
+      result.set(line.id, Prisma.Decimal.min(payable, heldEvents));
+    }
+    return result;
+  }
+  private async releaseHeldPayoutAmount(tx: any, hold: any, user: AuthUser) {
+    const payouts = await tx.payout.findMany({
+      where: {
+        tenantId: hold.vendorTenantId,
+        status: { in: [PayoutStatus.RELEASED, PayoutStatus.RECONCILIATION_REQUIRED, PayoutStatus.RECONCILED] },
+        heldAmount: { gt: 0 },
+      },
+      include: {
+        settlementBatch: {
+          include: {
+            lines: {
+              include: {
+                allocations: { include: { financialEvent: { select: { amount: true, vendorAmount: true } } } },
+              },
+            },
+          },
+        },
+      },
+    });
+    for (const payout of payouts) {
+      await tx.$queryRawUnsafe(`SELECT "id" FROM "Payout" WHERE "id" = $1 FOR UPDATE`, payout.id);
+      const lockedPayout = await tx.payout.findUnique({
+        where: { id: payout.id },
+        include: {
+          settlementBatch: {
+            include: {
+              lines: {
+                include: {
+                  allocations: { include: { financialEvent: { select: { amount: true, vendorAmount: true } } } },
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!lockedPayout || !this.decimal(lockedPayout.heldAmount).gt(0)) continue;
+      const payoutRow: any = lockedPayout;
+      const snapshotIds = Array.isArray(payoutRow.heldHoldIds) ? payoutRow.heldHoldIds as string[] : [];
+      if (!snapshotIds.includes(hold.id)) continue;
+      const batch = payoutRow.settlementBatch;
+      if (!batch) continue;
+      const snapshotHolds = await tx.settlementHold.findMany({
+        where: { id: { in: snapshotIds } },
+        select: { id: true, scope: true, vendorTenantId: true, bookingId: true, financialEventId: true, status: true },
+      });
+      const beforeHolds = snapshotHolds.map((item: any) => item.id === hold.id ? { ...item, status: SettlementHoldStatus.ACTIVE } : item);
+      const afterHolds = snapshotHolds.filter((item: any) => item.status === SettlementHoldStatus.ACTIVE && item.id !== hold.id);
+      const beforeByLine = this.heldAmountByLine(batch, beforeHolds);
+      const afterByLine = this.heldAmountByLine(batch, afterHolds);
+      const beforeTotal = [...beforeByLine.values()].reduce((sum, amount) => sum.plus(amount), this.zero());
+      const afterTotal = [...afterByLine.values()].reduce((sum, amount) => sum.plus(amount), this.zero());
+      let releasedRemaining = Prisma.Decimal.min(this.decimal(payoutRow.heldAmount), Prisma.Decimal.max(beforeTotal.minus(afterTotal), 0));
+      const releasedAmount = releasedRemaining;
+      if (!releasedAmount.gt(0)) continue;
+      for (const line of batch.lines) {
+        const lineDelta = Prisma.Decimal.max((beforeByLine.get(line.id) ?? this.zero()).minus(afterByLine.get(line.id) ?? this.zero()), 0);
+        const lineAmount = Prisma.Decimal.min(lineDelta, releasedRemaining);
+        if (!lineAmount.gt(0)) continue;
+        await tx.financialEvent.create({
+          data: {
+            eventKey: `payout-hold-release:${payoutRow.id}:${hold.id}:${line.id}`,
+            bookingId: line.bookingId,
+            vendorTenantId: payoutRow.tenantId,
+            type: FinancialEventType.VENDOR_ADJUSTMENT,
+            status: FinancialEventStatus.POSTED,
+            currency: payoutRow.currency,
+            amount: lineAmount,
+            vendorAmount: lineAmount,
+            components: { kind: "PAYOUT_HOLD_RELEASE", holdId: hold.id, payoutId: payoutRow.id, settlementBatchId: batch.id, settlementLineId: line.id },
+            reason: "Previously held payout amount released",
+            reference: hold.reference,
+            actorUserId: hold.releasedById,
+            occurredAt: new Date(),
+          },
+        });
+        releasedRemaining = releasedRemaining.minus(lineAmount);
+      }
+      const remainingHoldIds = afterHolds.map((item: any) => item.id);
+      await tx.payout.update({
+        where: { id: payoutRow.id },
+        data: { heldAmount: afterTotal, heldHoldIds: remainingHoldIds as Prisma.InputJsonValue, version: { increment: 1 } },
+      });
+      await this.audit.write(tx, {
+        actor: user,
+        tenantId: payoutRow.tenantId,
+        action: "PAYOUT_HELD_AMOUNT_RELEASED_TO_SETTLEMENT",
+        entityType: "Payout",
+        entityId: payoutRow.id,
+        reason: hold.releaseReason,
+        metadata: { holdId: hold.id, amount: releasedAmount.toString(), settlementBatchId: batch.id },
+      });
+    }
   }
   holds() {
     return this.prisma.settlementHold.findMany({
@@ -1263,19 +1663,65 @@ export class FinanceService {
       take: 500,
     });
   }
-  payouts(vendorTenantId?: string) {
-    return this.prisma.payout.findMany({
+  async payouts(vendorTenantId?: string, currentUserId?: string, canManagePayouts = false) {
+    const rows = await this.prisma.payout.findMany({
       where: {
         recordType: PayoutRecordType.CANONICAL,
         ...(vendorTenantId ? { tenantId: vendorTenantId } : {}),
       },
-      include: { settlementBatch: true, attempts: true },
+      include: {
+        settlementBatch: {
+          include: {
+            lines: {
+              include: {
+                allocations: { include: { financialEvent: { select: { amount: true, vendorAmount: true } } } },
+              },
+            },
+          },
+        },
+        attempts: true,
+        releaseApprovalRequests: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            requestedBy: { select: { id: true, fullName: true, email: true } },
+            reviewedBy: { select: { id: true, fullName: true, email: true } },
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
+    const [batchCodes, payoutCodes] = await Promise.all([
+      publicIdentifierMap(this.prisma, PublicEntity.SETTLEMENT_BATCH, rows.map((row) => row.settlementBatchId).filter((value): value is string => Boolean(value))),
+      publicIdentifierMap(this.prisma, PublicEntity.PAYOUT, rows.map((row) => row.id)),
+    ]);
+    const holds: any[] = rows.length ? await this.prisma.settlementHold.findMany({
+      where: { status: SettlementHoldStatus.ACTIVE, vendorTenantId: { in: [...new Set(rows.map((row) => row.tenantId))] } },
+      select: { id: true, scope: true, vendorTenantId: true, bookingId: true, financialEventId: true },
+    }) : [];
+    return rows.map((row: any) => ({
+      ...row,
+      amount: row.status === PayoutStatus.READY_TO_RELEASE && row.settlementBatch
+        ? Prisma.Decimal.max(this.decimal(row.settlementBatch.netPayable).minus(this.heldAmountForBatch(row.settlementBatch, holds)), 0)
+        : row.amount,
+      heldAmount: [PayoutStatus.RELEASED, PayoutStatus.RECONCILED, PayoutStatus.RECONCILIATION_REQUIRED].includes(row.status)
+        ? row.heldAmount
+        : row.settlementBatch ? this.heldAmountForBatch(row.settlementBatch, holds) : this.zero(),
+      publicCode: payoutCodes.get(row.id) || null,
+      publicBatchCode: row.settlementBatchId ? batchCodes.get(row.settlementBatchId) || null : null,
+      releaseApproval: row.releaseApprovalRequests?.[0] ?? null,
+      canApproveRelease: Boolean(
+        row.releaseApprovalRequests?.[0]?.status === PayoutReleaseApprovalStatus.PENDING &&
+        row.releaseApprovalRequests?.[0]?.requestedById !== currentUserId,
+      ),
+      canManagePayouts,
+      releaseApprovalRequests: undefined,
+    }));
   }
   async vendorSettlements(user: AuthUser) {
     const vendorTenantId = requireTenant(user);
-    const [batches, payouts, legacyPayouts] = await Promise.all([
+    const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
+    const [batches, payouts, legacyPayouts, profile] = await Promise.all([
       this.prisma.settlementBatch.findMany({
         where: { vendorTenantId },
         include: { lines: true, payout: true },
@@ -1296,7 +1742,11 @@ export class FinanceService {
         },
         orderBy: { dueDate: "desc" },
       }),
+      this.prisma.vendorProfile.findUnique({ where: { tenantId: vendorTenantId }, select: { payoutAccountMasked: true, payoutAccountHolder: true, payoutBankName: true, payoutCurrency: true, verificationStatus: true } }),
     ]);
+    const paidInSelectedMonth = payouts.filter((p) => p.createdAt >= monthStart && ['PAID', 'RELEASED', 'RECONCILED'].includes(p.status)).reduce((total, p) => total + Number(p.amount), 0);
+    const onHold = batches.filter((b) => b.status === 'PAYOUT_BLOCKED').reduce((total, b) => total + Number(b.netPayable), 0);
+    const nextPayout = payouts.filter((p) => !['PAID', 'RELEASED', 'RECONCILED'].includes(p.status)).sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())[0];
     return {
       batches: batches.map((b: any) => ({
         ...b,
@@ -1304,7 +1754,20 @@ export class FinanceService {
       })),
       payouts,
       legacyPayouts,
+      summary: { paidInSelectedMonth, onHold, nextPayout: nextPayout ? { amount: Number(nextPayout.amount), dueDate: nextPayout.dueDate, currency: nextPayout.currency, periodFrom: nextPayout.settlementBatch?.periodFrom ?? null, periodTo: nextPayout.settlementBatch?.periodTo ?? null } : null, payoutAccount: { masked: profile?.payoutAccountMasked || null, holder: profile?.payoutAccountHolder || null, bankName: profile?.payoutBankName || null, currency: profile?.payoutCurrency || null, verificationStatus: profile?.verificationStatus || 'PENDING' } },
     };
+  }
+
+  async vendorSettlementStatement(user: AuthUser, id: string) {
+    const batch = await this.prisma.settlementBatch.findFirst({ where: { id, vendorTenantId: requireTenant(user) }, include: { lines: true } });
+    if (!batch) throw new NotFoundException("Settlement batch not found");
+    const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const rows: unknown[][] = [['Batch', 'Created at', 'Line type', 'Booking ID', 'Currency', 'Gross booking value', 'Vendor payable base', 'Adjustment', 'GST on commission', 'TDS 194-O', 'GST TCS', 'Tax informational', 'Net vendor payable']];
+    for (const line of batch.lines as any[]) {
+      const components = line.components && typeof line.components === 'object' ? line.components as Record<string, unknown> : {};
+      rows.push([batch.batchCode, batch.createdAt.toISOString(), line.lineType, line.bookingId || '', line.currency, line.grossBookingValue, line.vendorPayableBase, line.adjustmentAmount, components.gstOnCommissionAmount ?? '', components.tds194OAmount ?? '', components.gstTcsAmount ?? '', line.taxInformational, line.netVendorPayable]);
+    }
+    return rows.map((row) => row.map(escape).join(',')).join('\r\n');
   }
 
   private async payoutTransition(
@@ -1551,6 +2014,9 @@ export class FinanceService {
       bookingValue: String(booking.amount),
       supplierGrossBasis: c.supplierGrossBasis ?? null,
       supplierCommission: c.supplierCommission ?? null,
+      gstOnCommissionAmount: c.gstOnCommissionAmount ?? null,
+      tds194OAmount: c.tds194OAmount ?? null,
+      gstTcsAmount: c.gstTcsAmount ?? null,
       baseVendorPayable: String(event.vendorAmount ?? c.vendorPayable ?? 0),
       taxInformational: c.taxAmount ?? null,
       promotionAmount: c.promotionAmount ?? null,
@@ -1558,6 +2024,8 @@ export class FinanceService {
     };
   }
   private publicLine(line: any) {
+    const components = line.components && typeof line.components === "object" ? line.components as Record<string, unknown> : {};
+    const taxValue = (key: string) => components[key] === undefined || components[key] === null ? null : String(components[key]);
     return {
       ...line,
       grossBookingValue: String(line.grossBookingValue),
@@ -1565,6 +2033,12 @@ export class FinanceService {
       adjustmentAmount: String(line.adjustmentAmount),
       netVendorPayable: String(line.netVendorPayable ?? 0),
       taxInformational: String(line.taxInformational),
+      gstAmount: taxValue("gstAmount") ?? taxValue("gst"),
+      tdsAmount: taxValue("tdsAmount") ?? taxValue("tds"),
+      tcsAmount: taxValue("tcsAmount") ?? taxValue("tcs"),
+      gstOnCommissionAmount: taxValue("gstOnCommissionAmount"),
+      tds194OAmount: taxValue("tds194OAmount"),
+      gstTcsAmount: taxValue("gstTcsAmount"),
     };
   }
   private vendorPreviewProjection(response: any) {
@@ -1594,6 +2068,14 @@ export class FinanceService {
     if (!/^[A-Z]{3}$/.test(currency))
       throw new ConflictException("SETTLEMENT_CURRENCY_REQUIRED");
     return currency;
+  }
+  private nullablePercent(value: string | null | undefined, current: any) {
+    if (value === undefined) return current;
+    if (value === null || value === "") return null;
+    const amount = this.decimal(value);
+    if (amount.lt(0) || amount.gt(100))
+      throw new ConflictException("FINANCE_PERCENT_OUT_OF_RANGE");
+    return amount;
   }
   private decimal(value: any) {
     return value === null || value === undefined || value === ""

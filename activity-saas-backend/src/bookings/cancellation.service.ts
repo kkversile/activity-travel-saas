@@ -8,6 +8,7 @@ import { InventoryReservationService, ReservationTx } from '../inventory/invento
 import { AdminCancellationListQueryDto, AgentCancellationDto, FinancialResolutionDto, OperationalCancellationDto, RefundConfirmDto, RefundFailDto } from './cancellation.dto';
 import { fingerprint } from './booking-fingerprint';
 import { FulfilmentLifecycleService } from '../fulfilment/fulfilment-lifecycle.service';
+import { allocatePublicCode, ensurePublicIdentifier, PublicEntity, publicIdentifier, publicIdentifierMap } from '../common/public-identifiers';
 
 const bookingInclude: any = { operationalSnapshot: true, economicsSnapshot: true, travellers: { orderBy: { sequence: 'asc' } }, events: { orderBy: { createdAt: 'asc' } }, inventoryHolds: true, inventoryAllocations: true, vendorTenant: { select: { id: true, name: true } }, agentTenant: { select: { id: true, name: true } }, product: { select: { id: true, productCode: true } }, ratePlan: { select: { id: true, ratePlanCode: true, name: true } }, cancellation: { include: { refund: true, financialEvents: true } } };
 
@@ -117,7 +118,14 @@ export class CancellationService {
     return this.roleProjection(saved.booking, saved.cancellation, initiator);
   }
 
-  async refunds() { return this.prisma.refund.findMany({ include: { cancellation: true, booking: { select: { id: true, bookingCode: true, status: true, currency: true, customerName: true, vendorTenantId: true } } }, orderBy: { createdAt: 'asc' } }); }
+  async refunds() {
+    const rows = await this.prisma.refund.findMany({ include: { cancellation: { include: { vendorSettlementResolution: true } }, booking: { select: { id: true, bookingCode: true, status: true, currency: true, customerName: true, vendorTenantId: true } } }, orderBy: { createdAt: 'asc' } });
+    const [bookingCodes, refundCodes] = await Promise.all([
+      publicIdentifierMap(this.prisma, PublicEntity.BOOKING, rows.map((row) => row.booking.id)),
+      publicIdentifierMap(this.prisma, PublicEntity.REFUND, rows.map((row) => row.id)),
+    ]);
+    return rows.map((row) => ({ ...row, ...(refundCodes.get(row.id) ? { publicCode: refundCodes.get(row.id) } : {}), booking: { ...row.booking, publicCode: bookingCodes.get(row.booking.id) ?? null } }));
+  }
 
   async operationalCancellations(query: AdminCancellationListQueryDto = {}) {
     const rows = await this.prisma.bookingCancellation.findMany({ where: { ...(query.financialState ? { financialState: query.financialState } : {}), ...(query.initiator ? { initiator: query.initiator } : {}), ...(query.createdFrom || query.createdTo ? { createdAt: { ...(query.createdFrom ? { gte: new Date(`${query.createdFrom}T00:00:00.000Z`) } : {}), ...(query.createdTo ? { lte: new Date(`${query.createdTo}T23:59:59.999Z`) } : {}) } } : {}) }, include: { booking: { select: { id: true, bookingCode: true, vendorTenant: { select: { id: true, name: true } }, agentTenant: { select: { id: true, name: true } } } } }, orderBy: { cancelledAt: 'desc' } });
@@ -186,7 +194,7 @@ export class CancellationService {
     }, { timeout: 30000, maxWait: 30000 });
   }
 
-  private async createRefund(tx: ReservationTx, cancellation: any, amount: Prisma.Decimal, currency: string, userId: string, now: Date) { if (amount.lte(0)) throw new ConflictException('REFUND_AMOUNT_MUST_BE_POSITIVE'); const refund = await tx.refund.create({ data: { bookingId: cancellation.bookingId, cancellationId: cancellation.id, amount, currency, status: RefundStatus.PENDING, createdById: userId, requestedAt: now } }); await this.addFinancialEvent(tx, { eventKey: `refund:${refund.id}:created`, bookingId: cancellation.bookingId, cancellationId: cancellation.id, refundId: refund.id, type: FinancialEventType.REFUND_CREATED, status: FinancialEventStatus.PENDING, currency, amount, components: { refundId: refund.id, financialState: CancellationFinancialState.REFUND_PENDING }, occurredAt: now }); const booking = await tx.booking.findUniqueOrThrow({ where: { id: cancellation.bookingId }, select: { vendorTenantId: true } }); await this.outbox.enqueue(tx, { tenantId: booking.vendorTenantId, eventType: 'REFUND_CREATED', aggregateType: 'Refund', aggregateId: refund.id, payload: { bookingId: cancellation.bookingId, cancellationId: cancellation.id, amount: amount.toString() } }); return refund; }
+  private async createRefund(tx: ReservationTx, cancellation: any, amount: Prisma.Decimal, currency: string, userId: string, now: Date) { if (amount.lte(0)) throw new ConflictException('REFUND_AMOUNT_MUST_BE_POSITIVE'); const refund = await tx.refund.create({ data: { bookingId: cancellation.bookingId, cancellationId: cancellation.id, amount, currency, status: RefundStatus.PENDING, createdById: userId, requestedAt: now } }); const prefix = `RF-${String(now.getUTCFullYear()).slice(-2)}${String(now.getUTCMonth() + 1).padStart(2, '0')}`; await ensurePublicIdentifier(tx, PublicEntity.REFUND, refund.id, await allocatePublicCode(tx, PublicEntity.REFUND, prefix, 4)); await this.addFinancialEvent(tx, { eventKey: `refund:${refund.id}:created`, bookingId: cancellation.bookingId, cancellationId: cancellation.id, refundId: refund.id, type: FinancialEventType.REFUND_CREATED, status: FinancialEventStatus.PENDING, currency, amount, components: { refundId: refund.id, financialState: CancellationFinancialState.REFUND_PENDING }, occurredAt: now }); const booking = await tx.booking.findUniqueOrThrow({ where: { id: cancellation.bookingId }, select: { vendorTenantId: true } }); await this.outbox.enqueue(tx, { tenantId: booking.vendorTenantId, eventType: 'REFUND_CREATED', aggregateType: 'Refund', aggregateId: refund.id, payload: { bookingId: cancellation.bookingId, cancellationId: cancellation.id, amount: amount.toString() } }); return { ...refund, publicCode: await publicIdentifier(tx, PublicEntity.REFUND, refund.id) }; }
   private async addFinancialEvent(tx: ReservationTx, data: any) {
     let booking: any = null;
     if (data.bookingId && (tx as any).booking?.findUnique) booking = await (tx as any).booking.findUnique({ where: { id: data.bookingId }, select: { vendorTenantId: true, agentTenantId: true } });

@@ -15,5 +15,5 @@ export type DistributionAuthContext = {
 };
 
 export type DistributionEligibilityGate = { gate: string; status: 'PASS' | 'FAIL' | 'NOT_EVALUATED'; code?: string; message?: string; details?: Record<string, unknown> };
-export type DistributionEligibilityResult = { eligible: boolean; gates: DistributionEligibilityGate[]; reasonCodes: string[] };
+export type DistributionEligibilityResult = { eligible: boolean; gates: DistributionEligibilityGate[]; reasonCodes: string[]; qaOnlyTestFixture?: boolean };
 export type DistributionEventProjection = { type: DistributionEventType; resourceType: string; resourceId: string; externalResourceCode?: string | null; payload: Record<string, unknown> };

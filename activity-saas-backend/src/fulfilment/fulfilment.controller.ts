@@ -19,6 +19,7 @@ const uploadOptions = { limits: { fileSize: 10 * 1024 * 1024 }, fileFilter: (_re
 export class VendorFulfilmentController {
   constructor(private readonly service: FulfilmentService) {}
   @Get() @Permissions('fulfilment.view.vendor') list(@CurrentUser() user: AuthUser, @Query() query: FulfilmentQueryDto) { return this.service.vendorList(user, query); }
+  @Get('voucher-lookup/:code') @Permissions('manifest.checkin') lookupVoucher(@CurrentUser() user: AuthUser, @Param('code') code: string) { return this.service.lookupVendorVoucher(user, code); }
   @Get(':bookingId') @Permissions('fulfilment.view.vendor') detail(@CurrentUser() user: AuthUser, @Param('bookingId') id: string) { return this.service.vendorDetail(user, id); }
   @Post(':bookingId/evidence/pnr') @Permissions('fulfilment.edit.vendor') pnr(@CurrentUser() user: AuthUser, @Param('bookingId') id: string, @Body() dto: ReferenceEvidenceDto) { return this.service.addReference(user, id, FulfilmentEvidenceKind.PNR_REFERENCE, dto); }
   @Post(':bookingId/evidence/qr-token') @Permissions('fulfilment.edit.vendor') qr(@CurrentUser() user: AuthUser, @Param('bookingId') id: string, @Body() dto: ReferenceEvidenceDto) { return this.service.addReference(user, id, FulfilmentEvidenceKind.QR_TOKEN, dto); }

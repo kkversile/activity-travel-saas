@@ -21,6 +21,13 @@ export class FilesService {
   }
 
   private async authorizePrivateAsset(user: AuthUser, asset: any) {
+    if (asset.purpose === FilePurpose.OTHER && asset.entityType === 'ProductRateProof' && asset.entityId) {
+      if (!hasPermission(user, 'product.view')) throw new ForbiddenException('You cannot access this rate proof');
+      if (!user.tenantId) throw new ForbiddenException('You cannot access this rate proof');
+      const revision = await this.prisma.productRevision.findFirst({ where: { id: asset.entityId, product: { tenantId: user.tenantId } }, select: { id: true } });
+      if (!revision) throw new ForbiddenException('You cannot access this rate proof');
+      return;
+    }
     if (asset.purpose === FilePurpose.VENDOR_DOCUMENT) {
       if (!hasPermission(user, 'document.view') || (asset.tenantId !== user.tenantId && !([UserRole.SUPER_ADMIN, UserRole.ADMIN] as UserRole[]).includes(user.role))) throw new ForbiddenException('You cannot access this file');
       if (asset.entityType !== 'VendorDocument' || !asset.entityId) throw new ForbiddenException('Vendor document relationship is invalid');

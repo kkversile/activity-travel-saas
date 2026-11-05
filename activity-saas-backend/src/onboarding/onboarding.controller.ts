@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { UserRole, VendorOnboardingStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthUser } from '../common/auth.types';
@@ -17,7 +18,14 @@ export class VendorOnboardingController {
   constructor(private readonly service: OnboardingService) {}
 
   @Get() @Permissions('vendor.profile.view') get(@CurrentUser() user: AuthUser) { return this.service.get(user); }
+  @Get('agreement.pdf') @Permissions('vendor.profile.view') async agreementPdf(@CurrentUser() user: AuthUser, @Res({ passthrough: true }) response: Response) {
+    const result = await this.service.agreementPdf(user);
+    response.setHeader('Content-Disposition', 'attachment; filename="' + result.filename.replace(/"/g, '') + '"');
+    return new StreamableFile(result.body, { type: 'application/pdf' });
+  }
+  @Get('ifsc/:code') @Permissions('vendor.profile.view') lookupIfsc(@CurrentUser() user: AuthUser, @Param('code') code: string) { return this.service.lookupIfsc(user, code); }
   @Patch() @Permissions('vendor.profile.edit') save(@CurrentUser() user: AuthUser, @Body() dto: UpdateOnboardingDto) { return this.service.save(user, dto); }
+  @Post('agreement/opened') @Permissions('vendor.profile.edit') opened(@CurrentUser() user: AuthUser) { return this.service.markAgreementOpened(user); }
   @Post('otp/request') @Permissions('vendor.profile.edit') requestOtp(@CurrentUser() user: AuthUser, @Body() dto: RequestOtpDto) { return this.service.requestOtp(user, dto.contactNumber); }
   @Post('otp/verify') @Permissions('vendor.profile.edit') verifyOtp(@CurrentUser() user: AuthUser, @Body() dto: VerifyOtpDto) { return this.service.verifyOtp(user, dto.otp); }
   @Post('submit') @Permissions('vendor.profile.edit') submit(@CurrentUser() user: AuthUser) { return this.service.submit(user); }

@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ImpersonationSessionStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { AuthUser } from '../common/auth.types';
@@ -9,7 +9,7 @@ export class JwtAuthGuard implements CanActivate {
   constructor(private readonly jwt: JwtService, private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<{ headers: Record<string, string | undefined>; user?: AuthUser }>();
+    const request = context.switchToHttp().getRequest<{ headers: Record<string, string | undefined>; method?: string; originalUrl?: string; user?: AuthUser }>();
     const auth = request.headers.authorization;
     if (!auth?.startsWith('Bearer ')) throw new UnauthorizedException('Missing bearer token');
     try {
@@ -29,9 +29,16 @@ export class JwtAuthGuard implements CanActivate {
         if (!original) throw new UnauthorizedException('The original Super Admin session is no longer active');
       }
       request.user = { sub: current.id, email: current.email, fullName: current.fullName, role: current.role, tenantId: current.tenantId, organizationRole: current.organizationRole, active: current.active, mustChangePassword: current.mustChangePassword, isImpersonating: Boolean(payload.isImpersonating), impersonationSessionId: payload.impersonationSessionId, impersonatorId: payload.impersonatorId, impersonatorEmail: payload.impersonatorEmail };
+      if (payload.isImpersonating) {
+        const method = (request.method || 'GET').toUpperCase();
+        const path = (request.originalUrl || '').split('?')[0];
+        const isSessionExit = method === 'POST' && path.endsWith('/auth/impersonation/end');
+        if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !isSessionExit)
+          throw new ForbiddenException('Impersonation sessions are read-only; end the session to resume Admin access');
+      }
       return true;
     } catch (error) {
-      if (error instanceof UnauthorizedException) throw error;
+      if (error instanceof UnauthorizedException || error instanceof ForbiddenException) throw error;
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

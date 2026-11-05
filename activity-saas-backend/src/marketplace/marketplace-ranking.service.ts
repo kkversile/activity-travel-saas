@@ -13,6 +13,8 @@ export class MarketplaceRankingService {
     else if (destination && fields.some((field) => field.includes(destination))) { score += 20; matchReasons.unshift('Destination match'); }
     if (query && fields.some((field) => field.includes(query))) { score += 15; matchReasons.unshift('Text match'); }
     if (item.offer.bookingMode === 'INSTANT') { score += 5; matchReasons.push('Instant confirmation'); }
+    const adminBoost = item._adminRankingBoost === 'PLUS_TWO' ? 2 : item._adminRankingBoost === 'PLUS_ONE' ? 1 : 0;
+    score += adminBoost;
     return { score, matchReasons };
   }
 

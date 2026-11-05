@@ -1,12 +1,14 @@
 import { BadRequestException, ConflictException, HttpException, HttpStatus, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
-import { randomBytes, randomInt } from 'crypto';
-import { EmailAuthChallengePurpose, TenantKind, UserRole } from '@prisma/client';
+import { createHash, randomBytes, randomInt } from 'crypto';
+import { EmailAuthChallengePurpose, OrganizationRole, TenantKind, UserRole } from '@prisma/client';
 import nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { hashOtp } from '../common/secret-crypto';
 import { renderVoyaVendorEmailCodeHtml } from '../common/voya-email-template';
+import { allocatePublicCode, allocateVendorVoucherShortCode, ensurePublicIdentifier, PublicEntity } from '../common/public-identifiers';
+import { publicIdentifier } from '../common/public-identifiers';
 import { LoginDto } from './login.dto';
 import { ChangePasswordDto, RegisterDto, SetVendorPasswordDto } from './register.dto';
 
@@ -15,11 +17,99 @@ export class AuthService {
   constructor(private readonly prisma: PrismaService, private readonly jwt: JwtService) {}
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
-    if (!user || !user.active || !(await compare(dto.password, user.passwordHash))) {
-      throw new UnauthorizedException('Invalid email or password');
+    const identifier = dto.email.trim();
+    let user: Awaited<ReturnType<PrismaService['user']['findUnique']>> = null;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier)) {
+      user = await this.prisma.user.findUnique({ where: { email: identifier.toLowerCase() } });
+    } else {
+      const phoneDigits = identifier.replace(/\D/g, '');
+      const contactNumber = identifier.trim().startsWith('+') ? `+${phoneDigits}` : phoneDigits.length === 10 ? `+91${phoneDigits}` : `+${phoneDigits}`;
+      if (/^\+?[1-9]\d{9,14}$/.test(contactNumber)) {
+        const matchingApplications = await this.prisma.vendorOnboardingApplication.findMany({
+          where: { contactNumber, phoneVerifiedAt: { not: null } },
+          select: { tenantId: true },
+          take: 2,
+        });
+        if (matchingApplications.length === 1) {
+          user = await this.prisma.user.findFirst({
+            where: { tenantId: matchingApplications[0].tenantId, role: UserRole.VENDOR, organizationRole: OrganizationRole.OWNER },
+          });
+        }
+      }
     }
+    if (!user || !user.active || !(await compare(dto.password, user.passwordHash))) {
+      throw new UnauthorizedException('Invalid email/mobile or password');
+    }
+    if (user.role === UserRole.VENDOR && user.tenantId) {
+      const preference = await this.prisma.globalSetting.findFirst({ where: { tenantId: user.tenantId, key: 'vendor_notification_preferences' }, select: { value: true } });
+      const preferenceValue = preference?.value && typeof preference.value === 'object' ? preference.value as Record<string, unknown> : {};
+      if (preferenceValue.twoStepVerification !== false) {
+        const tokenHash = dto.deviceToken ? hashOtp(dto.deviceToken) : '';
+        const trusted = tokenHash ? await this.prisma.vendorTrustedDevice.findFirst({ where: { userId: user.id, tokenHash, expiresAt: { gt: new Date() } }, select: { id: true } }) : null;
+        if (trusted) await this.prisma.vendorTrustedDevice.update({ where: { id: trusted.id }, data: { lastUsedAt: new Date() } });
+        else {
+          const recent = await this.prisma.emailAuthChallenge.findFirst({ where: { email: user.email, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, createdAt: { gt: new Date(Date.now() - 10_000) } }, select: { id: true } });
+          if (recent) throw new HttpException('Please wait before requesting another sign-in code', HttpStatus.TOO_MANY_REQUESTS);
+          const code = process.env.NODE_ENV === 'production' ? String(randomInt(100000, 1_000_000)) : (process.env.DEMO_OTP || '123456');
+          await this.deliverVendorEmailCode(user.email, code, EmailAuthChallengePurpose.LOGIN_VENDOR);
+          const challenge = await this.prisma.emailAuthChallenge.create({ data: { email: user.email, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, codeHash: hashOtp(code), expiresAt: new Date(Date.now() + 10 * 60_000) } });
+          return { mfaRequired: true as const, challengeId: challenge.id, message: 'A sign-in code was sent to your email.', demoOtp: process.env.NODE_ENV === 'production' ? undefined : code };
+        }
+      }
+    }
+    await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     return this.issueToken(user);
+  }
+
+  async verifyVendorLoginCode(challengeId: string, code: string, deviceToken: string) {
+    const challenge = await this.prisma.emailAuthChallenge.findFirst({ where: { id: challengeId, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, consumedAt: null, expiresAt: { gt: new Date() } } });
+    if (!challenge || challenge.attempts >= 5) throw new UnauthorizedException('Invalid or expired sign-in code');
+    if (hashOtp(code.trim()) !== challenge.codeHash) {
+      await this.prisma.emailAuthChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } });
+      throw new UnauthorizedException('Invalid or expired sign-in code');
+    }
+    const user = await this.prisma.user.findUnique({ where: { email: challenge.email } });
+    if (!user || !user.active || user.role !== UserRole.VENDOR || !user.tenantId) throw new UnauthorizedException('Vendor account is no longer active');
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.emailAuthChallenge.updateMany({ where: { id: challenge.id, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, consumedAt: null, attempts: { lt: 5 } }, data: { consumedAt: now } });
+      if (consumed.count !== 1) throw new UnauthorizedException('Sign-in code has already been used');
+      const tokenHash = hashOtp(deviceToken);
+      await tx.vendorTrustedDevice.upsert({
+        where: { tokenHash },
+        create: { userId: user.id, tokenHash, expiresAt: new Date(now.getTime() + 365 * 86400_000), lastUsedAt: now },
+        update: { userId: user.id, expiresAt: new Date(now.getTime() + 365 * 86400_000), lastUsedAt: now },
+      });
+      await tx.user.update({ where: { id: user.id }, data: { lastLoginAt: now } });
+    });
+    return this.issueToken(user);
+  }
+
+  async requestVendorLoginCode(email: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true, email: true, role: true, tenantId: true, active: true },
+    });
+    // Keep the response the same for unknown and ineligible accounts.
+    if (!user || !user.active || user.role !== UserRole.VENDOR || !user.tenantId) {
+      return { challengeId: randomBytes(16).toString('hex'), message: 'If this email can access a vendor account, a sign-in code has been sent.' };
+    }
+    const recent = await this.prisma.emailAuthChallenge.findFirst({
+      where: { email: normalizedEmail, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, createdAt: { gt: new Date(Date.now() - 10_000) } },
+      select: { id: true },
+    });
+    if (recent) throw new HttpException('Please wait before requesting another sign-in code', HttpStatus.TOO_MANY_REQUESTS);
+    const code = process.env.NODE_ENV === 'production' ? String(randomInt(100000, 1_000_000)) : (process.env.DEMO_OTP || '123456');
+    await this.deliverVendorEmailCode(normalizedEmail, code, EmailAuthChallengePurpose.LOGIN_VENDOR);
+    const challenge = await this.prisma.emailAuthChallenge.create({
+      data: { email: normalizedEmail, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, codeHash: hashOtp(code), expiresAt: new Date(Date.now() + 10 * 60_000) },
+    });
+    return {
+      challengeId: challenge.id,
+      message: 'If this email can access a vendor account, a sign-in code has been sent.',
+      demoOtp: process.env.NODE_ENV === 'production' ? undefined : code,
+    };
   }
 
   async changePassword(user: { sub: string }, dto: ChangePasswordDto) {
@@ -42,13 +132,14 @@ export class AuthService {
       where: { id: existing.id },
       data: { passwordHash: await hash(dto.newPassword, 10), mustChangePassword: false },
     });
+    await this.prisma.vendorTrustedDevice?.deleteMany({ where: { userId: existing.id } });
     return { message: 'Password changed successfully' };
   }
 
   async requestVendorEmailCode(email: string) {
     const normalizedEmail = email.trim().toLowerCase();
-    const existing = await this.prisma.user.findUnique({ where: { email: normalizedEmail }, select: { role: true } });
-    const purpose = existing?.role === UserRole.VENDOR ? EmailAuthChallengePurpose.RESET_VENDOR_PASSWORD : EmailAuthChallengePurpose.ACTIVATE_VENDOR;
+    const existing = await this.prisma.user.findUnique({ where: { email: normalizedEmail }, select: { role: true, mustChangePassword: true } });
+    const purpose = existing?.role === UserRole.VENDOR && !existing.mustChangePassword ? EmailAuthChallengePurpose.RESET_VENDOR_PASSWORD : EmailAuthChallengePurpose.ACTIVATE_VENDOR;
     const recent = await this.prisma.emailAuthChallenge.findFirst({ where: { email: normalizedEmail, purpose, createdAt: { gt: new Date(Date.now() - 10_000) } } });
     if (recent) throw new HttpException('Please wait before requesting another code', HttpStatus.TOO_MANY_REQUESTS);
     const code = process.env.NODE_ENV === 'production' ? String(randomInt(100000, 1_000_000)) : (process.env.DEMO_OTP || '123456');
@@ -59,7 +150,7 @@ export class AuthService {
 
   async verifyVendorEmailCode(email: string, code: string) {
     const normalizedEmail = email.trim().toLowerCase();
-    const challenge = await this.prisma.emailAuthChallenge.findFirst({ where: { email: normalizedEmail, consumedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } });
+    const challenge = await this.prisma.emailAuthChallenge.findFirst({ where: { email: normalizedEmail, purpose: { in: [EmailAuthChallengePurpose.ACTIVATE_VENDOR, EmailAuthChallengePurpose.RESET_VENDOR_PASSWORD] }, consumedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' } });
     if (!challenge || challenge.attempts >= 5) throw new UnauthorizedException('Invalid or expired verification code');
     if (hashOtp(code.trim()) !== challenge.codeHash) {
       await this.prisma.emailAuthChallenge.update({ where: { id: challenge.id }, data: { attempts: { increment: 1 } } });
@@ -79,12 +170,16 @@ export class AuthService {
     const user = await this.prisma.$transaction(async (tx) => {
       const consumed = await tx.emailAuthChallenge.updateMany({ where: { id: challenge.id, consumedAt: null }, data: { consumedAt: new Date() } });
       if (consumed.count !== 1) throw new UnauthorizedException('Your verification session has already been used');
-      if (existing) return tx.user.update({ where: { id: existing.id }, data: { passwordHash, active: true, mustChangePassword: false } });
+      if (existing) {
+        await tx.vendorTrustedDevice?.deleteMany({ where: { userId: existing.id } });
+        return tx.user.update({ where: { id: existing.id }, data: { passwordHash, active: true, mustChangePassword: false } });
+      }
       const emailName = challenge.email.split('@')[0];
       const base = emailName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'vendor';
       const tenant = await tx.tenant.create({ data: { name: `${challenge.email} Vendor`, slug: `${base}-${randomBytes(4).toString('hex')}`, kind: TenantKind.VENDOR } });
       const created = await tx.user.create({ data: { tenantId: tenant.id, email: challenge.email, passwordHash, fullName: emailName, role: UserRole.VENDOR, organizationRole: 'OWNER' } });
-      await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: '', operatingCity: 'Not set', operatingRegion: 'Not set' } });
+      await ensurePublicIdentifier(tx, PublicEntity.USER, created.id, await allocatePublicCode(tx, PublicEntity.USER, 'VU-', 5));
+      await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: '', operatingCity: 'Not set', operatingRegion: 'Not set', voucherShortCode: await allocateVendorVoucherShortCode(tx) } });
       return created;
     });
     return this.issueToken(user);
@@ -93,22 +188,47 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase();
     if (await this.prisma.user.findUnique({ where: { email } })) throw new ConflictException('An account with this email already exists');
+    const passwordHash = await hash(dto.password, 10);
+    if (dto.teamInviteToken) {
+      if (!/^[A-Za-z0-9_-]{40,60}$/.test(dto.teamInviteToken)) throw new BadRequestException('Invitation is invalid or expired.');
+      const tokenHash = createHash('sha256').update(dto.teamInviteToken).digest('hex');
+      const created = await this.prisma.$transaction(async (tx) => {
+        const locked = await tx.$queryRawUnsafe<any[]>(`SELECT "id" FROM "public"."VendorTeamInvitation" WHERE "tokenHash" = $1 FOR UPDATE`, tokenHash);
+        if (!locked[0]) throw new BadRequestException('Invitation is invalid or expired.');
+        const invitation = await tx.vendorTeamInvitation.findFirst({ where: { id: locked[0].id, email, status: 'INVITED', expiresAt: { gt: new Date() } }, include: { tenant: { select: { kind: true } } } });
+        if (!invitation) throw new BadRequestException('Invitation is invalid, expired, or belongs to a different email address.');
+        const role = invitation.tenant?.kind === TenantKind.TRAVEL_AGENT ? UserRole.TRAVEL_AGENT : UserRole.VENDOR;
+        const user = await tx.user.create({ data: { tenantId: invitation.tenantId, email, passwordHash, fullName: dto.fullName, role, organizationRole: invitation.role } });
+        await ensurePublicIdentifier(tx, PublicEntity.USER, user.id, await allocatePublicCode(tx, PublicEntity.USER, 'VU-', 5));
+        await tx.vendorTeamInvitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED', acceptedAt: new Date(), tokenHash: null } });
+        return user;
+      });
+      return this.issueToken(created);
+    }
     const slugBase = email.split('@')[0].replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'vendor';
     const slug = `${slugBase}-${Date.now().toString().slice(-6)}`;
-    const passwordHash = await hash(dto.password, 10);
     const created = await this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({ data: { name: `${dto.fullName} Vendor`, slug, kind: 'VENDOR' } });
       const user = await tx.user.create({ data: { tenantId: tenant.id, email, passwordHash, fullName: dto.fullName, role: 'VENDOR', organizationRole: 'OWNER' } });
-      await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: dto.fullName, operatingCity: 'Not set', operatingRegion: 'Not set' } });
+      await ensurePublicIdentifier(tx, PublicEntity.USER, user.id, await allocatePublicCode(tx, PublicEntity.USER, 'VU-', 5));
+      await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: dto.businessName?.trim() || dto.fullName, operatingCity: dto.city?.trim() || 'Not set', operatingRegion: 'Not set', category: dto.category?.trim() || null, registrationMobile: dto.mobile?.trim() || null, termsAcceptedAt: dto.acceptedTerms === true ? new Date() : null, voucherShortCode: await allocateVendorVoucherShortCode(tx) } });
       return user;
     });
     const payload = { sub: created.id, email: created.email, role: created.role, tenantId: created.tenantId, organizationRole: created.organizationRole };
     return this.issueToken(created);
   }
 
+  async previewVendorTeamInvitation(token: string) {
+    if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) throw new BadRequestException('Invitation is invalid or expired.');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const invitation = await this.prisma.vendorTeamInvitation.findFirst({ where: { tokenHash, status: 'INVITED', expiresAt: { gt: new Date() } }, include: { tenant: { select: { name: true, kind: true } } } });
+    if (!invitation) throw new BadRequestException('Invitation is invalid or expired.');
+    return { email: invitation.email, role: invitation.role, workspaceName: invitation.tenant.name, workspaceKind: invitation.tenant.kind, expiresAt: invitation.expiresAt };
+  }
+
   private async issueToken(user: { id: string; email: string; fullName: string; role: UserRole; tenantId: string | null; organizationRole: any; active: boolean; mustChangePassword: boolean }) {
     const payload = { sub: user.id, email: user.email, role: user.role, tenantId: user.tenantId, organizationRole: user.organizationRole, mustChangePassword: user.mustChangePassword };
-    return { accessToken: await this.jwt.signAsync(payload), user: { id: user.id, email: user.email, fullName: user.fullName, role: user.role, tenantId: user.tenantId, organizationRole: user.organizationRole, active: user.active, mustChangePassword: user.mustChangePassword } };
+    return { accessToken: await this.jwt.signAsync(payload), user: { id: user.id, publicCode: await publicIdentifier(this.prisma, PublicEntity.USER, user.id), email: user.email, fullName: user.fullName, role: user.role, tenantId: user.tenantId, organizationRole: user.organizationRole, active: user.active, mustChangePassword: user.mustChangePassword } };
   }
 
   private async deliverVendorEmailCode(email: string, code: string, purpose: EmailAuthChallengePurpose) {
@@ -126,6 +246,7 @@ export class AuthService {
         auth: { user: smtpUser, pass: smtpPassword },
       });
       const isPasswordReset = purpose === EmailAuthChallengePurpose.RESET_VENDOR_PASSWORD;
+      const isLogin = purpose === EmailAuthChallengePurpose.LOGIN_VENDOR;
       try {
         await transporter.sendMail({
           from: {
@@ -133,7 +254,7 @@ export class AuthService {
             address: process.env.SMTP_FROM_EMAIL?.trim() || smtpUser,
           },
           to: email,
-          subject: isPasswordReset ? 'Reset your Voya vendor password' : 'Complete your Voya vendor access',
+          subject: isPasswordReset ? 'Reset your Voya vendor password' : isLogin ? 'Your Voya sign-in verification code' : 'Complete your Voya vendor access',
           text: `Your Voya verification code is ${code}. It expires in 10 minutes.`,
           html: renderVoyaVendorEmailCodeHtml(code, purpose),
         });

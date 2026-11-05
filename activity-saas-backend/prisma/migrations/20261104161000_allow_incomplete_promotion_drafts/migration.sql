@@ -1,0 +1,4 @@
+ALTER TABLE "Promotion"
+  ALTER COLUMN "discountPercent" SET DEFAULT 0,
+  ALTER COLUMN "startsAt" DROP NOT NULL,
+  ALTER COLUMN "endsAt" DROP NOT NULL;

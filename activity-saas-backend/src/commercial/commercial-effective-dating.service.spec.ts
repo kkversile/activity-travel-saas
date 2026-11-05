@@ -66,6 +66,14 @@ describe('CommercialService effective-dated cutover', () => {
     expect((selectEffectiveVersion(history as any, new Date('2026-10-15')) as any)?.id).toBe('rv2');
   });
 
+  it('requires a different Admin to activate a pricing rule version', async () => {
+    const candidate = ruleVersion({ createdById: 'admin-1' });
+    const tx: any = { $queryRaw: jest.fn(), commercialRuleVersion: { findUniqueOrThrow: jest.fn().mockResolvedValue(candidate) } };
+    const prisma: any = { commercialRuleVersion: { findUnique: jest.fn().mockResolvedValue(candidate) }, $transaction: jest.fn((callback: any) => callback(tx)) };
+    const service = new CommercialService(prisma, { write: jest.fn() } as any, { enqueue: jest.fn() } as any, {} as any);
+    await expect(service.activateRuleVersion(user, candidate.id)).rejects.toThrow('COMMERCIAL_RULE_MAKER_CANNOT_APPROVE');
+  });
+
   it('rejects a rule overlap that would require splitting history', async () => {
     const old = ruleVersion({ id: 'rv1', status: 'ACTIVE', effectiveFrom: new Date('2026-09-01'), effectiveTo: new Date('2026-12-31') });
     const candidate = ruleVersion();

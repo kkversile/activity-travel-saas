@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { allocatePublicCode, ensurePublicIdentifier, publicIdentifier, publicIdentifierMap, PublicEntity } from '../common/public-identifiers';
 import { ChannelContractService } from './channel-contract.service';
 import { ChannelEligibilityService } from './channel-eligibility.service';
 import { ChannelMappingService } from './channel-mapping.service';
@@ -13,17 +14,30 @@ import { CreateChannelDto, CreateCredentialDto, UpdateChannelDto } from './distr
 @Injectable()
 export class DistributionService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly contracts: ChannelContractService, private readonly mappings: ChannelMappingService, private readonly eligibility: ChannelEligibilityService) {}
-  channels() { return this.prisma.distributionChannel.findMany({ include: { contracts: { where: { status: 'ACTIVE' }, orderBy: { versionNumber: 'desc' }, take: 1 }, _count: { select: { mappings: true, productMappings: true, variantMappings: true, credentials: true } } }, orderBy: { code: 'asc' } }); }
+  async channels() {
+    const rows = await this.prisma.distributionChannel.findMany({ include: { contracts: { where: { status: 'ACTIVE' }, orderBy: { versionNumber: 'desc' }, take: 1 }, _count: { select: { mappings: true, productMappings: true, variantMappings: true, credentials: true } } }, orderBy: { code: 'asc' } });
+    const partnerIds = rows.filter((row) => row.type === DistributionChannelType.PARTNER_API).map((row) => row.id);
+    const publicCodes = await publicIdentifierMap(this.prisma, PublicEntity.DISTRIBUTION_CHANNEL, partnerIds);
+    return rows.map((row) => ({ ...row, publicCode: publicCodes.get(row.id) || null }));
+  }
   async createChannel(user: AuthUser, dto: CreateChannelDto) {
     const code = dto.code.trim(); const name = dto.name.trim(); if (!name) throw new ConflictException('Channel name must be non-empty');
-    try { return await this.prisma.$transaction(async (tx) => { const channel = await tx.distributionChannel.create({ data: { code, name, type: dto.type, description: dto.description?.trim() || null, active: dto.active ?? true } }); await this.audit.write(tx, { actor: user, action: 'DISTRIBUTION_CHANNEL_CREATED', entityType: 'DistributionChannel', entityId: channel.id, afterState: { code: channel.code, type: channel.type, active: channel.active } }); await this.outbox.enqueue(tx, { eventType: 'DISTRIBUTION_CHANNEL_CREATED', aggregateType: 'DistributionChannel', aggregateId: channel.id, payload: { channelId: channel.id, code: channel.code } }); return channel; }); } catch (error: any) { if (error?.code === 'P2002') throw new ConflictException('Distribution channel code already exists'); throw error; }
+    try { return await this.prisma.$transaction(async (tx) => { const channel = await tx.distributionChannel.create({ data: { code, name, type: dto.type, description: dto.description?.trim() || null, active: dto.active ?? true } }); const publicCode = channel.type === DistributionChannelType.PARTNER_API ? await allocatePublicCode(tx, PublicEntity.DISTRIBUTION_CHANNEL, 'APP-', 4) : null; if (publicCode) await ensurePublicIdentifier(tx, PublicEntity.DISTRIBUTION_CHANNEL, channel.id, publicCode); await this.audit.write(tx, { actor: user, action: 'DISTRIBUTION_CHANNEL_CREATED', entityType: 'DistributionChannel', entityId: channel.id, afterState: { code: channel.code, publicCode, type: channel.type, active: channel.active } }); await this.outbox.enqueue(tx, { eventType: 'DISTRIBUTION_CHANNEL_CREATED', aggregateType: 'DistributionChannel', aggregateId: channel.id, payload: { channelId: channel.id, code: channel.code, publicCode } }); return { ...channel, publicCode }; }); } catch (error: any) { if (error?.code === 'P2002') throw new ConflictException('Distribution channel code already exists'); throw error; }
   }
   async updateChannel(user: AuthUser, id: string, dto: UpdateChannelDto) {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.distributionChannel.findUnique({ where: { id } }); if (!current) throw new NotFoundException('Distribution channel not found'); if (dto.expectedVersion == null) throw new ConflictException({ code: 'CHANNEL_VERSION_REQUIRED', message: 'expectedVersion is required for channel updates' });
       if (current.code === 'VOYA_AGENT' && dto.type && dto.type !== DistributionChannelType.INTERNAL_MARKETPLACE) throw new ConflictException('VOYA_AGENT channel type is protected'); if (current.active && dto.active === false && !dto.confirmDisable) throw new ConflictException({ code: 'CHANNEL_DISABLE_CONFIRMATION_REQUIRED', message: 'Disabling a live channel requires confirmation' });
       const changed = await tx.distributionChannel.updateMany({ where: { id, version: dto.expectedVersion }, data: { name: dto.name == null ? undefined : dto.name.trim(), type: dto.type, description: dto.description == null ? undefined : dto.description.trim(), active: dto.active, version: { increment: 1 } } }); if (changed.count !== 1) throw new ConflictException({ code: 'CHANNEL_VERSION_MISMATCH', message: 'Distribution channel changed; reload and retry' });
-      const channel = await tx.distributionChannel.findUniqueOrThrow({ where: { id } }); await this.audit.write(tx, { actor: user, action: 'DISTRIBUTION_CHANNEL_UPDATED', entityType: 'DistributionChannel', entityId: id, afterState: { active: channel.active, type: channel.type, version: channel.version } }); await this.outbox.enqueue(tx, { eventType: 'DISTRIBUTION_CHANNEL_CHANGED', aggregateType: 'DistributionChannel', aggregateId: id, payload: { channelId: id, active: channel.active, version: channel.version } }); return channel;
+      const channel = await tx.distributionChannel.findUniqueOrThrow({ where: { id } });
+      let publicCode = channel.type === DistributionChannelType.PARTNER_API ? await publicIdentifier(tx, PublicEntity.DISTRIBUTION_CHANNEL, id) : null;
+      if (channel.type === DistributionChannelType.PARTNER_API && !publicCode) {
+        publicCode = await allocatePublicCode(tx, PublicEntity.DISTRIBUTION_CHANNEL, 'APP-', 4);
+        await ensurePublicIdentifier(tx, PublicEntity.DISTRIBUTION_CHANNEL, id, publicCode);
+      }
+      await this.audit.write(tx, { actor: user, action: 'DISTRIBUTION_CHANNEL_UPDATED', entityType: 'DistributionChannel', entityId: id, afterState: { active: channel.active, type: channel.type, version: channel.version, publicCode } });
+      await this.outbox.enqueue(tx, { eventType: 'DISTRIBUTION_CHANNEL_CHANGED', aggregateType: 'DistributionChannel', aggregateId: id, payload: { channelId: id, active: channel.active, version: channel.version, publicCode } });
+      return { ...channel, publicCode };
     });
   }
   contractsList(channelId?: string) { return this.contracts.list(channelId); }

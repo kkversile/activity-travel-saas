@@ -27,6 +27,21 @@ describe('ProductReadinessService', () => {
     expect(result.sections.basicInfo.ready).toBe(false);
   });
 
+  it('evaluates admin product readiness with a vendor-scoped commercial actor', async () => {
+    const s = fixture();
+    s.prisma.product.findFirst.mockResolvedValue({
+      id: 'p1', tenantId: 'vendor-1', currentRevisionId: 'r1',
+      revisions: [{ id: 'r1', status: 'DRAFT', productName: 'Tea walk', type: 'ACTIVITY', subType: 'EXPERIENCE', subCategory: '', cityName: '', stateName: '', countryName: '', description: '', media: [], fulfilmentPolicy: null }],
+      variants: [{ id: 'v1', revisionId: 'r1', status: 'ACTIVE', ratePlans: [{ id: 'rp1', status: 'ACTIVE', cancellationRules: [], commercialVersions: [] }], schedules: [] }],
+    });
+    s.commercial.readiness.mockResolvedValue({ ready: false, reasonCodes: ['NO_ACTIVE_COMMERCIAL_VERSION'] });
+
+    await s.service.evaluate({ sub: 'admin-1', role: UserRole.ADMIN } as any, 'p1');
+
+    expect(s.prisma.product.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'p1', tenant: { kind: 'VENDOR' } } }));
+    expect(s.commercial.readiness).toHaveBeenCalledWith(expect.objectContaining({ role: UserRole.VENDOR, tenantId: 'vendor-1' }), 'rp1', expect.any(Date), undefined, s.prisma);
+  });
+
   it('returns ready only when the canonical hierarchy is commercially and operationally complete', async () => {
     const s = fixture();
     s.commercial.readiness.mockResolvedValue({ ratePlanId: 'rp1', ready: true, reasonCodes: [] });
@@ -34,7 +49,7 @@ describe('ProductReadinessService', () => {
       id: 'p1',
       tenantId: 't1',
       currentRevisionId: 'r1',
-      revisions: [{ id: 'r1', status: 'DRAFT', productName: 'Tea walk', type: 'ACTIVITY', subType: 'EXPERIENCE', subCategory: 'Nature', cityName: 'Munnar', stateName: 'Kerala', countryName: 'India', meetingModel: 'FIXED_MEETING_POINT', meetingPoint: 'Tea Museum gate', description: 'A guided walk.', media: [{ kind: 'IMAGE' }], fulfilmentPolicy: { mode: 'AUTO' } }],
+      revisions: [{ id: 'r1', status: 'DRAFT', productName: 'Tea walk', type: 'ACTIVITY', subType: 'EXPERIENCE', category: 'DAY_TOURS_SIGHTSEEING', subCategory: 'Nature', cityName: 'Munnar', stateName: 'Kerala', countryName: 'India', meetingModel: 'FIXED_MEETING_POINT', meetingPoint: 'Tea Museum gate', endPoint: 'Tea Museum gate', shortDescription: 'A short tea walk.', description: 'A guided walk.', highlights: ['Tea', 'Views', 'Guide'], included: ['Guide'], notIncluded: ['Meals'], cancellationPreset: 'MODERATE', voucherCodeSource: 'PLATFORM', voucherAcceptedAs: 'MOBILE_VOUCHER', voucherInstructions: 'Show the voucher.', sourcePayload: { prototype: { followItinerary: false } }, media: [{ kind: 'IMAGE' }], fulfilmentPolicy: { mode: 'AUTO' } }],
       variants: [{
         id: 'v1',
         status: 'ACTIVE',
@@ -55,7 +70,7 @@ describe('ProductReadinessService', () => {
     s.commercial.readiness.mockImplementation(async (_user: unknown, id: string) => ({ ratePlanId: id, ready: id === 'rp-commercial', reasonCodes: id === 'rp-commercial' ? [] : ['NO_ACTIVE_COMMERCIAL_VERSION'] }));
     s.prisma.product.findFirst.mockResolvedValue({
       id: 'p1', tenantId: 't1', currentRevisionId: 'r1',
-      revisions: [{ id: 'r1', status: 'DRAFT', productName: 'Tea walk', type: 'ACTIVITY', subType: 'EXPERIENCE', subCategory: 'Nature', cityName: 'Munnar', stateName: 'Kerala', countryName: 'India', meetingModel: 'FIXED_MEETING_POINT', meetingPoint: 'Gate', description: 'A guided walk.', media: [{ kind: 'IMAGE' }], fulfilmentPolicy: { mode: 'AUTO' } }],
+      revisions: [{ id: 'r1', status: 'DRAFT', productName: 'Tea walk', type: 'ACTIVITY', subType: 'EXPERIENCE', category: 'DAY_TOURS_SIGHTSEEING', subCategory: 'Nature', cityName: 'Munnar', stateName: 'Kerala', countryName: 'India', meetingModel: 'FIXED_MEETING_POINT', meetingPoint: 'Gate', endPoint: 'Gate', shortDescription: 'A short tea walk.', description: 'A guided walk.', highlights: ['Tea', 'Views', 'Guide'], included: ['Guide'], notIncluded: ['Meals'], cancellationPreset: 'MODERATE', voucherCodeSource: 'PLATFORM', voucherAcceptedAs: 'MOBILE_VOUCHER', voucherInstructions: 'Show the voucher.', sourcePayload: { prototype: { followItinerary: false } }, media: [{ kind: 'IMAGE' }], fulfilmentPolicy: { mode: 'AUTO' } }],
       variants: [{ id: 'v1', status: 'ACTIVE', ratePlans: [
         { id: 'rp-commercial', status: 'ACTIVE', cancellationRules: [] },
         { id: 'rp-cancellation', status: 'ACTIVE', cancellationRules: [{ id: 'cr1' }] },

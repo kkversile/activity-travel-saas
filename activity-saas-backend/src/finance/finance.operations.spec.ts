@@ -52,6 +52,7 @@ const txBase = () => ({
       }),
     upsert: jest.fn(),
   },
+  payout: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn(), update: jest.fn() },
   settlementHold: {
     create: jest
       .fn()

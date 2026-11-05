@@ -26,4 +26,13 @@ describe('SharedDatePicker', () => {
     const dayBeforeMinimum = Array.from(calendarDays).find((button) => button.textContent === '9' && !button.classList.contains('is-outside'));
     expect(dayBeforeMinimum).toBeDisabled();
   });
+
+  it('preserves date-time values for admin effective-dated controls', () => {
+    const onChange = vi.fn();
+    render(<SharedDatePicker value="2026-10-15T14:30" onChange={onChange} includeTime placeholder="Effective from" ariaLabel="Effective from" />);
+    expect(screen.getByRole('button', { name: 'Effective from' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Effective from' }));
+    fireEvent.click(screen.getByRole('button', { name: '15' }));
+    expect(onChange).toHaveBeenCalledWith('2026-10-15T14:30');
+  });
 });

@@ -5,7 +5,7 @@ describe('ActivityAiService', () => {
 
   it('returns useful conservative suggestions when the provider omits descriptive content', async () => {
     const catalogue = {};
-    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({}) } };
+    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: "evt-test-1" }) } };
     const config = { get: jest.fn().mockImplementation((key: string, fallback?: string) => key === 'AI_ACTIVITY_ENABLED' ? 'true' : key === 'AI_IMAGE_SEARCH_ENABLED' ? 'false' : fallback) };
     const provider = { generate: jest.fn().mockResolvedValue({ model: 'mock', content: { Basic_Info: [{ product_name: 'Munnar Walk', city: 'Munnar', state: 'Kerala', country: 'India' }], Experience: [{}], Options: [{ description: 'Supplier confirmation required.' }] } }) };
     const service = new ActivityAiService(config as any, catalogue as any, prisma as any, provider as any);
@@ -27,7 +27,7 @@ describe('ActivityAiService', () => {
 
   it('geocodes an AI-researched address before returning the draft', async () => {
     const catalogue = {};
-    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({}) } };
+    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: "evt-test-1" }) } };
     const config = { get: jest.fn().mockImplementation((key: string, fallback?: string) => key === 'AI_ACTIVITY_ENABLED' ? 'true' : key === 'AI_IMAGE_SEARCH_ENABLED' ? 'false' : fallback) };
     const provider = { generate: jest.fn().mockResolvedValue({ model: 'mock', content: { Basic_Info: [{ product_name: 'Harbour Walk', city: 'Gokarna', state: 'Karnataka', country: 'India', address: 'Tadadi Port, Gokarna' }], Experience: [{ full_description: 'A harbour walk.' }], Options: [{ option_code: 'STANDARD', option_name: 'Standard experience' }] } }) };
     const fetchMock = jest.spyOn(globalThis as any, 'fetch').mockResolvedValue({ ok: true, json: async () => [{ lat: '14.5441', lon: '74.3187' }] } as any);
@@ -40,7 +40,7 @@ describe('ActivityAiService', () => {
 
   it('searches the supplied location context and fills a confident named-place address', async () => {
     const catalogue = {};
-    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({}) } };
+    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: "evt-test-1" }) } };
     const config = { get: jest.fn().mockImplementation((key: string, fallback?: string) => key === 'AI_ACTIVITY_ENABLED' ? 'true' : key === 'AI_IMAGE_SEARCH_ENABLED' ? 'false' : fallback) };
     const provider = { generate: jest.fn().mockResolvedValue({ model: 'mock', content: { Basic_Info: [{ product_name: 'Goa Water Sports Activities and Boat Tours', city: 'Goa', state: 'Goa', country: 'India' }], Experience: [{ full_description: 'Water activities and boat tours.' }], Options: [{ option_code: 'STANDARD', option_name: 'Standard experience' }] } }) };
     const researchService = { search: jest.fn().mockResolvedValue({ query: '"Goa Water Sports Activities and Boat Tours" Water sports & activities Goa Goa India', sources: [], imageCandidates: [] }) };
@@ -61,7 +61,7 @@ describe('ActivityAiService', () => {
 
   it('filters Google placeholder avatars and uses reviewable images from an AI-retrieved source page', async () => {
     const catalogue = {};
-    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({}) } };
+    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: "evt-test-1" }) } };
     const config = { get: jest.fn().mockImplementation((key: string, fallback?: string) => key === 'AI_ACTIVITY_ENABLED' ? 'true' : fallback) };
     const provider = { generate: jest.fn().mockResolvedValue({ model: 'mock', content: {
       Basic_Info: [{ product_name: 'Gokarna Ocean Adventures', city: 'Gokarna', state: 'Karnataka', country: 'India' }],
@@ -86,7 +86,7 @@ describe('ActivityAiService', () => {
 
   it('decodes direct Google Maps photo assets embedded as percent-encoded !6s URLs', async () => {
     const catalogue = {};
-    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({}) } };
+    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: "evt-test-1" }) } };
     const config = { get: jest.fn().mockImplementation((key: string, fallback?: string) => key === 'AI_ACTIVITY_ENABLED' ? 'true' : fallback) };
     const provider = { generate: jest.fn().mockResolvedValue({ model: 'mock', content: {
       Basic_Info: [{ product_name: 'Munnar Adventure Park', city: 'Munnar', state: 'Kerala', country: 'India' }],
@@ -110,7 +110,7 @@ describe('ActivityAiService', () => {
 
   it('uses a Maps photo embedded in an AI-returned listing URL when Google HTML is unavailable', async () => {
     const catalogue = {};
-    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({}) } };
+    const prisma = { auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: "evt-test-1" }) } };
     const config = { get: jest.fn().mockImplementation((key: string, fallback?: string) => key === 'AI_ACTIVITY_ENABLED' ? 'true' : fallback) };
     const mapsUrl = 'https://www.google.com/maps/place/Munnar+Adventure/data=!6shttps:%2F%2Flh3.googleusercontent.com%2Fphoto%2Fs1200%3Dw1200-h800-k-no!7i1200!8i800';
     const provider = { generate: jest.fn().mockResolvedValue({ model: 'mock', content: {
@@ -167,7 +167,7 @@ describe('ActivityAiService', () => {
   });
 
   it('serializes the persistent check and record when Prisma transactions are available', async () => {
-    const tx = { $queryRaw: jest.fn().mockResolvedValue([]), auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({}) } };
+    const tx = { $queryRaw: jest.fn().mockResolvedValue([]), auditLog: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: "evt-test-1" }) } };
     const prisma = { $queryRaw: jest.fn(), $transaction: jest.fn(async (callback: (value: any) => Promise<void>) => callback(tx)), auditLog: tx.auditLog };
     const config = { get: jest.fn().mockImplementation((key: string, fallback?: string) => ({ AI_ACTIVITY_ENABLED: 'true', AI_IMAGE_SEARCH_ENABLED: 'false', AI_RATE_LIMIT_ENABLED: 'true' }[key] ?? fallback)) };
     const provider = { generate: jest.fn().mockResolvedValue({ model: 'mock', content: { Basic_Info: [{ product_name: 'Walk' }], Experience: [{}], Options: [] } }) };

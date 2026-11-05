@@ -7,6 +7,7 @@ import { normalizeTaxonomy } from './activity-ai.schema';
 import { AiProvider } from './providers/ai-provider.interface';
 import { CatalogueService } from '../catalogue/catalogue.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ensurePublicIdentifier, PublicEntity } from '../common/public-identifiers';
 import { requireTenant } from '../common/tenant';
 import { ActivityAiResearchService, ActivityResearchPacket } from './activity-ai-research.service';
 const SYSTEM_PROMPT_VERSION = 'v5-google-maps-photo-assets';
@@ -314,7 +315,8 @@ export class ActivityAiService {
         ]);
         if (userCount >= limits[0].max) throw new BadRequestException(`Daily AI generation limit reached for this user (${limits[0].max}).`);
         if (tenantCount >= limits[1].max) throw new BadRequestException(`Daily AI generation limit reached for this tenant (${limits[1].max}).`);
-        await tx.auditLog.create({ data: { tenantId: user.tenantId || undefined, actorId: user.sub, actorRole: user.role, action: 'ACTIVITY_AI_GENERATION_REQUESTED', entityType: 'ActivityAiGeneration', reason: 'AI draft generation request', metadata: { day } } });
+        const auditEvent = await tx.auditLog.create({ data: { tenantId: user.tenantId || undefined, actorId: user.sub, actorRole: user.role, action: 'ACTIVITY_AI_GENERATION_REQUESTED', entityType: 'ActivityAiGeneration', reason: 'AI draft generation request', metadata: { day } } });
+        await ensurePublicIdentifier(tx, PublicEntity.AUDIT_EVENT, auditEvent.id, `EVT-${auditEvent.id.toUpperCase()}`);
       };
       // Serialize the check-and-record transaction per tenant/day. Without the
       // lock, two concurrent requests can both observe the same count and

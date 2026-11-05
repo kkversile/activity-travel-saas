@@ -31,6 +31,9 @@ import { DistributionModule } from './distribution/distribution.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { BuyBoxModule } from './buy-box/buy-box.module';
 import { ActivityAiModule } from './activity-ai/activity-ai.module';
+import { VendorToolsModule } from './vendor-tools/vendor-tools.module';
+import { VendorReviewsModule } from './vendor-reviews/vendor-reviews.module';
+import { AgentPortalModule } from './agent-portal/agent-portal.module';
 
 function validateEnvironment(config: Record<string, unknown>) {
   const databaseUrl = String(config.DATABASE_URL ?? '');
@@ -76,6 +79,9 @@ function validateEnvironment(config: Record<string, unknown>) {
     OnboardingModule,
     BuyBoxModule,
     ActivityAiModule,
+    VendorToolsModule,
+    VendorReviewsModule,
+    AgentPortalModule,
   ],
   controllers: [AppController],
   providers: [CorrelationIdMiddleware],

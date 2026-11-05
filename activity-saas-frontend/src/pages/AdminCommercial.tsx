@@ -1,33 +1,661 @@
-import { useEffect, useState } from 'react';
-import { api } from '../api';
-import { ErrorBox, Field, Loading, Panel } from '../components/Ui';
+import { useEffect, useState } from "react";
+import { api } from "../api";
+import { ErrorBox, Field, Loading, Panel } from "../components/Ui";
+import { SharedDatePicker } from "../components/SharedDatePicker";
 
-type Version = { id: string; versionNumber: number; status: string; effectiveFrom: string; effectiveTo?: string | null; priority: number; config: Record<string, unknown> };
-type Rule = { id: string; code: string; name: string; kind: string; scopeType: string; versions: Version[] };
-type Group = { id: string; code: string; name: string; members: Array<{ agentTenant: { id: string; name: string } }> };
+type Version = {
+  id: string;
+  versionNumber: number;
+  status: string;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  priority: number;
+  config: Record<string, unknown>;
+  createdById?: string;
+};
+type Rule = {
+  id: string;
+  code: string;
+  name: string;
+  kind: string;
+  scopeType: string;
+  versions: Version[];
+};
+type Group = {
+  id: string;
+  code: string;
+  name: string;
+  members: Array<{ agentTenant: { id: string; name: string } }>;
+};
+type Guardrails = {
+  minimumNetMarginPercent: number;
+  websiteGatewayFeePercent: number;
+  version: number;
+  pendingConfiguration?: { minimumNetMarginPercent: number; websiteGatewayFeePercent: number } | null;
+  pendingUpdatedById?: string | null;
+};
 const now = () => new Date().toISOString().slice(0, 16);
 
-export default function AdminCommercial() {
-  const [rules, setRules] = useState<Rule[]>([]); const [groups, setGroups] = useState<Group[]>([]); const [error, setError] = useState(''); const [loading, setLoading] = useState(true);
-  const [code, setCode] = useState(''); const [name, setName] = useState(''); const [kind, setKind] = useState('VOYA_REVENUE'); const [scopeType, setScopeType] = useState('GLOBAL'); const [scopeId, setScopeId] = useState(''); const [model, setModel] = useState('MARKUP_PERCENT'); const [value, setValue] = useState('10'); const [effectiveFrom, setEffectiveFrom] = useState(now()); const [effectiveTo, setEffectiveTo] = useState(''); const [priority, setPriority] = useState('0');
-  const [groupCode, setGroupCode] = useState(''); const [groupName, setGroupName] = useState(''); const [memberGroupId, setMemberGroupId] = useState(''); const [agentTenantId, setAgentTenantId] = useState(''); const [ratePlanId, setRatePlanId] = useState(''); const [serviceDate, setServiceDate] = useState(now()); const [units, setUnits] = useState('1'); const [adult, setAdult] = useState('1'); const [child, setChild] = useState('0'); const [senior, setSenior] = useState('0'); const [quote, setQuote] = useState<any>(null);
+export default function AdminCommercial({ canApprove = false, canManageGuardrails = false, currentUserId = "" }: { canApprove?: boolean; canManageGuardrails?: boolean; currentUserId?: string }) {
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [guardrails, setGuardrails] = useState<Guardrails | null>(null);
+  const [marginFloorDraft, setMarginFloorDraft] = useState("4");
+  const [websiteFeeDraft, setWebsiteFeeDraft] = useState("1.8");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState("VOYA_REVENUE");
+  const [scopeType, setScopeType] = useState("GLOBAL");
+  const [scopeId, setScopeId] = useState("");
+  const [model, setModel] = useState("MARKUP_PERCENT");
+  const [value, setValue] = useState("10");
+  const [effectiveFrom, setEffectiveFrom] = useState(now());
+  const [effectiveTo, setEffectiveTo] = useState("");
+  const [priority, setPriority] = useState("0");
+  const [groupCode, setGroupCode] = useState("");
+  const [groupName, setGroupName] = useState("");
+  const [memberGroupId, setMemberGroupId] = useState("");
+  const [agentTenantId, setAgentTenantId] = useState("");
+  const [ratePlanId, setRatePlanId] = useState("");
+  const [serviceDate, setServiceDate] = useState(now());
+  const [units, setUnits] = useState("1");
+  const [adult, setAdult] = useState("1");
+  const [child, setChild] = useState("0");
+  const [senior, setSenior] = useState("0");
+  const [quote, setQuote] = useState<any>(null);
 
-  async function load() { try { const [r, g] = await Promise.all([api.request<Rule[]>('/admin/commercial-rules'), api.request<Group[]>('/admin/agent-groups')]); setRules(r); setGroups(g); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }
-  useEffect(() => { void load(); }, []);
-  function config() { if (kind === 'VOYA_REVENUE') return { model, ...(model === 'MARKUP_FIXED' ? { fixedAmount: value } : { percent: value }) }; if (kind === 'AGENT_COMMERCIAL') return { model, ...(model === 'NET_PLUS_MARKUP' ? { markupAmount: value } : model === 'AGENT_SPECIFIC_PRICE' ? { price: value } : { commissionPercent: value }) }; if (kind === 'TAX') return { mode: 'NONE', rate: '0', taxableBase: 'AGENT_PRE_TAX', accountableParty: 'NONE', roundingPolicy: 'HALF_UP' }; if (kind === 'PROMOTION') return { discountType: 'PERCENT', value, funder: 'VOYA', applicationStage: 'PRE_TAX' }; if (kind === 'FOC') return { enabled: true, qualifyingQuantity: 10, freeQuantity: 1, appliesTo: 'ADULT', funder: 'SUPPLIER' }; return { decision: 'ALLOW' }; }
-  function scopeBody() { const field: Record<string, string> = { VENDOR: 'vendorTenantId', PRODUCT: 'productId', VARIANT: 'variantId', RATE_PLAN: 'ratePlanId', AGENT_GROUP: 'agentGroupId', AGENT: 'agentTenantId' }; return scopeType === 'GLOBAL' ? {} : { [field[scopeType]]: scopeId }; }
-  async function createRule() { try { const rule = await api.request<Rule>('/admin/commercial-rules', { method: 'POST', body: JSON.stringify({ code, name, kind, scopeType, ...scopeBody() }) }); const version = await api.request<Version>(`/admin/commercial-rules/${rule.id}/versions`, { method: 'POST', body: JSON.stringify({ effectiveFrom: new Date(effectiveFrom).toISOString(), effectiveTo: effectiveTo ? new Date(effectiveTo).toISOString() : undefined, config: config(), priority: Number(priority), stackingMode: 'EXCLUSIVE' }) }); await api.request(`/admin/commercial-rule-versions/${version.id}/activate`, { method: 'POST' }); setCode(''); setName(''); setScopeId(''); await load(); } catch (e) { setError((e as Error).message); } }
-  async function activate(id: string) { try { await api.request(`/admin/commercial-rule-versions/${id}/activate`, { method: 'POST' }); await load(); } catch (e) { setError((e as Error).message); } }
-  async function archive(id: string) { if (!window.confirm('Archive this commercial rule and its active versions?')) return; try { await api.request(`/admin/commercial-rules/${id}/archive`, { method: 'POST' }); await load(); } catch (e) { setError((e as Error).message); } }
-  async function createGroup() { try { await api.request('/admin/agent-groups', { method: 'POST', body: JSON.stringify({ code: groupCode, name: groupName }) }); setGroupCode(''); setGroupName(''); await load(); } catch (e) { setError((e as Error).message); } }
-  async function addMember() { try { await api.request(`/admin/agent-groups/${memberGroupId}/members`, { method: 'POST', body: JSON.stringify({ agentTenantId }) }); setAgentTenantId(''); await load(); } catch (e) { setError((e as Error).message); } }
-  async function removeMember(groupId: string, tenantId: string) { try { await api.request(`/admin/agent-groups/${groupId}/members/${tenantId}`, { method: 'DELETE' }); await load(); } catch (e) { setError((e as Error).message); } }
-  async function runQuote() { try { setQuote(await api.request('/admin/commercial/quote', { method: 'POST', body: JSON.stringify({ ratePlanId, serviceDate: new Date(serviceDate).toISOString(), units: Number(units), travellers: [{ travellerType: 'ADULT', quantity: Number(adult) }, { travellerType: 'CHILD', quantity: Number(child) }, { travellerType: 'SENIOR', quantity: Number(senior) }].filter((x) => x.quantity > 0), agentTenantId: agentTenantId || undefined }) })); } catch (e) { setError((e as Error).message); } }
+  async function load() {
+    try {
+      const [r, g] = await Promise.all([
+        api.request<Rule[]>("/admin/commercial-rules"),
+        api.request<Group[]>("/admin/agent-groups"),
+      ]);
+      setRules(r);
+      setGroups(g);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+    if (canManageGuardrails) {
+      try {
+        const guardrailConfig = await api.request<Guardrails>("/admin/settings/commercial-guardrails");
+        setGuardrails(guardrailConfig);
+        setMarginFloorDraft(String(guardrailConfig.minimumNetMarginPercent));
+        setWebsiteFeeDraft(String(guardrailConfig.websiteGatewayFeePercent));
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    }
+  }
+  useEffect(() => {
+    void load();
+  }, []);
+  function config() {
+    if (kind === "VOYA_REVENUE")
+      return {
+        model,
+        ...(model === "MARKUP_FIXED"
+          ? { fixedAmount: value }
+          : { percent: value }),
+      };
+    if (kind === "AGENT_COMMERCIAL")
+      return {
+        model,
+        ...(model === "NET_PLUS_MARKUP"
+          ? { markupAmount: value }
+          : model === "AGENT_SPECIFIC_PRICE"
+            ? { price: value }
+            : { commissionPercent: value }),
+      };
+    if (kind === "TAX")
+      return {
+        mode: "NONE",
+        rate: "0",
+        taxableBase: "AGENT_PRE_TAX",
+        accountableParty: "NONE",
+        roundingPolicy: "HALF_UP",
+      };
+    if (kind === "PROMOTION")
+      return {
+        discountType: "PERCENT",
+        value,
+        funder: "VOYA",
+        applicationStage: "PRE_TAX",
+      };
+    if (kind === "FOC")
+      return {
+        enabled: true,
+        qualifyingQuantity: 10,
+        freeQuantity: 1,
+        appliesTo: "ADULT",
+        funder: "SUPPLIER",
+      };
+    return { decision: "ALLOW" };
+  }
+  function scopeBody() {
+    const field: Record<string, string> = {
+      VENDOR: "vendorTenantId",
+      PRODUCT: "productId",
+      VARIANT: "variantId",
+      RATE_PLAN: "ratePlanId",
+      AGENT_GROUP: "agentGroupId",
+      AGENT: "agentTenantId",
+    };
+    return scopeType === "GLOBAL" ? {} : { [field[scopeType]]: scopeId };
+  }
+  async function createRule() {
+    setError("");
+    setNotice("");
+    try {
+      const rule = await api.request<Rule>("/admin/commercial-rules", {
+        method: "POST",
+        body: JSON.stringify({ code, name, kind, scopeType, ...scopeBody() }),
+      });
+      const version = await api.request<Version>(
+        `/admin/commercial-rules/${rule.id}/versions`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            effectiveFrom: new Date(effectiveFrom).toISOString(),
+            effectiveTo: effectiveTo
+              ? new Date(effectiveTo).toISOString()
+              : undefined,
+            config: config(),
+            priority: Number(priority),
+            stackingMode: "EXCLUSIVE",
+          }),
+        },
+      );
+      setNotice("Pricing rule submitted. It becomes active after a different Admin approves it.");
+      setCode("");
+      setName("");
+      setScopeId("");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function activate(id: string) {
+    try {
+      await api.request(`/admin/commercial-rule-versions/${id}/activate`, {
+        method: "POST",
+      });
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function archive(id: string) {
+    if (
+      !window.confirm("Archive this commercial rule and its active versions?")
+    )
+      return;
+    try {
+      await api.request(`/admin/commercial-rules/${id}/archive`, {
+        method: "POST",
+      });
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function createGroup() {
+    try {
+      await api.request("/admin/agent-groups", {
+        method: "POST",
+        body: JSON.stringify({ code: groupCode, name: groupName }),
+      });
+      setGroupCode("");
+      setGroupName("");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function addMember() {
+    try {
+      await api.request(`/admin/agent-groups/${memberGroupId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ agentTenantId }),
+      });
+      setAgentTenantId("");
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function removeMember(groupId: string, tenantId: string) {
+    try {
+      await api.request(`/admin/agent-groups/${groupId}/members/${tenantId}`, {
+        method: "DELETE",
+      });
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function runQuote() {
+    try {
+      setQuote(
+        await api.request("/admin/commercial/quote", {
+          method: "POST",
+          body: JSON.stringify({
+            ratePlanId,
+            serviceDate: new Date(serviceDate).toISOString(),
+            units: Number(units),
+            travellers: [
+              { travellerType: "ADULT", quantity: Number(adult) },
+              { travellerType: "CHILD", quantity: Number(child) },
+              { travellerType: "SENIOR", quantity: Number(senior) },
+            ].filter((x) => x.quantity > 0),
+            agentTenantId: agentTenantId || undefined,
+          }),
+        }),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function submitGuardrails() {
+    if (!guardrails) return;
+    setError(""); setNotice("");
+    try {
+      await api.request("/admin/settings/commercial-guardrails", {
+        method: "PATCH",
+        body: JSON.stringify({ minimumNetMarginPercent: Number(marginFloorDraft), websiteGatewayFeePercent: Number(websiteFeeDraft), expectedVersion: guardrails.version }),
+      });
+      setNotice("Commercial guardrails submitted for Super Admin approval. The current live values remain active until approval.");
+      await load();
+    } catch (e) { setError((e as Error).message); }
+  }
+  async function approveGuardrails() {
+    try {
+      await api.request("/admin/settings/commercial-guardrails/approve", { method: "POST" });
+      setNotice("Commercial guardrails approved and activated.");
+      await load();
+    } catch (e) { setError((e as Error).message); }
+  }
   if (loading) return <Loading />;
-  return <>{error && <ErrorBox error={error} />}<div className="admin-hero"><div><h2>Commercial control plane</h2><p className="muted">Effective-dated rules, agent groups and internal quote economics.</p></div></div>
-    <Panel title="Create commercial rule"><div className="form-grid four"><Field label="Code"><input value={code} onChange={(e) => setCode(e.target.value)} /></Field><Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} /></Field><Field label="Kind"><select value={kind} onChange={(e) => setKind(e.target.value)}><option>VOYA_REVENUE</option><option>AGENT_COMMERCIAL</option><option>TAX</option><option>PROMOTION</option><option>FOC</option><option>ELIGIBILITY</option></select></Field><Field label="Scope"><select value={scopeType} onChange={(e) => setScopeType(e.target.value)}><option>GLOBAL</option><option>VENDOR</option><option>PRODUCT</option><option>VARIANT</option><option>RATE_PLAN</option><option>AGENT_GROUP</option><option>AGENT</option></select></Field>{scopeType !== 'GLOBAL' && <Field label={`${scopeType} target`}><input value={scopeId} onChange={(e) => setScopeId(e.target.value)} placeholder="UUID" /></Field>}<Field label="Model / decision"><select value={model} onChange={(e) => setModel(e.target.value)}>{kind === 'VOYA_REVENUE' ? <><option>MARKUP_PERCENT</option><option>MARKUP_FIXED</option><option>COMMISSION_PERCENT</option></> : kind === 'AGENT_COMMERCIAL' ? <><option>NET_PLUS_MARKUP</option><option>SELLING_PRICE_COMMISSION</option><option>AGENT_SPECIFIC_PRICE</option></> : <option>ALLOW</option>}</select></Field><Field label="Percent / amount"><input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} /></Field><Field label="Effective from"><input type="datetime-local" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} /></Field><Field label="Effective to"><input type="datetime-local" value={effectiveTo} onChange={(e) => setEffectiveTo(e.target.value)} /></Field><Field label="Priority"><input type="number" value={priority} onChange={(e) => setPriority(e.target.value)} /></Field></div><p className="muted">Typed configuration is generated from the selected rule kind; unsupported supplier models are not offered.</p>{kind === 'FOC' && <p className="muted">FOC funding is currently executable only for SUPPLIER; Voya, agent, and shared formulas remain not-ready.</p>}<button className="btn primary" disabled={!code || !name || (scopeType !== 'GLOBAL' && !scopeId)} onClick={() => void createRule()}>Create and activate version</button></Panel>
-    <Panel title="Rules"><div className="listing-list">{rules.map((r) => <div className="listing-card" key={r.id}><b>{r.code} · {r.name}</b><span>{r.kind} · {r.scopeType}</span>{r.versions.map((v) => <div className="rate-meta" key={v.id}><span>v{v.versionNumber} · {v.status} · priority {v.priority}</span><small>{v.effectiveFrom} → {v.effectiveTo || 'open'}</small>{v.status === 'DRAFT' && <button className="btn small" onClick={() => void activate(v.id)}>Activate</button>}</div>)}<button className="btn small" onClick={() => void archive(r.id)}>Archive rule</button></div>)}</div>{!rules.length && <div className="empty">No commercial rules configured.</div>}</Panel>
-    <Panel title="Agent groups"><div className="form-grid three"><Field label="Group code"><input value={groupCode} onChange={(e) => setGroupCode(e.target.value)} /></Field><Field label="Group name"><input value={groupName} onChange={(e) => setGroupName(e.target.value)} /></Field><button className="btn primary" onClick={() => void createGroup()}>Create group</button></div><div className="listing-list">{groups.map((g) => <div className="listing-card" key={g.id}><b>{g.code} · {g.name}</b>{g.members.map((m) => <div className="rate-meta" key={m.agentTenant.id}><span>{m.agentTenant.name}</span><button className="btn small" onClick={() => void removeMember(g.id, m.agentTenant.id)}>Remove</button></div>)}</div>)}</div><div className="form-grid three"><Field label="Group"><select value={memberGroupId} onChange={(e) => setMemberGroupId(e.target.value)}><option value="">Select group</option>{groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></Field><Field label="TRAVEL_AGENT tenant ID"><input value={agentTenantId} onChange={(e) => setAgentTenantId(e.target.value)} /></Field><button className="btn" disabled={!memberGroupId || !agentTenantId} onClick={() => void addMember()}>Add member</button></div></Panel>
-    <Panel title="Internal quote simulator"><div className="form-grid four"><Field label="Rate plan ID"><input value={ratePlanId} onChange={(e) => setRatePlanId(e.target.value)} /></Field><Field label="Service date"><input type="datetime-local" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} /></Field><Field label="Units"><input type="number" min="1" value={units} onChange={(e) => setUnits(e.target.value)} /></Field><Field label="Agent tenant ID (optional)"><input value={agentTenantId} onChange={(e) => setAgentTenantId(e.target.value)} /></Field><Field label="Adults"><input type="number" min="0" value={adult} onChange={(e) => setAdult(e.target.value)} /></Field><Field label="Children"><input type="number" min="0" value={child} onChange={(e) => setChild(e.target.value)} /></Field><Field label="Seniors"><input type="number" min="0" value={senior} onChange={(e) => setSenior(e.target.value)} /></Field></div><button className="btn accent" disabled={!ratePlanId} onClick={() => void runQuote()}>Calculate quote</button>{quote && <><div className="form-grid four"><div><b>Supplier</b><p>{quote.supplier?.model || '—'} · basis {quote.supplier?.grossBasis || '—'}</p></div><div><b>Vendor payable</b><p>{quote.supplier?.vendorPayable || '—'}</p></div><div><b>Voya</b><p>{quote.voya?.revenue || '—'}</p></div><div><b>Agent</b><p>{quote.agent?.facingAmount || '—'}</p></div><div><b>Tax</b><p>{quote.tax?.mode || '—'} · {quote.tax?.amount || '—'}</p></div><div><b>Promotion</b><p>{quote.promotionAmount} · {quote.promotionFunder || '—'}</p></div><div><b>FOC</b><p>{quote.foc?.discountAmount || '0.00'}</p></div><div><b>Commercial eligibility</b><p>{quote.commercialEligibility}</p></div><div><b>Final</b><p>{quote.finalAmount}</p></div></div><p><b>Reason codes:</b> {quote.reasonCodes?.join(', ') || 'none'}</p><details><summary>Applied rule versions / raw trace</summary><pre className="json-preview">{JSON.stringify({ appliedRules: quote.appliedRules, calculationOutputs: quote.calculationOutputs }, null, 2)}</pre></details></>}</Panel>
-  </>;
+  return (
+    <>
+      {error && <ErrorBox error={error} />}
+      {notice && <div className="alert warning">{notice}</div>}
+      <div className="admin-hero">
+        <div>
+          <h2>Pricing &amp; margins</h2>
+          <p className="muted">
+            Rules decide the price on each channel and what we keep. The most
+            specific matching rule wins; guardrails always apply.
+          </p>
+        </div>
+      </div>
+      {guardrails && <Panel title="Commercial guardrails">
+        <p className="muted">Active values are used by marketplace eligibility, booking quotes, and the multi-supplier preview. Changes require a different Super Admin to approve.</p>
+        <div className="form-grid three">
+          <Field label="Minimum net margin (%)"><input type="number" min="0" max="100" step="0.1" value={marginFloorDraft} onChange={(event) => setMarginFloorDraft(event.target.value)} /></Field>
+          <Field label="Website gateway fee (%)"><input type="number" min="0" max="20" step="0.1" value={websiteFeeDraft} onChange={(event) => setWebsiteFeeDraft(event.target.value)} /></Field>
+          <div className="rate-meta"><span>Live · v{guardrails.version}</span><small>{guardrails.minimumNetMarginPercent}% margin · {guardrails.websiteGatewayFeePercent}% website fee</small></div>
+        </div>
+        {guardrails.pendingConfiguration && <div className="alert warning">
+          Pending approval: {guardrails.pendingConfiguration.minimumNetMarginPercent}% minimum margin · {guardrails.pendingConfiguration.websiteGatewayFeePercent}% website fee.
+          {canApprove && guardrails.pendingUpdatedById !== currentUserId && <button className="btn small" onClick={() => void approveGuardrails()}>Approve &amp; activate</button>}
+          {canApprove && guardrails.pendingUpdatedById === currentUserId && <span> A different Super Admin must approve your proposal.</span>}
+        </div>}
+        <button className="btn primary" disabled={Boolean(guardrails.pendingConfiguration) || !Number.isFinite(Number(marginFloorDraft)) || !Number.isFinite(Number(websiteFeeDraft))} onClick={() => void submitGuardrails()}>Submit guardrails for approval</button>
+      </Panel>}
+      <Panel title="Create commercial rule">
+        <div className="form-grid four">
+          <Field label="Code">
+            <input value={code} onChange={(e) => setCode(e.target.value)} />
+          </Field>
+          <Field label="Name">
+            <input value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Kind">
+            <select value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option>VOYA_REVENUE</option>
+              <option>AGENT_COMMERCIAL</option>
+              <option>TAX</option>
+              <option>PROMOTION</option>
+              <option>FOC</option>
+              <option>ELIGIBILITY</option>
+            </select>
+          </Field>
+          <Field label="Scope">
+            <select
+              value={scopeType}
+              onChange={(e) => setScopeType(e.target.value)}
+            >
+              <option>GLOBAL</option>
+              <option>VENDOR</option>
+              <option>PRODUCT</option>
+              <option>VARIANT</option>
+              <option>RATE_PLAN</option>
+              <option>AGENT_GROUP</option>
+              <option>AGENT</option>
+            </select>
+          </Field>
+          {scopeType !== "GLOBAL" && (
+            <Field label={`${scopeType} target`}>
+              <input
+                value={scopeId}
+                onChange={(e) => setScopeId(e.target.value)}
+                placeholder="UUID"
+              />
+            </Field>
+          )}
+          <Field label="Model / decision">
+            <select value={model} onChange={(e) => setModel(e.target.value)}>
+              {kind === "VOYA_REVENUE" ? (
+                <>
+                  <option>MARKUP_PERCENT</option>
+                  <option>MARKUP_FIXED</option>
+                  <option>COMMISSION_PERCENT</option>
+                </>
+              ) : kind === "AGENT_COMMERCIAL" ? (
+                <>
+                  <option>NET_PLUS_MARKUP</option>
+                  <option>SELLING_PRICE_COMMISSION</option>
+                  <option>AGENT_SPECIFIC_PRICE</option>
+                </>
+              ) : (
+                <option>ALLOW</option>
+              )}
+            </select>
+          </Field>
+          <Field label="Percent / amount">
+            <input
+              inputMode="decimal"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </Field>
+          <Field label="Effective from">
+            <SharedDatePicker
+              includeTime
+              value={effectiveFrom}
+              onChange={setEffectiveFrom}
+              placeholder="Effective from"
+              ariaLabel="Effective from"
+            />
+          </Field>
+          <Field label="Effective to">
+            <SharedDatePicker
+              includeTime
+              value={effectiveTo}
+              onChange={setEffectiveTo}
+              placeholder="Effective to"
+              ariaLabel="Effective to"
+            />
+          </Field>
+          <Field label="Priority">
+            <input
+              type="number"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            />
+          </Field>
+        </div>
+        <p className="muted">
+          Typed configuration is generated from the selected rule kind;
+          unsupported supplier models are not offered.
+        </p>
+        {kind === "FOC" && (
+          <p className="muted">
+            FOC funding is currently executable only for SUPPLIER; Voya, agent,
+            and shared formulas remain not-ready.
+          </p>
+        )}
+        <button
+          className="btn primary"
+          disabled={!code || !name || (scopeType !== "GLOBAL" && !scopeId)}
+          onClick={() => void createRule()}
+        >
+          Create draft version
+        </button>
+        <p className="muted">
+          An Admin other than the creator must approve a draft before it takes effect.
+        </p>
+      </Panel>
+      <Panel title="Rules">
+        <div className="listing-list">
+          {rules.map((r) => (
+            <div className="listing-card" key={r.id}>
+              <b>
+                {r.code} · {r.name}
+              </b>
+              <span>
+                {r.kind} · {r.scopeType}
+              </span>
+              {r.versions.map((v) => (
+                <div className="rate-meta" key={v.id}>
+                  <span>
+                    v{v.versionNumber} · {v.status} · priority {v.priority}
+                  </span>
+                  <small>
+                    {v.effectiveFrom} → {v.effectiveTo || "open"}
+                  </small>
+                  {v.status === "DRAFT" && canApprove && v.createdById !== currentUserId && (
+                    <button
+                      className="btn small"
+                      onClick={() => void activate(v.id)}
+                    >
+                      Approve &amp; activate
+                    </button>
+                  )}
+                  {v.status === "DRAFT" && canApprove && v.createdById === currentUserId && <small>A different Admin must approve this pricing rule.</small>}
+                </div>
+              ))}
+              <button className="btn small" onClick={() => void archive(r.id)}>
+                Archive rule
+              </button>
+            </div>
+          ))}
+        </div>
+        {!rules.length && (
+          <div className="empty">No commercial rules configured.</div>
+        )}
+      </Panel>
+      <Panel title="Agent groups">
+        <div className="form-grid three">
+          <Field label="Group code">
+            <input
+              value={groupCode}
+              onChange={(e) => setGroupCode(e.target.value)}
+            />
+          </Field>
+          <Field label="Group name">
+            <input
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+            />
+          </Field>
+          <button className="btn primary" onClick={() => void createGroup()}>
+            Create group
+          </button>
+        </div>
+        <div className="listing-list">
+          {groups.map((g) => (
+            <div className="listing-card" key={g.id}>
+              <b>
+                {g.code} · {g.name}
+              </b>
+              {g.members.map((m) => (
+                <div className="rate-meta" key={m.agentTenant.id}>
+                  <span>{m.agentTenant.name}</span>
+                  <button
+                    className="btn small"
+                    onClick={() => void removeMember(g.id, m.agentTenant.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="form-grid three">
+          <Field label="Group">
+            <select
+              value={memberGroupId}
+              onChange={(e) => setMemberGroupId(e.target.value)}
+            >
+              <option value="">Select group</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="TRAVEL_AGENT tenant ID">
+            <input
+              value={agentTenantId}
+              onChange={(e) => setAgentTenantId(e.target.value)}
+            />
+          </Field>
+          <button
+            className="btn"
+            disabled={!memberGroupId || !agentTenantId}
+            onClick={() => void addMember()}
+          >
+            Add member
+          </button>
+        </div>
+      </Panel>
+      <Panel title="Internal quote simulator">
+        <div className="form-grid four">
+          <Field label="Rate plan ID">
+            <input
+              value={ratePlanId}
+              onChange={(e) => setRatePlanId(e.target.value)}
+            />
+          </Field>
+          <Field label="Service date">
+            <SharedDatePicker
+              includeTime
+              value={serviceDate}
+              onChange={setServiceDate}
+              placeholder="Service date"
+              ariaLabel="Service date"
+            />
+          </Field>
+          <Field label="Units">
+            <input
+              type="number"
+              min="1"
+              value={units}
+              onChange={(e) => setUnits(e.target.value)}
+            />
+          </Field>
+          <Field label="Agent tenant ID (optional)">
+            <input
+              value={agentTenantId}
+              onChange={(e) => setAgentTenantId(e.target.value)}
+            />
+          </Field>
+          <Field label="Adults">
+            <input
+              type="number"
+              min="0"
+              value={adult}
+              onChange={(e) => setAdult(e.target.value)}
+            />
+          </Field>
+          <Field label="Children">
+            <input
+              type="number"
+              min="0"
+              value={child}
+              onChange={(e) => setChild(e.target.value)}
+            />
+          </Field>
+          <Field label="Seniors">
+            <input
+              type="number"
+              min="0"
+              value={senior}
+              onChange={(e) => setSenior(e.target.value)}
+            />
+          </Field>
+        </div>
+        <button
+          className="btn accent"
+          disabled={!ratePlanId}
+          onClick={() => void runQuote()}
+        >
+          Calculate quote
+        </button>
+        {quote && (
+          <>
+            <div className="form-grid four">
+              <div>
+                <b>Supplier</b>
+                <p>
+                  {quote.supplier?.model || "—"} · basis{" "}
+                  {quote.supplier?.grossBasis || "—"}
+                </p>
+              </div>
+              <div>
+                <b>Vendor payable</b>
+                <p>{quote.supplier?.vendorPayable || "—"}</p>
+              </div>
+              <div>
+                <b>Voya</b>
+                <p>{quote.voya?.revenue || "—"}</p>
+              </div>
+              <div>
+                <b>Agent</b>
+                <p>{quote.agent?.facingAmount || "—"}</p>
+              </div>
+              <div>
+                <b>Tax</b>
+                <p>
+                  {quote.tax?.mode || "—"} · {quote.tax?.amount || "—"}
+                </p>
+              </div>
+              <div>
+                <b>Promotion</b>
+                <p>
+                  {quote.promotionAmount} · {quote.promotionFunder || "—"}
+                </p>
+              </div>
+              <div>
+                <b>FOC</b>
+                <p>{quote.foc?.discountAmount || "0.00"}</p>
+              </div>
+              <div>
+                <b>Commercial eligibility</b>
+                <p>{quote.commercialEligibility}</p>
+              </div>
+              <div>
+                <b>Final</b>
+                <p>{quote.finalAmount}</p>
+              </div>
+            </div>
+            <p>
+              <b>Reason codes:</b> {quote.reasonCodes?.join(", ") || "none"}
+            </p>
+            <details>
+              <summary>Applied rule versions / raw trace</summary>
+              <pre className="json-preview">
+                {JSON.stringify(
+                  {
+                    appliedRules: quote.appliedRules,
+                    calculationOutputs: quote.calculationOutputs,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+            </details>
+          </>
+        )}
+      </Panel>
+    </>
+  );
 }

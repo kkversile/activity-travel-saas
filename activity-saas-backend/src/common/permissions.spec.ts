@@ -39,6 +39,13 @@ describe('Phase 1 permission matrix', () => {
     expect(hasPermission(agent, 'payout.view')).toBe(false);
   });
 
+  it('lets normal admins participate in maker-checker payout requests without the old one-step release permission', () => {
+    expect(hasPermission(user(UserRole.ADMIN), 'payout.release.request')).toBe(true);
+    expect(hasPermission(user(UserRole.ADMIN), 'payout.release.approve')).toBe(true);
+    expect(hasPermission(user(UserRole.ADMIN), 'payout.release')).toBe(false);
+    expect(hasPermission(user(UserRole.SUPER_ADMIN), 'payout.release')).toBe(true);
+  });
+
   it('applies the explicit Agent organization matrix', () => {
     for (const role of [OrganizationRole.OWNER, OrganizationRole.CATALOGUE, OrganizationRole.OPERATIONS, OrganizationRole.VIEWER]) {
       expect(hasPermission(user(UserRole.TRAVEL_AGENT, role), 'marketplace.search')).toBe(true);

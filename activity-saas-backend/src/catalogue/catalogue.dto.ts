@@ -1,7 +1,7 @@
 import { BookingMode, BookingQuestionType, CapacityUnit, ChargeType, EvidenceMatchMode, FulfilmentEvidenceKind, FulfilmentMode, MeetingModel, MediaKind, OperatingModel, PricingUnit, ProductRevisionStatus, ProductType, SupplierCommercialModel, TravellerType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { OmitType, PartialType } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsDateString, IsDefined, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsDefined, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class ProductFulfilmentPolicyDto {
   @IsOptional() @IsEnum(FulfilmentMode) mode?: FulfilmentMode;
@@ -21,13 +21,16 @@ export class ProductRevisionDto {
   @IsString() productName!: string;
   @IsEnum(ProductType) type!: ProductType;
   @IsString() subType!: string;
+  @IsOptional() @IsString() category?: string;
   @IsOptional() @IsEnum(MeetingModel) meetingModel?: MeetingModel;
   @IsOptional() @IsString() meetingPoint?: string;
+  @IsOptional() @IsObject() sourcePayload?: Record<string, unknown>;
   @IsString() description!: string;
   @IsOptional() @IsString() shortDescription?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) terms?: string[];
   @IsOptional() @IsArray() faqs?: Array<{ question: string; answer: string }>;
   @IsOptional() @IsArray() @IsString({ each: true }) highlights?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) channels?: string[];
   @IsOptional() @Type(() => Number) @IsInt() highlightedPriority?: number;
   @IsOptional() @IsBoolean() isHotelLinked?: boolean;
   @IsOptional() @IsArray() @IsString({ each: true }) attachedHotelIds?: string[];
@@ -49,7 +52,22 @@ export class ProductRevisionDto {
   @IsString() cityName!: string;
   @IsString() countryName!: string;
   @IsString() stateName!: string;
-  @IsOptional() @IsObject() sourcePayload?: Record<string, unknown>;
+  @IsOptional() @IsString() durationValue?: string;
+  @IsOptional() @IsString() durationUnit?: string;
+  @IsOptional() @IsString() guideIncluded?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) guideLanguages?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) included?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) notIncluded?: string[];
+  @IsOptional() @IsString() endPoint?: string;
+  @IsOptional() @IsString() thingsToKnow?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) accessibility?: string[];
+  @IsOptional() @IsBoolean() followItinerary?: boolean;
+  @IsOptional() @IsString() voucherCodeSource?: string;
+  @IsOptional() @IsString() voucherAcceptedAs?: string;
+  @IsOptional() @IsString() voucherInstructions?: string;
+  @IsOptional() @IsString() cancellationPreset?: string;
+  @IsOptional() @IsString() travellerDetails?: string;
+  @IsOptional() @IsString() amendmentPolicy?: string;
   @IsOptional() @ValidateNested() @Type(() => ProductFulfilmentPolicyDto) fulfilmentPolicy?: ProductFulfilmentPolicyDto;
 }
 
@@ -68,13 +86,45 @@ export class CreateProductDraftDto {
   @IsOptional() @IsString() @Matches(/^[A-Za-z]{3}$/) currency?: string;
   @IsEnum(ProductType) type!: ProductType;
   @IsString() @MinLength(2) subType!: string;
+  @IsOptional() @IsString() category?: string;
   @IsOptional() @IsString() subCategory?: string;
   @IsOptional() @IsString() shortDescription?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) highlights?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) channels?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) terms?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) importantInfo?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) thingsToCarry?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) safetyMeasures?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) additionalInfo?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) howToRedeem?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) labels?: string[];
+  @IsOptional() @IsString() metaname?: string;
   @IsOptional() @IsString() cityName?: string;
   @IsOptional() @IsString() stateName?: string;
   @IsOptional() @IsString() countryName?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() lat?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() lon?: number;
   @IsOptional() @IsEnum(MeetingModel) meetingModel?: MeetingModel;
   @IsOptional() @IsString() meetingPoint?: string;
+  @IsOptional() @IsString() durationValue?: string;
+  @IsOptional() @IsString() durationUnit?: string;
+  @IsOptional() @IsString() guideIncluded?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) guideLanguages?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) included?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) notIncluded?: string[];
+  @IsOptional() @IsString() endPoint?: string;
+  @IsOptional() @IsString() thingsToKnow?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) accessibility?: string[];
+  @IsOptional() @IsBoolean() followItinerary?: boolean;
+  @IsOptional() @IsString() voucherCodeSource?: string;
+  @IsOptional() @IsString() voucherAcceptedAs?: string;
+  @IsOptional() @IsString() voucherInstructions?: string;
+  @IsOptional() @IsString() cancellationPreset?: string;
+  @IsOptional() @IsString() travellerDetails?: string;
+  @IsOptional() @IsString() amendmentPolicy?: string;
+  @IsOptional() @IsObject() sourcePayload?: Record<string, unknown>;
   /** Only the browser workbook/JSON importer sets these fields. */
   @IsOptional() @IsBoolean() importMode?: boolean;
   @IsOptional() @IsString() sourceImportKey?: string;
@@ -90,6 +140,8 @@ export class UpdateProductCurrencyDto {
  * canonical catalogue APIs, while this DTO still rejects unknown top-level
  * sections through the global ValidationPipe.
  */
+const MONEY = /^\d+(\.\d{1,4})?$/;
+
 export class ImportProductJsonDto {
   @IsOptional() @IsArray() @IsString({ each: true }) README?: string[];
   @IsOptional() @IsArray() @IsObject({ each: true }) Basic_Info?: Array<Record<string, unknown>>;
@@ -100,6 +152,34 @@ export class ImportProductJsonDto {
   @IsOptional() @IsArray() @IsObject({ each: true }) Media?: Array<Record<string, unknown>>;
   @IsOptional() @IsArray() @IsObject({ each: true }) Booking_Questions?: Array<Record<string, unknown>>;
   @IsOptional() @IsArray() @IsObject({ each: true }) Fulfilment?: Array<Record<string, unknown>>;
+  @IsOptional() @IsArray() @IsObject({ each: true }) Ticket_Types?: Array<Record<string, unknown>>;
+}
+
+export class ImportProductBatchDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => ImportProductJsonDto)
+  products!: ImportProductJsonDto[];
+}
+
+export class VendorBulkRateUpdateRowDto {
+  @IsString() productCode!: string;
+  @IsString() optionCode!: string;
+  @IsDateString() validFrom!: string;
+  @IsDateString() validTo!: string;
+  @IsOptional() @IsEnum(PricingUnit) pricingUnit?: PricingUnit;
+  @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsEnum(BookingMode) bookingMode?: BookingMode;
+  @IsOptional() @IsEnum(SupplierCommercialModel) supplierModel?: SupplierCommercialModel;
+  @IsOptional() @IsString() @Matches(MONEY) adultSellInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY) childSellInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY) seniorSellInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY) baseSellInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY) mrpInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY) supplierBaseAmount?: string;
+}
+
+export class VendorBulkRateUpdateDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(2000) @ValidateNested({ each: true }) @Type(() => VendorBulkRateUpdateRowDto)
+  rows!: VendorBulkRateUpdateRowDto[];
 }
 
 export class CreateProductRevisionDto {
@@ -140,6 +220,11 @@ export class ProductMediaDto {
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() seoTitle?: string;
   @IsOptional() @IsString() seoDescription?: string;
+  @IsOptional() @IsString() sourceType?: string;
+  @IsOptional() @IsUrl() sourceUrl?: string;
+  @IsOptional() @IsString() rightsStatus?: string;
+  @IsOptional() @IsString() rightsNote?: string;
+  @IsOptional() @IsString() providerPlaceId?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) rank?: number;
 }
 
@@ -191,8 +276,6 @@ export class ArchiveVariantDto {
 }
 
 export class RejectProductRevisionDto { @IsString() @MinLength(5) reason!: string; }
-
-const MONEY = /^\d+(\.\d{1,4})?$/;
 
 export class ActivityTravellerPriceDto {
   @IsEnum(TravellerType) travellerType!: TravellerType;
@@ -266,6 +349,17 @@ export class ActivityPriceOptionDto {
   @IsOptional() @IsIn(visitorEligibilityBases) visitorEligibilityBasis?: VisitorEligibilityBasis;
   @IsOptional() @IsIn(visitorVerificationModes) visitorVerificationMode?: VisitorVerificationMode;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ActivityCancellationRuleDto) cancellationRules?: ActivityCancellationRuleDto[];
+  /** Prototype commercial fields retained in the version source payload. */
+  @IsOptional() @IsIn(['YES', 'NO']) mrpMode?: 'YES' | 'NO';
+  /** Published MRP / gate price used to ensure every sell price stays within the supplier's public price. */
+  @IsOptional() @IsString() @Matches(MONEY) mrpAmount?: string;
+  @IsOptional() @IsString() mrpProof?: string;
+  @IsOptional() @IsArray() @IsObject({ each: true }) ratePeriods?: Array<Record<string, unknown>>;
+  @IsOptional() @IsIn(['SLOT', 'DATE', 'OPEN']) availabilityBookingType?: 'SLOT' | 'DATE' | 'OPEN';
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) openDatedValidityDays?: number;
+  @IsOptional() @IsArray() @IsDateString({}, { each: true }) availabilityBlackouts?: string[];
+  /** Calendar status by ISO date, persisted with the version so the builder can restore Open/Low/Sold out/Blackout. */
+  @IsOptional() @IsObject() availabilityStates?: Record<string, 'OPEN' | 'LOW' | 'SOLD_OUT' | 'BLACKOUT'>;
   @IsOptional() @ValidateNested() @Type(() => ActivityAvailabilityDto) availability?: ActivityAvailabilityDto;
 }
 

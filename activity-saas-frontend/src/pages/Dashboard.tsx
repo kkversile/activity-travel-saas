@@ -4,7 +4,7 @@ import { Badge, ErrorBox, Loading, money, Panel, shortDate } from '../components
 
 type Summary = {
   bookingsToday: number;
-  revenueMtd: number;
+  vendorNetEarningsMtd: number;
   pendingBookings: number;
   cancellationRate: number;
   listings: number;
@@ -29,7 +29,7 @@ export default function Dashboard() {
   return <>
     <div className="kpi-row">
       <div className="kpi-card"><span>Bookings Today</span><strong>{data.bookingsToday}</strong><small>{data.vendorActionRequiredBookings} need your action</small></div>
-      <div className="kpi-card"><span>Revenue (MTD)</span><strong>{money(data.revenueMtd)}</strong><small>Confirmed + completed</small></div>
+      <div className="kpi-card"><span>You receive · {new Intl.DateTimeFormat('en', { month: 'short' }).format(new Date())}</span><strong>{money(data.vendorNetEarningsMtd)}</strong><small>Vendor payable on confirmed + completed bookings</small></div>
       <div className="kpi-card"><span>Avg Response Time</span><strong>{data.responseTimeMinutes === null ? 'Not available' : `${data.responseTimeMinutes} min`}</strong><small>Measured from vendor responses</small></div>
       <div className="kpi-card"><span>Cancellation Rate</span><strong>{data.cancellationRate}%</strong><small>Monthly booking ratio</small></div>
     </div>

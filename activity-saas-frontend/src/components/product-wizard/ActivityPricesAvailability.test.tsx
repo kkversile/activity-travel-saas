@@ -89,7 +89,7 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     });
     expect(basePrice).toHaveValue(3600);
     expect(screen.getByLabelText('Max passengers / resource')).toHaveValue(8);
-    expect(screen.getAllByLabelText('Cutoff (minutes)').at(-1)).toHaveValue(45);
+    expect(screen.getAllByLabelText('Booking cut-off (hours)').at(-1)).toHaveValue(45);
   });
 
   it('sends booking-rule edits through the shared create/edit save request', async () => {

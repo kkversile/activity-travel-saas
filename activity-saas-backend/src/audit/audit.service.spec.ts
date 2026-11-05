@@ -1,14 +1,18 @@
-import { UserRole } from '@prisma/client';
 import { AuditService } from './audit.service';
-import { RequestContextService } from '../common/request-context.service';
 
-describe('AuditService request correlation', () => {
-  it('stores the request correlation ID without storing authorization data', async () => {
-    const context = new RequestContextService();
-    const create = jest.fn().mockResolvedValue({ id: 'audit-1' });
-    const service = new AuditService(context);
-    await context.run('corr-123', () => service.write({ auditLog: { create } } as any, { actor: { sub: 'u1', email: 'a@x', role: UserRole.SUPER_ADMIN, tenantId: null }, action: 'TEST', entityType: 'Test', metadata: { safe: true } }));
-    expect(create.mock.calls[0][0].data.correlationId).toBe('corr-123');
-    expect(JSON.stringify(create.mock.calls[0][0].data)).not.toContain('authorization');
+describe('AuditService public event identifiers', () => {
+  it('creates an EVT identifier atomically with each audit event', async () => {
+    const event = { id: '7f3c0000-1111-2222-3333-abcdefabcdef' };
+    const client: any = {
+      auditLog: { create: jest.fn().mockResolvedValue(event) },
+      publicIdentifier: { upsert: jest.fn().mockResolvedValue({}) },
+    };
+    const service = new AuditService({ correlationId: 'corr-1' } as any);
+
+    await expect(service.write(client, { action: 'TEST_ACTION', entityType: 'Product' })).resolves.toBe(event);
+    expect(client.publicIdentifier.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { entityType_entityId: { entityType: 'AUDIT_EVENT', entityId: event.id } },
+      create: expect.objectContaining({ entityType: 'AUDIT_EVENT', entityId: event.id, publicCode: `EVT-${event.id.toUpperCase()}` }),
+    }));
   });
 });

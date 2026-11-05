@@ -49,7 +49,7 @@ export class VendorController {
   @ApiBody({ schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary', description: 'PDF, JPEG, or PNG document' } } } })
   @Permissions('document.upload')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 }, fileFilter: (_request, file, callback) => callback(null, ['application/pdf', 'image/jpeg', 'image/png'].includes(file.mimetype)) }))
-  uploadDocument(@CurrentUser() user: AuthUser, @Param('key') key: string, @UploadedFile() file: { buffer: Buffer; mimetype: string; size: number; originalname: string }) {
-    return this.service.uploadDocument(user, key, file);
+  uploadDocument(@CurrentUser() user: AuthUser, @Param('key') key: string, @UploadedFile() file: { buffer: Buffer; mimetype: string; size: number; originalname: string }, @Body('expiresAt') expiresAt?: string) {
+    return this.service.uploadDocument(user, key, file, expiresAt);
   }
 }

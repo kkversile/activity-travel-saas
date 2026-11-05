@@ -1,0 +1,1 @@
+ALTER TABLE "AgentWalletLedger" ADD COLUMN "paymentMethod" TEXT NOT NULL DEFAULT 'MANUAL';

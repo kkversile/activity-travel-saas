@@ -1,7 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { BookingFulfilmentStatus, BookingStatus, FilePurpose, FileVisibility, FulfilmentEvidenceStatus, Prisma, VoucherGenerationStatus, VoucherVersionStatus } from '@prisma/client';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -48,33 +48,40 @@ export class VoucherGenerationService {
     }, { timeout: 30000, maxWait: 30000 });
   }
 
-  buildPayload(booking: any, fulfilment: any) { return this.payload({ booking, ...fulfilment, evidence: fulfilment.evidence ?? [], generationToken: 'preview', claimVersion: fulfilment.version, targetVersionNumber: 1, targetVoucherCode: `VCH-${booking.bookingCode}-V1`, claimGeneratedAt: new Date() }); }
+  buildPayload(booking: any, fulfilment: any) { return this.payload({ booking, ...fulfilment, evidence: fulfilment.evidence ?? [], generationToken: 'preview', claimVersion: fulfilment.version, targetVersionNumber: 1, targetVoucherCode: this.newVoucherCode(booking.vendorTenant?.vendorProfile?.voucherShortCode ?? 'VOY'), claimGeneratedAt: new Date() }); }
+
+  private newVoucherCode(shortCode: string) {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = randomBytes(8);
+    const suffix = Array.from(bytes, (byte) => alphabet[byte & 31]).join('');
+    return `${shortCode}-${suffix.slice(0, 4)}-${suffix.slice(4)}`;
+  }
 
   private async claim() {
     return this.prisma.$transaction(async (tx) => {
       const now = new Date();
       const rows: any[] = await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "public"."BookingFulfilment" WHERE "status" = 'READY_FOR_VOUCHER' AND ("generationStatus" = 'PENDING' OR ("generationStatus" = 'PROCESSING' AND ("generationLeaseExpiresAt" IS NULL OR "generationLeaseExpiresAt" <= ${now}))) ORDER BY "generationRequestedAt" ASC NULLS LAST FOR UPDATE SKIP LOCKED LIMIT 1`);
       if (!rows[0]) return null;
-      const current: any = await tx.bookingFulfilment.findUnique({ where: { id: rows[0].id }, include: { booking: { include: { operationalSnapshot: true, travellers: { orderBy: { sequence: 'asc' } } } }, evidence: { where: { status: FulfilmentEvidenceStatus.CURRENT }, orderBy: { kind: 'asc' } } } });
+      const current: any = await tx.bookingFulfilment.findUnique({ where: { id: rows[0].id }, include: { booking: { include: { operationalSnapshot: true, travellers: { orderBy: { sequence: 'asc' } }, vendorTenant: { include: { vendorProfile: { select: { voucherShortCode: true } } } } } }, evidence: { where: { status: FulfilmentEvidenceStatus.CURRENT }, orderBy: { kind: 'asc' } } } });
       if (!current) return null;
       const targetVersionNumber = ((await tx.voucherVersion.aggregate({ where: { bookingId: current.bookingId }, _max: { versionNumber: true } }))._max.versionNumber ?? 0) + 1;
       const generationToken = randomUUID(); const claimGeneratedAt = new Date();
       const updated: any = await tx.bookingFulfilment.update({ where: { id: current.id }, data: { generationStatus: VoucherGenerationStatus.PROCESSING, generationToken, generationClaimedAt: claimGeneratedAt, generationLeaseExpiresAt: new Date(claimGeneratedAt.getTime() + LEASE_MS), generationAttempts: { increment: 1 }, version: { increment: 1 } }, include: { booking: { include: { operationalSnapshot: true, travellers: { orderBy: { sequence: 'asc' } } } }, evidence: { where: { status: FulfilmentEvidenceStatus.CURRENT }, orderBy: { kind: 'asc' } } } });
-      return { ...updated, generationToken, claimVersion: updated.version, targetVersionNumber, targetVoucherCode: `VCH-${current.booking.bookingCode}-V${targetVersionNumber}`, claimGeneratedAt };
+      return { ...updated, generationToken, claimVersion: updated.version, targetVersionNumber, targetVoucherCode: this.newVoucherCode(updated.booking.vendorTenant?.vendorProfile?.voucherShortCode ?? 'VOY'), claimGeneratedAt };
     }, { timeout: 30000, maxWait: 30000 });
   }
 
   private payload(job: any) {
     const snapshot: any = job.booking.operationalSnapshot; const policy: any = snapshot?.fulfilmentPolicySnapshot;
     const evidence = (job.evidence ?? []).filter((item: any) => item.status === FulfilmentEvidenceStatus.CURRENT && item.travellerVisible);
-    const base = { voucherCode: job.targetVoucherCode, voucherVersion: job.targetVersionNumber, bookingCode: job.booking.bookingCode, productName: snapshot?.productSnapshot?.productName ?? 'Activity', variantName: snapshot?.variantSnapshot?.name ?? 'Selected option', serviceDate: job.booking.serviceDate, localStartTime: snapshot?.sessionSnapshot?.localStartTime ?? null, timezone: snapshot?.sessionSnapshot?.timezone ?? job.booking.serviceTimezone ?? 'UTC', meetingPoint: snapshot?.pickupSnapshot ?? null, pax: job.booking.pax, travellerSummary: snapshot?.travellerSummary ?? job.booking.paxBreakdown, leadTravellerName: job.booking.travellers?.find((item: any) => item.isLead)?.fullName ?? null, evidence: evidence.map((item: any) => ({ kind: item.kind, referenceValue: item.referenceValue?.trim() || null, fileAssetId: item.fileAssetId ?? null, versionNumber: item.versionNumber })), howToRedeem: policy?.howToRedeem ?? [], emergencyContact: policy?.emergencyContact ?? null, operationsContact: policy?.operationsContact ?? null, voucherNotes: policy?.voucherNotes ?? [], agentOrganization: snapshot?.agentSnapshot?.tenantName ?? null, sourceEvidenceFingerprint: evidenceFingerprint(job.evidence ?? []), generatedAt: (job.claimGeneratedAt ?? new Date()).toISOString() };
+    const base = { voucherCode: job.targetVoucherCode, voucherVersion: job.targetVersionNumber, bookingCode: job.booking.bookingCode, productName: snapshot?.productSnapshot?.productName ?? 'Activity', variantName: snapshot?.variantSnapshot?.name ?? 'Selected option', serviceDate: job.booking.serviceDate, localStartTime: snapshot?.sessionSnapshot?.localStartTime ?? null, timezone: snapshot?.sessionSnapshot?.timezone ?? job.booking.serviceTimezone ?? 'UTC', meetingPoint: snapshot?.pickupSnapshot ?? null, pax: job.booking.pax, travellerSummary: snapshot?.travellerSummary ?? job.booking.paxBreakdown, leadTravellerName: job.booking.travellers?.find((item: any) => item.isLead)?.fullName ?? null, evidence: evidence.map((item: any) => ({ kind: item.kind, referenceValue: item.referenceValue?.trim() || null, fileAssetId: item.fileAssetId ?? null, versionNumber: item.versionNumber })), howToRedeem: policy?.voucherInstructions ? [policy.voucherInstructions] : (policy?.howToRedeem ?? []), voucherCodeSource: policy?.voucherCodeSource ?? null, voucherAcceptedAs: policy?.voucherAcceptedAs ?? null, emergencyContact: policy?.emergencyContact ?? null, operationsContact: policy?.operationsContact ?? null, voucherNotes: policy?.voucherNotes ?? [], agentOrganization: snapshot?.agentSnapshot?.tenantName ?? null, sourceEvidenceFingerprint: evidenceFingerprint(job.evidence ?? []), generatedAt: (job.claimGeneratedAt ?? new Date()).toISOString() };
     return { ...base, contentFingerprint: this.contentFingerprint(base) };
   }
 
   private async pdf(payload: any) {
     const document = await PDFDocument.create(); const page = document.addPage([595, 842]); const font = await document.embedFont(StandardFonts.Helvetica); const bold = await document.embedFont(StandardFonts.HelveticaBold); let y = 790;
     const line = (value: string, size = 10, strong = false) => { page.drawText(value.slice(0, 100), { x: 48, y, size, font: strong ? bold : font, color: rgb(0.08, 0.14, 0.2) }); y -= size + 9; };
-    line('VOYA TRAVELLER VOUCHER', 20, true); line(`Voucher ${payload.voucherCode}`, 11, true); line(`Booking ${payload.bookingCode}`); y -= 8; line(payload.productName, 15, true); line(payload.variantName); line(`Service date: ${String(payload.serviceDate).slice(0, 10)} ${payload.localStartTime ?? ''} ${payload.timezone}`); line(`Travellers: ${payload.pax} (${JSON.stringify(payload.travellerSummary)})`); if (payload.leadTravellerName) line(`Lead traveller: ${payload.leadTravellerName}`); y -= 8; line('Traveller-safe ticket / evidence', 12, true); for (const item of payload.evidence) if (item.referenceValue) line(`${item.kind}: ${item.referenceValue}`); y -= 8; if (payload.howToRedeem.length) { line('How to redeem', 12, true); for (const item of payload.howToRedeem) line(`• ${item}`); } if (payload.emergencyContact?.name || payload.operationsContact?.name) { line('Operational contacts', 12, true); line(`${payload.operationsContact?.name ?? ''} ${payload.operationsContact?.phone ?? ''}`); line(`${payload.emergencyContact?.name ?? ''} ${payload.emergencyContact?.phone ?? ''}`); } line(`Version ${payload.voucherVersion} · Generated ${payload.generatedAt}`); return Buffer.from(await document.save());
+    line('VOYA TRAVELLER VOUCHER', 20, true); line(`Voucher ${payload.voucherCode}`, 11, true); line(`Booking ${payload.bookingCode}`); y -= 8; line(payload.productName, 15, true); line(payload.variantName); line(`Service date: ${String(payload.serviceDate).slice(0, 10)} ${payload.localStartTime ?? ''} ${payload.timezone}`); line(`Travellers: ${payload.pax} (${JSON.stringify(payload.travellerSummary)})`); if (payload.leadTravellerName) line(`Lead traveller: ${payload.leadTravellerName}`); if (payload.voucherCodeSource) line(`Code source: ${payload.voucherCodeSource}`); if (payload.voucherAcceptedAs) line(`Accepted as: ${payload.voucherAcceptedAs}`); y -= 8; line('Traveller-safe ticket / evidence', 12, true); for (const item of payload.evidence) if (item.referenceValue) line(`${item.kind}: ${item.referenceValue}`); y -= 8; if (payload.howToRedeem.length) { line('How to redeem', 12, true); for (const item of payload.howToRedeem) line(`• ${item}`); } if (payload.emergencyContact?.name || payload.operationsContact?.name) { line('Operational contacts', 12, true); line(`${payload.operationsContact?.name ?? ''} ${payload.operationsContact?.phone ?? ''}`); line(`${payload.emergencyContact?.name ?? ''} ${payload.emergencyContact?.phone ?? ''}`); } line(`Version ${payload.voucherVersion} · Generated ${payload.generatedAt}`); return Buffer.from(await document.save());
   }
 
   private async finalize(fulfilmentId: string, claimToken: string, claimVersion: number, payload: any, stored: { storageKey: string; sizeBytes: number }) {
