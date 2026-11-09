@@ -784,3 +784,26 @@ body:has(.partner-app-shell)::-webkit-scrollbar-thumb,.partner-app-shell *::-web
   .partner-product-builder-shell .partner-editor-card .mrp-proof-fields { width:100%; grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 900px) { .partner-bulk-steps { grid-template-columns: 1fr; } .partner-bulk-steps .panel-body { min-height: 0; } }
+
+.partner-product-builder-shell .partner-editor-card .experience-form-grid textarea.meeting-instructions-field,
+.partner-app-shell .partner-editor-card .experience-form-grid textarea.meeting-instructions-field {
+  min-height: 88px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.partner-product-builder-shell .experience-step-requirement,
+.partner-app-shell .experience-step-requirement {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #60451f;
+  border-left: 3px solid #f0a040;
+  border-radius: 6px;
+  background: #261f15;
+  color: #f5c370;
+  font: 500 13px/1.45 "IBM Plex Sans", Inter, sans-serif;
+}
+.partner-product-builder-shell .experience-step-footer .btn:disabled,
+.partner-app-shell .experience-step-footer .btn:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
