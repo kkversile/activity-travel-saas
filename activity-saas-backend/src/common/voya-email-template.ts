@@ -7,11 +7,11 @@ function escapeHtml(value: string) {
 export function renderVoyaVendorEmailCodeHtml(code: string, purpose: EmailAuthChallengePurpose) {
   const isPasswordReset = purpose === EmailAuthChallengePurpose.RESET_VENDOR_PASSWORD;
     const isLogin = purpose === EmailAuthChallengePurpose.LOGIN_VENDOR;
-    const eyebrow = isPasswordReset ? 'PASSWORD RESET' : isLogin ? 'NEW DEVICE SIGN-IN' : 'VENDOR ACCESS';
-    const heading = isPasswordReset ? 'Reset your Voya vendor password' : isLogin ? 'Verify your new device' : 'Complete your Voya vendor access';
+    const eyebrow = isPasswordReset ? 'PASSWORD RESET' : isLogin ? 'SIGN-IN CODE' : 'VENDOR ACCESS';
+    const heading = isPasswordReset ? 'Reset your Voya vendor password' : isLogin ? 'Your Voya sign-in code' : 'Complete your Voya vendor access';
     const intro = isPasswordReset
     ? 'Use the verification code below to continue resetting your Voya vendor password.'
-      : isLogin ? 'Use the verification code below to sign in from this new device. This device will be trusted for one year.' : 'Use the verification code below to verify your email and continue to your Voya vendor console.';
+      : isLogin ? 'Use the verification code below to sign in to your Voya vendor account.' : 'Use the verification code below to verify your email and continue to your Voya vendor console.';
 
   return `<!doctype html>
 <html lang="en">

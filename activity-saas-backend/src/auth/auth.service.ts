@@ -40,23 +40,6 @@ export class AuthService {
     if (!user || !user.active || !(await compare(dto.password, user.passwordHash))) {
       throw new UnauthorizedException('Invalid email/mobile or password');
     }
-    if (user.role === UserRole.VENDOR && user.tenantId) {
-      const preference = await this.prisma.globalSetting.findFirst({ where: { tenantId: user.tenantId, key: 'vendor_notification_preferences' }, select: { value: true } });
-      const preferenceValue = preference?.value && typeof preference.value === 'object' ? preference.value as Record<string, unknown> : {};
-      if (preferenceValue.twoStepVerification !== false) {
-        const tokenHash = dto.deviceToken ? hashOtp(dto.deviceToken) : '';
-        const trusted = tokenHash ? await this.prisma.vendorTrustedDevice.findFirst({ where: { userId: user.id, tokenHash, expiresAt: { gt: new Date() } }, select: { id: true } }) : null;
-        if (trusted) await this.prisma.vendorTrustedDevice.update({ where: { id: trusted.id }, data: { lastUsedAt: new Date() } });
-        else {
-          const recent = await this.prisma.emailAuthChallenge.findFirst({ where: { email: user.email, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, createdAt: { gt: new Date(Date.now() - 10_000) } }, select: { id: true } });
-          if (recent) throw new HttpException('Please wait before requesting another sign-in code', HttpStatus.TOO_MANY_REQUESTS);
-          const code = process.env.NODE_ENV === 'production' ? String(randomInt(100000, 1_000_000)) : (process.env.DEMO_OTP || '123456');
-          await this.deliverVendorEmailCode(user.email, code, EmailAuthChallengePurpose.LOGIN_VENDOR);
-          const challenge = await this.prisma.emailAuthChallenge.create({ data: { email: user.email, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, codeHash: hashOtp(code), expiresAt: new Date(Date.now() + 10 * 60_000) } });
-          return { mfaRequired: true as const, challengeId: challenge.id, message: 'A sign-in code was sent to your email.', demoOtp: process.env.NODE_ENV === 'production' ? undefined : code };
-        }
-      }
-    }
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     return this.issueToken(user);
   }

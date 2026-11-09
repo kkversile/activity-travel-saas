@@ -213,7 +213,7 @@ describe('Partner Hub notification preferences', () => {
     const request = vi.spyOn(api, 'request').mockImplementation(async (path, options) => {
       if (path === '/vendor/team' || path === '/vendor/team/invitations' && options?.method !== 'POST') return { members: [], invitations: [] } as never;
       if (path === '/vendor/team/invitations' && options?.method === 'POST') return { inviteToken } as never;
-      if (path === '/vendor/notification-preferences') return { bookingEmail: true, bookingWhatsapp: true, bookingSms: true, cancellationEmail: true, cancellationWhatsapp: true, cancellationSms: true, payoutEmail: true, payoutWhatsapp: true, payoutSms: true, documentExpiryEmail: true, documentExpiryWhatsapp: true, documentExpirySms: true, reviewEmail: true, reviewWhatsapp: true, reviewSms: true, twoStepVerification: true, delivery: {} } as never;
+      if (path === '/vendor/notification-preferences') return { bookingEmail: true, bookingWhatsapp: true, bookingSms: true, cancellationEmail: true, cancellationWhatsapp: true, cancellationSms: true, payoutEmail: true, payoutWhatsapp: true, payoutSms: true, documentExpiryEmail: true, documentExpiryWhatsapp: true, documentExpirySms: true, reviewEmail: true, reviewWhatsapp: true, reviewSms: true, delivery: {} } as never;
       throw new Error(`Unexpected request: ${path}`);
     });
 
@@ -236,7 +236,7 @@ describe('Partner Hub notification preferences', () => {
       if (path === '/vendor/notification-preferences') return {
         bookingEmail: true, bookingWhatsapp: true, bookingSms: true, cancellationEmail: true, cancellationWhatsapp: true, cancellationSms: true,
         payoutEmail: true, payoutWhatsapp: true, payoutSms: true, documentExpiryEmail: true, documentExpiryWhatsapp: true, documentExpirySms: true,
-        reviewEmail: true, reviewWhatsapp: true, reviewSms: true, twoStepVerification: true,
+        reviewEmail: true, reviewWhatsapp: true, reviewSms: true,
         delivery: { bookingEmail: false, bookingWhatsapp: false, bookingSms: false, cancellationEmail: false, cancellationWhatsapp: false, cancellationSms: false, payoutEmail: false, payoutWhatsapp: false, payoutSms: false, documentExpiryEmail: false, documentExpiryWhatsapp: false, documentExpirySms: false, reviewEmail: false, reviewWhatsapp: false, reviewSms: false },
       } as never;
       throw new Error(`Unexpected request: ${path}`);

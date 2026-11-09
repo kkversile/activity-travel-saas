@@ -13,7 +13,7 @@ type ReportSnapshot = { id: string; name: string; type: string; format: ReportFo
 type ReportExportRequest = { type: string; from?: string; to?: string; format?: string };
 type LocationCandidate = { id: string; name: string; address: string; lat: number; lon: number; provider: string; providerPlaceId?: string; sourceUrl?: string };
 const REPORT_TYPES = ['BOOKINGS', 'GUEST_MANIFEST', 'PAYOUTS', 'COMMISSION_INVOICES', 'TDS_TCS_CERTIFICATES', 'PRODUCTS', 'PRODUCT_PERFORMANCE', 'REVIEWS', 'CANCELLATIONS'] as const;
-const VENDOR_NOTIFICATION_PREFERENCE_KEYS = ['bookingEmail', 'bookingWhatsapp', 'bookingSms', 'cancellationEmail', 'cancellationWhatsapp', 'cancellationSms', 'payoutEmail', 'payoutWhatsapp', 'payoutSms', 'documentExpiryEmail', 'documentExpiryWhatsapp', 'documentExpirySms', 'reviewEmail', 'reviewWhatsapp', 'reviewSms', 'twoStepVerification'] as const;
+const VENDOR_NOTIFICATION_PREFERENCE_KEYS = ['bookingEmail', 'bookingWhatsapp', 'bookingSms', 'cancellationEmail', 'cancellationWhatsapp', 'cancellationSms', 'payoutEmail', 'payoutWhatsapp', 'payoutSms', 'documentExpiryEmail', 'documentExpiryWhatsapp', 'documentExpirySms', 'reviewEmail', 'reviewWhatsapp', 'reviewSms'] as const;
 
 const DEFAULT_TAXONOMY = [
   ['DAY_TOURS_SIGHTSEEING', 'Day tours & sightseeing', ['CITY_TOURS', 'SIGHTSEEING']],
@@ -150,7 +150,7 @@ export class VendorToolsService {
     const smtpConfigured = Boolean(process.env.SMTP_HOST?.trim() && process.env.SMTP_USER?.trim() && process.env.SMTP_PASSWORD);
     return {
       ...Object.fromEntries(VENDOR_NOTIFICATION_PREFERENCE_KEYS.map((key) => [key, value[key] !== false])),
-      delivery: Object.fromEntries(VENDOR_NOTIFICATION_PREFERENCE_KEYS.filter((key) => key !== 'twoStepVerification').map((key) => [key, smtpConfigured && (key === 'bookingEmail' || key === 'cancellationEmail' || key === 'payoutEmail')])),
+      delivery: Object.fromEntries(VENDOR_NOTIFICATION_PREFERENCE_KEYS.map((key) => [key, smtpConfigured && (key === 'bookingEmail' || key === 'cancellationEmail' || key === 'payoutEmail')])),
     };
   }
 

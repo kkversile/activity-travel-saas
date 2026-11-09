@@ -32,7 +32,7 @@ describe('vendor passwordless login flow', () => {
     fireEvent.change(screen.getByLabelText('Email or mobile'), { target: { value: '+91 98765 43210' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    await waitFor(() => expect(login).toHaveBeenCalledWith('+91 98765 43210', expect.any(String), expect.any(String)));
+    await waitFor(() => expect(login).toHaveBeenCalledWith('+91 98765 43210', expect.any(String)));
     expect(onLogin).toHaveBeenCalledWith(user);
   });
 

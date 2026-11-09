@@ -57,16 +57,14 @@ describe('email-first vendor access', () => {
     return { service: new AuthService(prisma, jwt), prisma, challenge, tx, user };
   }
 
-  it('requires a verification code for vendor sign-in from an untrusted device', async () => {
+  it('signs a vendor in immediately with valid password credentials on a new device', async () => {
     const { service, prisma, challenge, user } = make();
     const { hash } = await import('bcryptjs');
     prisma.user.findUnique.mockResolvedValue({ ...user, passwordHash: await hash('correct-password', 4) });
-    prisma.emailAuthChallenge.create.mockResolvedValue({ ...challenge, id: 'login-challenge-1' });
-    jest.spyOn(service as any, 'deliverVendorEmailCode').mockResolvedValue(undefined);
     const result = await service.login({ email: user.email, password: 'correct-password', deviceToken: 'device-token-123456789012345678901234' } as any);
-    expect(result).toMatchObject({ mfaRequired: true, challengeId: 'login-challenge-1' });
-    expect(prisma.emailAuthChallenge.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ purpose: EmailAuthChallengePurpose.LOGIN_VENDOR }) }));
-    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ accessToken: 'access-token', user: { id: user.id, role: UserRole.VENDOR } });
+    expect(prisma.emailAuthChallenge.create).not.toHaveBeenCalled();
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: user.id }, data: { lastLoginAt: expect.any(Date) } });
   });
 
   it('resolves a verified vendor mobile number to its owner account for password login', async () => {
@@ -75,7 +73,6 @@ describe('email-first vendor access', () => {
     const owner = { ...user, passwordHash: await hash('correct-password', 4) };
     prisma.vendorOnboardingApplication.findMany.mockResolvedValue([{ tenantId: user.tenantId }]);
     prisma.user.findFirst.mockResolvedValue(owner);
-    prisma.globalSetting.findFirst.mockResolvedValue({ value: { twoStepVerification: false } });
 
     const result = await service.login({ email: '98765 43210', password: 'correct-password' } as any);
 

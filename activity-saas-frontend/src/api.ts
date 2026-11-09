@@ -237,9 +237,9 @@ class ApiClient {
     return res.blob();
   }
 
-  login(email: string, password: string, deviceToken?: string) {
-    return this.request<{ accessToken: string; user: User } | { mfaRequired: true; challengeId: string; message: string; demoOtp?: string }>('/auth/login', {
-      method: 'POST', body: JSON.stringify({ email, password, deviceToken }),
+  login(email: string, password: string) {
+    return this.request<{ accessToken: string; user: User }>('/auth/login', {
+      method: 'POST', body: JSON.stringify({ email, password }),
     });
   }
 
