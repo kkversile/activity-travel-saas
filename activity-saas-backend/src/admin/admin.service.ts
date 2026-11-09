@@ -309,11 +309,11 @@ export class AdminService {
     if (!reason || reason.length < 5 || reason.length > 500) throw new ConflictException('Provide a reason between 5 and 500 characters.');
     const next = { tiers: tiers.map((tier: any) => ({ name: String(tier.name).trim(), threshold: String(tier.threshold || '').trim(), commissionPercent: Number(tier.commissionPercent), creditLimit: Number(tier.creditLimit), creditDays: Number(tier.creditDays) })) };
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('agent-tier-defaults'))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('agent-tier-defaults'))::text AS locked`;
       const pending = await tx.globalSetting.findFirst({ where: { tenantId: null, key: AGENT_TIERS_PENDING_SETTING_KEY }, select: { id: true } });
       if (pending) throw new ConflictException('Agent tier defaults already have a pending approval.');
       const request = await tx.globalSetting.create({ data: { key: AGENT_TIERS_PENDING_SETTING_KEY, value: { ...next, reason }, adminId: actor.sub } });
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('public-identifiers:APPROVAL'))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('public-identifiers:APPROVAL'))::text AS locked`;
       const publicCode = await allocatePublicCode(tx, PublicEntity.APPROVAL, 'APR-', 6);
       await ensurePublicIdentifier(tx, PublicEntity.APPROVAL, `AGENT_TIER_DEFAULTS:${request.id}`, publicCode);
       await this.audit.write(tx, { actor, action: 'AGENT_TIER_DEFAULTS_REQUESTED', entityType: 'GlobalSetting', entityId: request.id, reason, afterState: { ...next, status: 'PENDING' } });
@@ -371,7 +371,7 @@ export class AdminService {
       const pending = await tx.agentCommercialChangeRequest.findFirst({ where: { tenantId, status: AgentCommercialChangeStatus.PENDING }, select: { id: true } });
       if (pending) throw new ConflictException('An agent commercial change is already awaiting approval.');
       const request = await tx.agentCommercialChangeRequest.create({ data: { tenantId, proposedConfiguration: data, requestReason: reason, createdById: actor.sub } });
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('public-identifiers:APPROVAL'))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('public-identifiers:APPROVAL'))::text AS locked`;
       const publicCode = await allocatePublicCode(tx, PublicEntity.APPROVAL, 'APR-', 6);
       await ensurePublicIdentifier(tx, PublicEntity.APPROVAL, `AGENT_COMMERCIAL:${request.id}`, publicCode);
       await this.audit.write(tx, { actor, tenantId, action: 'AGENT_COMMERCIAL_CHANGE_REQUESTED', entityType: 'AgentCommercialChangeRequest', entityId: request.id, reason, afterState: { proposedConfiguration: data, status: request.status } });
@@ -421,7 +421,7 @@ export class AdminService {
     if (!tenant) throw new NotFoundException('Travel Agent tenant not found');
     return this.prisma.$transaction(async (tx) => {
       const request = await tx.agentWalletCreditApprovalRequest.create({ data: { agentTenantId: tenantId, amount, paymentMethod: normalizedPaymentMethod, reference: reference?.trim() || null, reason: reason.trim(), requestedById: actor.sub } });
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('public-identifiers:APPROVAL'))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('public-identifiers:APPROVAL'))::text AS locked`;
       const publicCode = await allocatePublicCode(tx, PublicEntity.APPROVAL, 'APR-', 6);
       await ensurePublicIdentifier(tx, PublicEntity.APPROVAL, `AGENT_WALLET_CREDIT:${request.id}`, publicCode);
       await this.audit.write(tx, { actor, tenantId, action: 'AGENT_WALLET_CREDIT_REQUESTED', entityType: 'AgentWalletCreditApprovalRequest', entityId: request.id, reason: reason.trim(), afterState: { amount, paymentMethod: normalizedPaymentMethod, reference: request.reference, status: request.status } });
@@ -562,7 +562,7 @@ export class AdminService {
     ].sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
     if (!(this.prisma as any).publicIdentifier) return items.map((item) => ({ ...item, publicCode: null }));
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('public-identifiers:APPROVAL'))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('public-identifiers:APPROVAL'))::text AS locked`;
       const itemsWithCodes = await Promise.all(items.map(async (item) => {
         const identifierId = `${item.type}:${item.id}`;
         const existing = await tx.publicIdentifier.findUnique({ where: { entityType_entityId: { entityType: PublicEntity.APPROVAL, entityId: identifierId } }, select: { publicCode: true } });

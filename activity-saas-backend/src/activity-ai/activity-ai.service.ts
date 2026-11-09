@@ -325,7 +325,7 @@ export class ActivityAiService {
         await db.$transaction(async (tx: any) => {
           const lockSql = `activity-ai:${user.tenantId || 'unknown'}:${day}`;
           if (typeof tx.$executeRaw === 'function') await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockSql}))`;
-          else await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockSql}))`;
+          else await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockSql}))::text AS locked`;
           await checkAndRecord(tx);
         });
       } else {
