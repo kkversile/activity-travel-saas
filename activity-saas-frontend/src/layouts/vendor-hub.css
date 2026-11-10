@@ -115,6 +115,12 @@ body:has(.partner-app-shell)::-webkit-scrollbar,.partner-app-shell *::-webkit-sc
 body:has(.partner-app-shell)::-webkit-scrollbar-track,.partner-app-shell *::-webkit-scrollbar-track{background:#0e131d}
 body:has(.partner-app-shell)::-webkit-scrollbar-thumb,.partner-app-shell *::-webkit-scrollbar-thumb{background:#39455d;border:2px solid #0e131d;border-radius:999px}
 .partner-app-shell input[type="checkbox"],.partner-app-shell input[type="radio"]{accent-color:#8d9df5}
+.partner-app-shell{color-scheme:dark}
+.partner-app-shell .partner-task{background:#1c2433;color:#e6e9f1;border-left-color:#f0a040}
+.partner-app-shell .partner-task.warning{background:#302817;border-left-color:#f0a040}
+.partner-app-shell .partner-task.urgent{background:#302023;border-left-color:#f08a76}
+.partner-app-shell .partner-task span{color:#b8bfd0}
+.partner-app-shell .partner-task a{color:#aebaff}
 .partner-app-shell .partner-sidebar,.partner-app-shell .partner-main,.partner-app-shell .partner-content{background:#0e131d;color:#e6e9f1}
 .partner-app-shell .partner-sidebar{border-right-color:#2a3345}
 .partner-app-shell .partner-brand b,.partner-app-shell .partner-user-copy b{color:#e6e9f1}
