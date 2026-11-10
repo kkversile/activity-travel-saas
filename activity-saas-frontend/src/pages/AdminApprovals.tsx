@@ -10,6 +10,8 @@ export default function AdminApprovals({ onNavigate }: { onNavigate: (page: 'ven
   const [type, setType] = useState('');
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState('');
+  const [verifyingDocumentId, setVerifyingDocumentId] = useState<string | null>(null);
+  const [documentPreview, setDocumentPreview] = useState<{ fileName: string; url: string; mimeType: string } | null>(null);
   const [error, setError] = useState('');
   const [vendorReview, setVendorReview] = useState<{ row: Approval; vendorName: string; application: VendorOnboardingApplication | null; loading: boolean; error: string } | null>(null);
 
@@ -40,6 +42,40 @@ export default function AdminApprovals({ onNavigate }: { onNavigate: (page: 'ven
     } catch (e) {
       setVendorReview((current) => current ? { ...current, loading: false, error: e instanceof Error ? e.message : String(e) } : current);
     }
+  }
+
+  async function refreshVendorApplication(row: Approval) {
+    if (!row.ownerId) return;
+    const result = await api.request<{ vendorOnboarding: VendorOnboardingApplication | null }>(`/admin/vendors/${row.ownerId}/onboarding`);
+    setVendorReview((current) => current?.row.id === row.id ? { ...current, application: result.vendorOnboarding, loading: false } : current);
+  }
+
+  async function previewVendorDocument(fileAssetId: string, fileName: string, mimeType: string) {
+    try {
+      const blob = await api.blob(`/files/${fileAssetId}/content`);
+      if (documentPreview) URL.revokeObjectURL(documentPreview.url);
+      setDocumentPreview({ fileName, url: URL.createObjectURL(blob), mimeType });
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  }
+
+  async function reviewVendorDocument(row: Approval, versionId: string, status: 'VERIFIED' | 'REJECTED') {
+    if (!row.ownerId || verifyingDocumentId) return;
+    const reason = status === 'REJECTED' ? window.prompt('Reason for rejecting this document')?.trim() : '';
+    if (status === 'REJECTED' && !reason) return;
+    setVerifyingDocumentId(versionId); setError('');
+    try {
+      await api.request(`/admin/vendors/${row.ownerId}/documents/versions/${versionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status, ...(reason ? { reason } : {}) }),
+      });
+      await refreshVendorApplication(row);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setVerifyingDocumentId(null); }
+  }
+
+  function closeDocumentPreview() {
+    if (documentPreview) URL.revokeObjectURL(documentPreview.url);
+    setDocumentPreview(null);
   }
 
   const openTarget = (row: Approval) => {
@@ -82,7 +118,8 @@ export default function AdminApprovals({ onNavigate }: { onNavigate: (page: 'ven
       {loading ? <Loading text="Loading approvals…" /> : <div className="table-wrap"><table><thead><tr><th>Item</th><th>Submitted by</th><th>Submitted</th><th>Checks</th><th /></tr></thead><tbody>{rows.map((row) => { const key = `${row.type}-${row.id}`; const actionable = row.type === 'VENDOR' || row.type === 'PRODUCT' || row.type === 'AGENT' || row.type === 'AGENT_WALLET_CREDIT' || row.type === 'AGENT_COMMERCIAL' || row.type === 'AGENT_TIER_DEFAULTS'; const makerCheck = row.type === 'AGENT_WALLET_CREDIT' || row.type === 'AGENT_COMMERCIAL' || row.type === 'AGENT_TIER_DEFAULTS'; const decisionDisabled = busyId === key || (makerCheck && row.canDecide === false); return <tr key={key}><td><span className="badge">{row.type === 'PRODUCT' ? 'ACTIVITY' : row.type.replaceAll('_', ' ')}</span><br /><b>{row.title}</b><small className="mono">{row.publicCode || row.id}</small>{row.type === 'AGENT_WALLET_CREDIT' && row.amount != null && <small>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: row.currency || 'INR' }).format(row.amount)}</small>}{(row.type === 'AGENT_COMMERCIAL' || row.type === 'AGENT_TIER_DEFAULTS') && <><small>{JSON.stringify(row.proposedConfiguration)}</small><small>Reason: {row.requestReason}</small></>}</td><td>{makerCheck ? <>{row.requesterName || 'Admin'}<small>{row.type === 'AGENT_TIER_DEFAULTS' ? 'All travel agents' : `Agent · ${row.ownerName || row.ownerId || '—'}`}</small></> : row.ownerName || row.ownerId || '—'}</td><td>{new Date(row.updatedAt).toLocaleString()}</td><td>{row.status}{makerCheck && row.canDecide === false && <small>Requested by you</small>}</td><td><div className="status-actions"><button className="btn small" onClick={() => openTarget(row)}>{row.type === 'VENDOR' ? 'View' : 'Review'}</button>{actionable && <>{row.type !== 'AGENT' && <button className="btn small primary" disabled={decisionDisabled} onClick={() => void decide(row, 'approve')}>{busyId === key ? 'Saving…' : 'Approve'}</button>}{row.type !== 'AGENT' && <button className="btn small" disabled={decisionDisabled} onClick={() => void decide(row, 'reject')}>Reject</button>}{row.type === 'AGENT' && <button className="btn small primary" disabled={busyId === key} onClick={() => void decide(row, 'approve')}>{busyId === key ? 'Saving…' : 'Approve'}</button>}</>}</div></td></tr>; })}</tbody></table>{!rows.length && <div className="empty">No approval items match this filter.</div>}</div>}
     </Panel>
     {vendorReview && (vendorReview.application
-      ? <AdminOnboardingReviewModal application={vendorReview.application} vendorName={vendorReview.vendorName} onClose={() => setVendorReview(null)} onReview={() => undefined} onReopen={() => undefined} readOnly reviewActions={{ onApprove: () => void decide(vendorReview.row, 'approve'), onReject: () => void decide(vendorReview.row, 'reject'), busy: busyId === `VENDOR-${vendorReview.row.id}` }} />
+      ? <AdminOnboardingReviewModal application={vendorReview.application} vendorName={vendorReview.vendorName} onClose={() => setVendorReview(null)} onReview={() => undefined} onReopen={() => undefined} readOnly reviewActions={{ onApprove: () => void decide(vendorReview.row, 'approve'), onReject: () => void decide(vendorReview.row, 'reject'), busy: busyId === `VENDOR-${vendorReview.row.id}` }} documentActions={{ onView: (fileAssetId, fileName, mimeType) => void previewVendorDocument(fileAssetId, fileName, mimeType), onVerify: (versionId) => void reviewVendorDocument(vendorReview.row, versionId, 'VERIFIED'), onReject: (versionId) => void reviewVendorDocument(vendorReview.row, versionId, 'REJECTED'), verifyingVersionId: verifyingDocumentId }} />
       : <div className="modal-backdrop admin-onboarding-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setVendorReview(null); }}><div className="modal-card admin-approval-review-state" role="dialog" aria-modal="true" aria-labelledby="approval-vendor-review-title"><div className="panel-head"><h3 id="approval-vendor-review-title">{vendorReview.vendorName}</h3><button type="button" className="modal-close" onClick={() => setVendorReview(null)} aria-label="Close review">×</button></div>{vendorReview.loading ? <Loading text="Loading vendor application…" /> : vendorReview.error ? <ErrorBox error={vendorReview.error} /> : <p className="muted">No onboarding application was found for this vendor.</p>}<div className="modal-actions"><button type="button" className="btn primary" onClick={() => setVendorReview(null)}>Close review</button></div></div></div>)}
+    {documentPreview && <div className="doc-preview-backdrop admin-onboarding-document-preview" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDocumentPreview(); }}><div className="doc-preview" role="dialog" aria-modal="true" aria-label={documentPreview.fileName} onMouseDown={(event) => event.stopPropagation()}><div className="panel-head"><h3>{documentPreview.fileName}</h3><div className="doc-preview-actions"><a className="btn small" href={documentPreview.url} target="_blank" rel="noreferrer">Open in new tab</a><a className="btn small" href={documentPreview.url} download={documentPreview.fileName}>Download</a><button className="btn small" onClick={closeDocumentPreview}>Close</button></div></div>{documentPreview.mimeType === 'application/pdf' ? <iframe title={documentPreview.fileName} src={documentPreview.url} /> : <img alt={documentPreview.fileName} src={documentPreview.url} />}</div></div>}
   </div>;
 }
