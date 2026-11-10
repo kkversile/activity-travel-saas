@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, type VendorOnboardingApplication } from '../api';
 import { ErrorBox, Loading, Panel } from '../components/Ui';
+import AdminOnboardingReviewModal from '../components/AdminOnboardingReviewModal';
 
 type Approval = { id: string; publicCode?: string | null; type: 'VENDOR' | 'PRODUCT' | 'AGENT' | 'REFUND' | 'PAYOUT' | 'AGENT_WALLET_CREDIT' | 'AGENT_COMMERCIAL' | 'AGENT_TIER_DEFAULTS'; title: string; status: string; ownerId?: string | null; ownerName?: string | null; requesterName?: string | null; canDecide?: boolean; amount?: number; currency?: string; proposedConfiguration?: unknown; requestReason?: string; updatedAt: string };
 
@@ -10,6 +11,7 @@ export default function AdminApprovals({ onNavigate }: { onNavigate: (page: 'ven
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
+  const [vendorReview, setVendorReview] = useState<{ vendorName: string; application: VendorOnboardingApplication | null; loading: boolean; error: string } | null>(null);
 
   async function load() {
     setLoading(true); setError('');
@@ -20,7 +22,29 @@ export default function AdminApprovals({ onNavigate }: { onNavigate: (page: 'ven
 
   useEffect(() => { void load(); }, [type]);
 
-  const openTarget = (row: Approval) => onNavigate(row.type === 'VENDOR' ? 'vendors' : row.type === 'PRODUCT' ? 'products' : row.type === 'AGENT' || row.type === 'AGENT_WALLET_CREDIT' || row.type === 'AGENT_COMMERCIAL' || row.type === 'AGENT_TIER_DEFAULTS' ? 'agents' : row.type === 'REFUND' ? 'refunds' : 'settlements');
+  async function reviewVendor(row: Approval) {
+    if (!row.ownerId) { onNavigate('vendors'); return; }
+    setVendorReview({ vendorName: row.ownerName || row.title, application: null, loading: true, error: '' });
+    try {
+      const [vendor, result] = await Promise.all([
+        api.request<any>(`/admin/vendors/${row.ownerId}`),
+        api.request<{ vendorOnboarding: VendorOnboardingApplication | null }>(`/admin/vendors/${row.ownerId}/onboarding`),
+      ]);
+      setVendorReview({
+        vendorName: vendor.vendorProfile?.legalBusinessName || vendor.name || row.ownerName || row.title,
+        application: result.vendorOnboarding || null,
+        loading: false,
+        error: '',
+      });
+    } catch (e) {
+      setVendorReview((current) => current ? { ...current, loading: false, error: e instanceof Error ? e.message : String(e) } : current);
+    }
+  }
+
+  const openTarget = (row: Approval) => {
+    if (row.type === 'VENDOR') { void reviewVendor(row); return; }
+    onNavigate(row.type === 'PRODUCT' ? 'products' : row.type === 'AGENT' || row.type === 'AGENT_WALLET_CREDIT' || row.type === 'AGENT_COMMERCIAL' || row.type === 'AGENT_TIER_DEFAULTS' ? 'agents' : row.type === 'REFUND' ? 'refunds' : 'settlements');
+  };
 
   async function decide(row: Approval, decision: 'approve' | 'reject') {
     if (!row.ownerId && row.type !== 'PRODUCT') return;
@@ -55,5 +79,8 @@ export default function AdminApprovals({ onNavigate }: { onNavigate: (page: 'ven
       <div className="form-grid three"><label className="field"><span>Approval type</span><select value={type} onChange={(e) => setType(e.target.value)}><option value="">All types</option><option value="VENDOR">Vendor</option><option value="PRODUCT">Activity</option><option value="AGENT">Travel agent</option><option value="AGENT_COMMERCIAL">Agent commercial terms</option><option value="AGENT_TIER_DEFAULTS">Agent tier defaults</option><option value="REFUND">Refund</option><option value="PAYOUT">Payout</option><option value="AGENT_WALLET_CREDIT">Agent wallet credit</option></select></label><div className="muted approval-summary">Sorted oldest first so SLA work is visible.</div></div>
       {loading ? <Loading text="Loading approvals…" /> : <div className="table-wrap"><table><thead><tr><th>Item</th><th>Submitted by</th><th>Submitted</th><th>Checks</th><th /></tr></thead><tbody>{rows.map((row) => { const key = `${row.type}-${row.id}`; const actionable = row.type === 'VENDOR' || row.type === 'PRODUCT' || row.type === 'AGENT' || row.type === 'AGENT_WALLET_CREDIT' || row.type === 'AGENT_COMMERCIAL' || row.type === 'AGENT_TIER_DEFAULTS'; const makerCheck = row.type === 'AGENT_WALLET_CREDIT' || row.type === 'AGENT_COMMERCIAL' || row.type === 'AGENT_TIER_DEFAULTS'; const decisionDisabled = busyId === key || (makerCheck && row.canDecide === false); return <tr key={key}><td><span className="badge">{row.type === 'PRODUCT' ? 'ACTIVITY' : row.type.replaceAll('_', ' ')}</span><br /><b>{row.title}</b><small className="mono">{row.publicCode || row.id}</small>{row.type === 'AGENT_WALLET_CREDIT' && row.amount != null && <small>{new Intl.NumberFormat('en-IN', { style: 'currency', currency: row.currency || 'INR' }).format(row.amount)}</small>}{(row.type === 'AGENT_COMMERCIAL' || row.type === 'AGENT_TIER_DEFAULTS') && <><small>{JSON.stringify(row.proposedConfiguration)}</small><small>Reason: {row.requestReason}</small></>}</td><td>{makerCheck ? <>{row.requesterName || 'Admin'}<small>{row.type === 'AGENT_TIER_DEFAULTS' ? 'All travel agents' : `Agent · ${row.ownerName || row.ownerId || '—'}`}</small></> : row.ownerName || row.ownerId || '—'}</td><td>{new Date(row.updatedAt).toLocaleString()}</td><td>{row.status}{makerCheck && row.canDecide === false && <small>Requested by you</small>}</td><td><div className="status-actions"><button className="btn small" onClick={() => openTarget(row)}>Review</button>{actionable && <>{row.type !== 'AGENT' && <button className="btn small primary" disabled={decisionDisabled} onClick={() => void decide(row, 'approve')}>{busyId === key ? 'Saving…' : 'Approve'}</button>}{row.type !== 'AGENT' && <button className="btn small" disabled={decisionDisabled} onClick={() => void decide(row, 'reject')}>Reject</button>}{row.type === 'AGENT' && <button className="btn small primary" disabled={busyId === key} onClick={() => void decide(row, 'approve')}>{busyId === key ? 'Saving…' : 'Approve'}</button>}</>}</div></td></tr>; })}</tbody></table>{!rows.length && <div className="empty">No approval items match this filter.</div>}</div>}
     </Panel>
+    {vendorReview && (vendorReview.application
+      ? <AdminOnboardingReviewModal application={vendorReview.application} vendorName={vendorReview.vendorName} onClose={() => setVendorReview(null)} onReview={() => undefined} onReopen={() => undefined} readOnly />
+      : <div className="modal-backdrop admin-onboarding-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setVendorReview(null); }}><div className="modal-card admin-approval-review-state" role="dialog" aria-modal="true" aria-labelledby="approval-vendor-review-title"><div className="panel-head"><h3 id="approval-vendor-review-title">{vendorReview.vendorName}</h3><button type="button" className="modal-close" onClick={() => setVendorReview(null)} aria-label="Close review">×</button></div>{vendorReview.loading ? <Loading text="Loading vendor application…" /> : vendorReview.error ? <ErrorBox error={vendorReview.error} /> : <p className="muted">No onboarding application was found for this vendor.</p>}<div className="modal-actions"><button type="button" className="btn primary" onClick={() => setVendorReview(null)}>Close review</button></div></div></div>)}
   </div>;
 }
