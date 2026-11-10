@@ -16,6 +16,7 @@ export default function AdminVendors({ canImpersonate = false, canCreateVendor =
   const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get('q') || '');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'VERIFY' | 'SUSPENDED'>('ALL');
   const [error, setError] = useState('');
+  const [documentActionError, setDocumentActionError] = useState('');
   const [verifyingDocumentId, setVerifyingDocumentId] = useState<string | null>(null);
   const [createForm, setCreateForm] = useState({ vendorName: '', ownerName: '', cityName: '', mobile: '', supplierType: 'DIRECT_OPERATOR', email: '', commercialModel: 'COMMISSIONABLE', commissionPercent: '18', accountManagerName: '' });
   const [createdInvite, setCreatedInvite] = useState<{ vendorName: string; email: string; sent: boolean } | null>(null);
@@ -37,6 +38,7 @@ export default function AdminVendors({ canImpersonate = false, canCreateVendor =
   async function verifyDocument(versionId: string) {
     if (!selected || verifyingDocumentId) return;
     setError('');
+    setDocumentActionError('');
     setVerifyingDocumentId(versionId);
     try {
       await api.request(`/admin/vendors/${selected.id}/documents/versions/${versionId}`, { method: 'PATCH', body: JSON.stringify({ status: 'VERIFIED' }) });
@@ -44,6 +46,23 @@ export default function AdminVendors({ canImpersonate = false, canCreateVendor =
       await load();
     } catch (e) {
       setError((e as Error).message);
+      setDocumentActionError((e as Error).message);
+    } finally {
+      setVerifyingDocumentId(null);
+    }
+  }
+  async function rejectOnboardingDocument(versionId: string, reason: string): Promise<boolean> {
+    if (!selected || verifyingDocumentId) return false;
+    setDocumentActionError('');
+    setVerifyingDocumentId(versionId);
+    try {
+      await api.request(`/admin/vendors/${selected.id}/documents/versions/${versionId}`, { method: 'PATCH', body: JSON.stringify({ status: 'REJECTED', reason }) });
+      await open(selected.id);
+      await load();
+      return true;
+    } catch (e) {
+      setDocumentActionError((e as Error).message);
+      return false;
     } finally {
       setVerifyingDocumentId(null);
     }
@@ -170,8 +189,8 @@ export default function AdminVendors({ canImpersonate = false, canCreateVendor =
       <label className="field"><span>Commission %</span><input type="number" min="0" max="100" step="0.01" disabled={createForm.commercialModel === 'NET_RATE'} value={createForm.commissionPercent} onChange={(event) => setCreateForm((current) => ({ ...current, commissionPercent: event.target.value }))} /></label>
       <label className="field"><span>Account manager</span><input value={createForm.accountManagerName} onChange={(event) => setCreateForm((current) => ({ ...current, accountManagerName: event.target.value }))} placeholder="Assigned staff member" /></label>
       </div><div className="modal-actions"><button type="button" className="btn" onClick={closeCreate}>Cancel</button><button className="btn primary" disabled={creating}>{creating ? 'Creating…' : 'Create & send invite'}</button></div></form>{createdInvite && <div className={`alert ${createdInvite.sent ? 'success' : 'info'} vendor-credentials`}><b>{createdInvite.sent ? 'Vendor created and activation email sent.' : 'Vendor account created.'}</b><span>{createdInvite.vendorName} · {createdInvite.email}</span><span>The vendor sets their password with the emailed code on the sign-in page.</span>{!createdInvite.sent && <button type="button" className="btn small" disabled={inviteBusy} onClick={() => void resendVendorInvite()}>{inviteBusy ? 'Sending…' : 'Send invite again'}</button>}</div>}</div></div></div>}
-    {viewing && <div className="doc-preview-backdrop" onClick={closePreview}><div className="doc-preview" onClick={(e) => e.stopPropagation()}><div className="panel-head"><h3>{viewing.fileName}</h3><span className="doc-preview-actions"><a className="btn small" href={viewing.url} target="_blank" rel="noreferrer">Open in new tab</a><a className="btn small" href={viewing.url} download={viewing.fileName}>Download</a><button className="btn small" onClick={closePreview}>Close</button></span></div>{viewing.mimeType === 'application/pdf' ? <iframe title={viewing.fileName} src={viewing.url} /> : <img alt={viewing.fileName} src={viewing.url} />}</div></div>}
-    {onboardingReviewOpen && onboarding && selected && <AdminOnboardingReviewModal application={onboarding} vendorName={selected.vendorProfile?.legalBusinessName || selected.name || 'Vendor'} onClose={() => setOnboardingReviewOpen(false)} onReview={reviewOnboarding} onReopen={() => { setOnboardingReviewOpen(false); void reopenOnboarding(); }} />}
+    {viewing && <div className={`doc-preview-backdrop${onboardingReviewOpen ? ' admin-onboarding-document-preview' : ''}`} onClick={closePreview}><div className="doc-preview" onClick={(e) => e.stopPropagation()}><div className="panel-head"><h3>{viewing.fileName}</h3><span className="doc-preview-actions"><a className="btn small" href={viewing.url} target="_blank" rel="noreferrer">Open in new tab</a><a className="btn small" href={viewing.url} download={viewing.fileName}>Download</a><button className="btn small" onClick={closePreview}>Close</button></span></div>{viewing.mimeType === 'application/pdf' ? <iframe title={viewing.fileName} src={viewing.url} /> : <img alt={viewing.fileName} src={viewing.url} />}</div></div>}
+    {onboardingReviewOpen && onboarding && selected && <AdminOnboardingReviewModal application={onboarding} vendorName={selected.vendorProfile?.legalBusinessName || selected.name || 'Vendor'} onClose={() => setOnboardingReviewOpen(false)} onReview={reviewOnboarding} onReopen={() => { setOnboardingReviewOpen(false); void reopenOnboarding(); }} documentActions={{ onView: (fileAssetId, fileName, mimeType) => void preview({ fileAsset: { id: fileAssetId, originalName: fileName, mimeType } }), onVerify: (versionId) => void verifyDocument(versionId), onReject: rejectOnboardingDocument, verifyingVersionId: verifyingDocumentId, error: documentActionError }} />}
     {reasonModal && (
       <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeReasonModal(); }}>
         <div className="modal-card reason-modal" role="dialog" aria-modal="true" aria-labelledby="reason-modal-title">
