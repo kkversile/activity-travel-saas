@@ -384,8 +384,10 @@ function supplementalFrom(
 function formFromApplication(
   application: VendorOnboardingApplication,
 ): FormState {
-  const firstName = application.firstName || "";
-  const lastName = application.lastName || "";
+  const supplementalData = supplementalFrom(application);
+  const primaryContactName = supplementalData.contacts[0]?.name.trim().split(/\s+/).filter(Boolean) || [];
+  const firstName = application.firstName || primaryContactName[0] || "";
+  const lastName = application.lastName || primaryContactName.slice(1).join(" ");
   const businessDisplayName = onboardingBusinessName(
     application.businessDisplayName,
   );
@@ -424,7 +426,7 @@ function formFromApplication(
       [firstName, lastName].filter(Boolean).join(" "),
     agreementAccepted: Boolean(application.agreementAcceptedAt),
     signatureData: application.signatureData || "",
-    supplementalData: supplementalFrom(application),
+    supplementalData,
   };
 }
 function documentFor(application: VendorOnboardingApplication, type: string) {
@@ -1381,7 +1383,7 @@ export default function Onboarding({
         <nav className="onboarding-stepper" aria-label="Onboarding steps">
           {steps.map((label, index) => {
             const number = index + 1;
-            const done = number < step;
+            const done = Boolean(sectionChecks[index]);
             return (
               <button
                 type="button"
