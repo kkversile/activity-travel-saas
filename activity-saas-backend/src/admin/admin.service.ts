@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { AgentCommercialChangeStatus, AgentVerificationStatus, AgentWalletCreditApprovalStatus, BookingStatus, DocumentReviewStatus, PayoutStatus, PlatformCouponStatus, Prisma, ProductRevisionStatus, ProductStatus, RefundStatus, SupplierCommercialModel, TenantKind, UserRole, VendorCommercialChangeStatus, VendorVerificationStatus } from '@prisma/client';
+import { AgentCommercialChangeStatus, AgentVerificationStatus, AgentWalletCreditApprovalStatus, BookingStatus, DocumentReviewStatus, PayoutStatus, PlatformCouponStatus, Prisma, ProductRevisionStatus, ProductStatus, RefundStatus, SupplierCommercialModel, TenantKind, UserRole, VendorCommercialChangeStatus, VendorOnboardingStatus, VendorVerificationStatus } from '@prisma/client';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { AuditService } from '../audit/audit.service';
@@ -14,6 +14,8 @@ import { ACTIVITY_CONTENT_SETTINGS_KEY, ActivityContentSettings, defaultActivity
 import { VENDOR_VERIFICATION_SETTINGS_KEY, VendorVerificationSettings, defaultVendorVerificationSettings, normalizeVendorVerificationSettings } from '../common/mobile-verification-settings';
 import { PublicEntity, allocatePublicCode, allocateVendorVoucherShortCode, ensurePublicIdentifier, publicIdentifier, publicIdentifierMap } from '../common/public-identifiers';
 import { summarizeVendorCommercialTerms, summarizeVendorMetrics } from './vendor-metrics';
+import { assertVendorOnboardingDocumentsApproved } from './vendor-onboarding-approval';
+import { OnboardingEmailService } from '../onboarding/onboarding-email.service';
 
 const profileSelect = { id: true, tenantId: true, legalBusinessName: true, operatingCity: true, operatingRegion: true, supplierType: true, accountManagerName: true, defaultSupplierModel: true, defaultSupplierCommissionPercent: true, voucherShortCode: true, gstin: true, category: true, verificationStatus: true, readinessScore: true, payoutAccountMasked: true, payoutAccountHolder: true, payoutBankName: true, payoutBranch: true, payoutIfsc: true, payoutSwift: true, payoutAccountType: true, payoutCurrency: true } satisfies Prisma.VendorProfileSelect;
 const documentsInclude = { vendorDocuments: { include: { versions: { orderBy: { versionNumber: 'desc' as const }, include: { fileAsset: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true, visibility: true, purpose: true } } } } } } };
@@ -27,7 +29,7 @@ const defaultAgentTiers = [
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, @Optional() private readonly distributionMappings?: ChannelMappingService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, @Optional() private readonly distributionMappings?: ChannelMappingService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService, @Optional() private readonly onboardingEmail?: OnboardingEmailService) {}
 
   private assertSuperAdmin(actor: AuthUser) {
     if (actor.role !== UserRole.SUPER_ADMIN)
@@ -932,17 +934,33 @@ export class AdminService {
   }
 
   async verification(actor: AuthUser, tenantId: string, status: VendorVerificationStatus, reason?: string) {
-    if (status !== VendorVerificationStatus.VERIFIED && status !== VendorVerificationStatus.SUSPENDED) throw new ConflictException('Only VERIFIED or SUSPENDED vendor verification actions are allowed');
+    if (status !== VendorVerificationStatus.VERIFIED && status !== VendorVerificationStatus.SUSPENDED && status !== VendorVerificationStatus.PENDING) throw new ConflictException('Only PENDING, VERIFIED or SUSPENDED vendor verification actions are allowed');
     if (status === VendorVerificationStatus.SUSPENDED && !reason?.trim()) throw new ConflictException('A reason is required when suspending a vendor');
     const before = await this.prisma.vendorProfile.findUnique({ where: { tenantId }, select: { id: true, verificationStatus: true } });
     if (!before) throw new NotFoundException('Vendor profile not found');
-    await this.prisma.$transaction(async (tx) => { const after = await tx.vendorProfile.update({ where: { tenantId }, data: { verificationStatus: status } }); await this.audit.write(tx, { actor, tenantId, action: status === VendorVerificationStatus.VERIFIED ? 'VENDOR_VERIFIED' : 'VENDOR_SUSPENDED', entityType: 'VendorProfile', entityId: after.id, reason, beforeState: before, afterState: { verificationStatus: status } }); await this.outbox.enqueue(tx, { tenantId, eventType: status === VendorVerificationStatus.VERIFIED ? 'VENDOR_VERIFIED' : 'VENDOR_SUSPENDED', aggregateType: 'VendorProfile', aggregateId: after.id, payload: { status, reason: reason?.trim() || null } }); });
+    if (status === VendorVerificationStatus.PENDING && before.verificationStatus !== VendorVerificationStatus.VERIFIED) throw new ConflictException('Only a verified vendor can be returned to pending verification');
+    await this.prisma.$transaction(async (tx) => {
+      if (status === VendorVerificationStatus.VERIFIED) await assertVendorOnboardingDocumentsApproved(tx, tenantId);
+      const after = await tx.vendorProfile.update({ where: { tenantId }, data: { verificationStatus: status } });
+      const action = status === VendorVerificationStatus.VERIFIED ? 'VENDOR_VERIFIED' : status === VendorVerificationStatus.SUSPENDED ? 'VENDOR_SUSPENDED' : 'VENDOR_UNVERIFIED';
+      await this.audit.write(tx, { actor, tenantId, action, entityType: 'VendorProfile', entityId: after.id, reason, beforeState: before, afterState: { verificationStatus: status } });
+      await this.outbox.enqueue(tx, { tenantId, eventType: action, aggregateType: 'VendorProfile', aggregateId: after.id, payload: { status, reason: reason?.trim() || null } });
+      if (status === VendorVerificationStatus.PENDING) {
+        const app = await tx.vendorOnboardingApplication.findFirst({ where: { tenantId, status: VendorOnboardingStatus.APPROVED }, select: { id: true, status: true } });
+        if (app) {
+          const reviewReason = reason?.trim() || 'Admin requested reverification';
+          await tx.vendorOnboardingApplication.update({ where: { id: app.id }, data: { status: VendorOnboardingStatus.CHANGES_REQUESTED, reviewedAt: new Date(), reviewedById: actor.sub, reviewReason } });
+          await this.audit.write(tx, { actor, tenantId, action: 'VENDOR_ONBOARDING_CHANGES_REQUESTED', entityType: 'VendorOnboardingApplication', entityId: app.id, reason: reviewReason, beforeState: { status: app.status }, afterState: { status: VendorOnboardingStatus.CHANGES_REQUESTED } });
+          await this.outbox.enqueue(tx, { tenantId, eventType: 'VENDOR_ONBOARDING_CHANGES_REQUESTED', aggregateType: 'VendorOnboardingApplication', aggregateId: app.id, payload: { status: VendorOnboardingStatus.CHANGES_REQUESTED, reason: reviewReason } });
+        }
+      }
+    });
     return this.vendor(tenantId);
   }
   async document(actor: AuthUser, tenantId: string, versionId: string, status: DocumentReviewStatus, reason?: string) {
     if (!new Set<DocumentReviewStatus>([DocumentReviewStatus.VERIFIED, DocumentReviewStatus.REJECTED, DocumentReviewStatus.EXPIRED]).has(status)) throw new ConflictException('Invalid document review status');
     if (new Set<DocumentReviewStatus>([DocumentReviewStatus.REJECTED, DocumentReviewStatus.EXPIRED]).has(status) && !reason?.trim()) throw new ConflictException('A reason is required for a negative document decision');
-    await this.prisma.$transaction(async (tx) => {
+    const requestCorrections = await this.prisma.$transaction(async (tx) => {
       const version = await tx.vendorDocumentVersion.findFirst({
         where: { id: versionId, vendorDocument: { tenantId } },
         include: { vendorDocument: { include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } } } },
@@ -958,7 +976,26 @@ export class AdminService {
       const eventType = status === DocumentReviewStatus.VERIFIED ? 'VENDOR_DOCUMENT_VERIFIED' : status === DocumentReviewStatus.EXPIRED ? 'VENDOR_DOCUMENT_EXPIRED' : 'VENDOR_DOCUMENT_REJECTED';
       await this.audit.write(tx, { actor, tenantId, action, entityType: 'VendorDocumentVersion', entityId: versionId, reason, beforeState: { status: version.status }, afterState: { status, versionNumber: version.versionNumber } });
       await this.outbox.enqueue(tx, { tenantId, eventType, aggregateType: 'VendorDocument', aggregateId: version.vendorDocumentId, payload: { versionId, versionNumber: version.versionNumber, status, reason: reason?.trim() || null } });
+      if (status === DocumentReviewStatus.REJECTED) {
+        const app = await tx.vendorOnboardingApplication.findFirst({ where: { tenantId, status: { in: [VendorOnboardingStatus.SUBMITTED, VendorOnboardingStatus.UNDER_REVIEW] } }, select: { id: true, status: true } });
+        if (app) {
+          await tx.vendorOnboardingApplication.update({ where: { id: app.id }, data: { status: VendorOnboardingStatus.CHANGES_REQUESTED, reviewedAt: new Date(), reviewedById: actor.sub, reviewReason: `${version.vendorDocument.type.replaceAll('_', ' ')} rejected: ${reason!.trim()}` } });
+          await this.audit.write(tx, { actor, tenantId, action: 'VENDOR_ONBOARDING_CHANGES_REQUESTED', entityType: 'VendorOnboardingApplication', entityId: app.id, reason, beforeState: { status: app.status }, afterState: { status: VendorOnboardingStatus.CHANGES_REQUESTED } });
+          await this.outbox.enqueue(tx, { tenantId, eventType: 'VENDOR_ONBOARDING_CHANGES_REQUESTED', aggregateType: 'VendorOnboardingApplication', aggregateId: app.id, payload: { status: VendorOnboardingStatus.CHANGES_REQUESTED, reason: `${version.vendorDocument.type.replaceAll('_', ' ')} rejected: ${reason!.trim()}` } });
+          return true;
+        }
+      }
+      return false;
     });
+    if (requestCorrections) {
+      try {
+        await this.onboardingEmail?.notifyReview(tenantId, 'CHANGES_REQUESTED', VendorOnboardingStatus.CHANGES_REQUESTED, `${reason!.trim()} Please upload a corrected document and resubmit your onboarding.`);
+      } catch (error) {
+        // The document decision and correction request are already committed.
+        // Do not report the review action as failed because SMTP is unavailable.
+        console.error('Vendor document rejection notification failed', error instanceof Error ? error.message : error);
+      }
+    }
     return this.vendor(tenantId);
   }
 }

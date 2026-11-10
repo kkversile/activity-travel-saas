@@ -9,6 +9,7 @@ import { DistributionModule } from '../distribution/distribution.module';
 import { ExperienceMatchingService } from '../experience-matching/experience-matching.service';
 import { CatalogueModule } from '../catalogue/catalogue.module';
 import { CommercialModule } from '../commercial/commercial.module';
+import { OnboardingModule } from '../onboarding/onboarding.module';
 
-@Module({ imports: [PrismaModule, AuthModule, EligibilityModule, BookingsModule, DistributionModule, CatalogueModule, CommercialModule], controllers: [AdminController], providers: [AdminService, ExperienceMatchingService] })
+@Module({ imports: [PrismaModule, AuthModule, EligibilityModule, BookingsModule, DistributionModule, CatalogueModule, CommercialModule, OnboardingModule], controllers: [AdminController], providers: [AdminService, ExperienceMatchingService] })
 export class AdminModule {}

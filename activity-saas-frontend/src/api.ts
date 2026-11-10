@@ -38,7 +38,7 @@ export type VendorOnboardingApplication = {
   addressLine?: string | null; city?: string | null; state?: string | null; pinCode?: string | null; latitude?: string | number | null; longitude?: string | number | null;
   accountHolderName?: string | null; bankName?: string | null; bankAccountMasked?: string | null; ifscCode?: string | null; accountType?: string | null; bankOwnershipConfirmed: boolean; bankVerificationStatus: string;
   agreementVersion?: string | null; agreementAcceptedAt?: string | null; agreementSentAt?: string | null; agreementOpenedAt?: string | null; agreementCountersignedAt?: string | null; authorizedBusinessName?: string | null; authorizedRepresentative?: string | null; signatureData?: string | null; supplementalData?: Record<string, unknown> | null; startedAt?: string | null; submittedAt?: string | null; reviewedAt?: string | null; reviewReason?: string | null; updatedAt: string;
-  hasSignature: boolean; documents: VendorOnboardingDocument[];
+  hasSignature: boolean; documents: VendorOnboardingDocument[]; approvalBlockers?: string[];
 };
 
 export type ProductRevision = {

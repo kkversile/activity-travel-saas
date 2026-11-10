@@ -13,6 +13,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { randomInt } from 'node:crypto';
 import { PublicEntity, publicIdentifierMap } from '../common/public-identifiers';
 import { VENDOR_VERIFICATION_SETTINGS_KEY, defaultVendorVerificationSettings, normalizeVendorVerificationSettings } from '../common/mobile-verification-settings';
+import { assertVendorOnboardingDocumentsApproved, vendorOnboardingApprovalBlockers } from '../admin/vendor-onboarding-approval';
 
 const DRAFT_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.DRAFT, VendorOnboardingStatus.CHANGES_REQUESTED];
 const REVIEWABLE_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.SUBMITTED, VendorOnboardingStatus.UNDER_REVIEW, VendorOnboardingStatus.CHANGES_REQUESTED, VendorOnboardingStatus.REJECTED];
@@ -363,7 +364,8 @@ export class OnboardingService {
   async adminGet(tenantId: string) {
     const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, select: { id: true, name: true, vendorProfile: true, vendorOnboarding: { select: { ...publicApplicationSelect, signatureData: true } } } });
     if (!vendor) throw new NotFoundException('Vendor not found');
-    return { ...vendor, vendorOnboarding: vendor.vendorOnboarding ? { ...vendor.vendorOnboarding, hasSignature: Boolean(vendor.vendorOnboarding.signatureData), documents: await this.documents(tenantId) } : null };
+    const blockers = vendor.vendorOnboarding ? await this.prisma.$transaction((tx) => vendorOnboardingApprovalBlockers(tx, tenantId)) : [];
+    return { ...vendor, vendorOnboarding: vendor.vendorOnboarding ? { ...vendor.vendorOnboarding, hasSignature: Boolean(vendor.vendorOnboarding.signatureData), documents: await this.documents(tenantId), approvalBlockers: blockers } : null };
   }
 
   async review(actor: AuthUser, tenantId: string, dto: ReviewOnboardingDto) {
@@ -373,6 +375,7 @@ export class OnboardingService {
     if (NEGATIVE_REVIEW_STATUSES.includes(dto.status) && !dto.reason?.trim()) throw new BadRequestException('A reason is required for this decision');
     if (!REVIEW_DECISIONS.includes(dto.status)) throw new BadRequestException('Unsupported onboarding review decision');
     const result = await this.prisma.$transaction(async (tx) => {
+      if (dto.status === VendorOnboardingStatus.APPROVED) await assertVendorOnboardingDocumentsApproved(tx, tenantId);
       const updated = await tx.vendorOnboardingApplication.update({ where: { id: app.id }, data: { status: dto.status, reviewedAt: new Date(), reviewedById: actor.sub, reviewReason: dto.reason?.trim() || null }, select: publicApplicationSelect });
       if (dto.status === VendorOnboardingStatus.APPROVED) await tx.vendorProfile.update({ where: { tenantId }, data: { verificationStatus: VendorVerificationStatus.VERIFIED } });
       if (NEGATIVE_REVIEW_STATUSES.includes(dto.status)) await tx.vendorProfile.update({ where: { tenantId }, data: { verificationStatus: VendorVerificationStatus.PENDING } });
