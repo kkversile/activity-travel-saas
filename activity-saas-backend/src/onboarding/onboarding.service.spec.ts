@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { UserRole, VendorDocumentType, VendorOnboardingStatus } from '@prisma/client';
 import { hashOtp } from '../common/secret-crypto';
 import { OnboardingService } from './onboarding.service';
@@ -124,7 +124,10 @@ describe('OnboardingService.requestOtp delivery safeguards', () => {
   function setup() {
     const application = { id: 'application-1', tenantId: 'tenant-1', status: VendorOnboardingStatus.DRAFT, otpRequestedAt: null };
     const update = jest.fn().mockResolvedValue({ otpExpiresAt: new Date('2026-11-04T12:10:00Z') });
-    const prisma = { vendorOnboardingApplication: { findUnique: jest.fn().mockResolvedValue(application), update } };
+    const prisma = {
+      vendorOnboardingApplication: { findUnique: jest.fn().mockResolvedValue(application), update },
+      globalSetting: { findFirst: jest.fn().mockResolvedValue({ value: { mobileVerificationEnabled: true } }) },
+    };
     return { service: new OnboardingService(prisma as any, {} as any, {} as any, {} as any), update };
   }
 
@@ -149,6 +152,20 @@ describe('OnboardingService.requestOtp delivery safeguards', () => {
     const { service, update } = setup();
 
     await expect(service.requestOtp(user, '+919876543210')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('blocks mobile OTP requests while the global setting is disabled', async () => {
+    process.env.NODE_ENV = 'test';
+    const application = { id: 'application-1', tenantId: 'tenant-1', status: VendorOnboardingStatus.DRAFT, otpRequestedAt: null };
+    const update = jest.fn();
+    const prisma = {
+      vendorOnboardingApplication: { findUnique: jest.fn().mockResolvedValue(application), update },
+      globalSetting: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
+    const service = new OnboardingService(prisma as any, {} as any, {} as any, {} as any);
+
+    await expect(service.requestOtp(user, '+919876543210')).rejects.toBeInstanceOf(ForbiddenException);
     expect(update).not.toHaveBeenCalled();
   });
 });

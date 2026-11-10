@@ -11,6 +11,7 @@ import { ChannelMappingService } from '../distribution/channel-mapping.service';
 import { ChannelDistributionReadinessService } from '../distribution/channel-distribution-readiness.service';
 import { defaultVisitorPricingSettings, normalizeVisitorPricingSettings, VISITOR_PRICING_SETTINGS_KEY, VisitorPricingSettings } from '../common/visitor-pricing-settings';
 import { ACTIVITY_CONTENT_SETTINGS_KEY, ActivityContentSettings, defaultActivityContentSettings, normalizeActivityContentSettings } from '../common/activity-content-settings';
+import { VENDOR_VERIFICATION_SETTINGS_KEY, VendorVerificationSettings, defaultVendorVerificationSettings, normalizeVendorVerificationSettings } from '../common/mobile-verification-settings';
 import { PublicEntity, allocatePublicCode, allocateVendorVoucherShortCode, ensurePublicIdentifier, publicIdentifier, publicIdentifierMap } from '../common/public-identifiers';
 import { summarizeVendorCommercialTerms, summarizeVendorMetrics } from './vendor-metrics';
 
@@ -87,6 +88,24 @@ export class AdminService {
       return saved;
     });
     return { ...normalizeVisitorPricingSettings(setting.value), updatedAt: setting.updatedAt, updatedById: setting.adminId };
+  }
+
+  async vendorVerificationSettings() {
+    const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: VENDOR_VERIFICATION_SETTINGS_KEY }, select: { value: true, updatedAt: true, adminId: true } });
+    return { ...normalizeVendorVerificationSettings(setting?.value || defaultVendorVerificationSettings), updatedAt: setting?.updatedAt || null, updatedById: setting?.adminId || null };
+  }
+
+  async updateVendorVerificationSettings(actor: AuthUser, input: Partial<VendorVerificationSettings>) {
+    const before = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: VENDOR_VERIFICATION_SETTINGS_KEY }, select: { id: true, value: true } });
+    const next = normalizeVendorVerificationSettings({ ...normalizeVendorVerificationSettings(before?.value), ...input });
+    const setting = await this.prisma.$transaction(async (tx) => {
+      const saved = before
+        ? await tx.globalSetting.update({ where: { id: before.id }, data: { value: next, adminId: actor.sub }, select: { value: true, updatedAt: true, adminId: true } })
+        : await tx.globalSetting.create({ data: { tenantId: null, adminId: actor.sub, key: VENDOR_VERIFICATION_SETTINGS_KEY, value: next }, select: { value: true, updatedAt: true, adminId: true } });
+      await this.audit.write(tx, { actor, action: 'VENDOR_VERIFICATION_SETTINGS_UPDATED', entityType: 'GlobalSetting', entityId: before?.id || VENDOR_VERIFICATION_SETTINGS_KEY, beforeState: normalizeVendorVerificationSettings(before?.value), afterState: next });
+      return saved;
+    });
+    return { ...normalizeVendorVerificationSettings(setting.value), updatedAt: setting.updatedAt, updatedById: setting.adminId };
   }
 
   async activityContentSettings() {

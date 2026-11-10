@@ -99,7 +99,7 @@ describe('Vendor onboarding', () => {
   });
 
   it('keeps the entered names after OTP verification reloads the application', async () => {
-    const started = { ...draft, startedAt: new Date().toISOString(), currentStep: 2, supplementalData: { contacts: [{ role: 'Primary operations', name: '', designation: '', mobile: '', email: '', hours: '07:00–21:00' }, { role: 'Emergency contact', name: '', designation: '', mobile: '', email: '', hours: '24 × 7' }] } };
+    const started = { ...draft, mobileVerificationEnabled: true, startedAt: new Date().toISOString(), currentStep: 2, supplementalData: { contacts: [{ role: 'Primary operations', name: '', designation: '', mobile: '', email: '', hours: '07:00–21:00' }, { role: 'Emergency contact', name: '', designation: '', mobile: '', email: '', hours: '24 × 7' }] } };
     const verified = { ...started, contactNumber: '+919876543210', phoneVerifiedAt: new Date().toISOString(), supplementalData: { ...started.supplementalData, contacts: [{ ...started.supplementalData.contacts[0], name: 'Kiran Kumar', mobile: '9876543210' }, ...started.supplementalData.contacts.slice(1)] } };
     const request = vi.spyOn(api, 'request')
       .mockResolvedValueOnce(started as never)

@@ -7,6 +7,7 @@ type VisitorPricingSettings = {
   showVerificationRequired: boolean;
   updatedAt?: string | null;
 };
+type VendorVerificationSettings = { emailVerificationEnabled: boolean; mobileVerificationEnabled: boolean; updatedAt?: string | null };
 
 type ActivityContentSettings = {
   terms: string[];
@@ -17,6 +18,7 @@ type MasterDataCard = { key: string; title: string; detail: string; route: strin
 
 export default function AdminSettings() {
   const [settings, setSettings] = useState<VisitorPricingSettings | null>(null);
+  const [verification, setVerification] = useState<VendorVerificationSettings | null>(null);
   const [content, setContent] = useState<ActivityContentSettings | null>(null);
   const [masterData, setMasterData] = useState<MasterDataCard[]>([]);
   const [error, setError] = useState('');
@@ -26,9 +28,10 @@ export default function AdminSettings() {
   useEffect(() => {
     void Promise.all([
       api.request<VisitorPricingSettings>('/admin/settings/visitor-pricing'),
+      api.request<VendorVerificationSettings>('/admin/settings/vendor-verification'),
       api.request<ActivityContentSettings>('/admin/settings/activity-content'),
       api.request<MasterDataCard[]>('/admin/settings/overview'),
-    ]).then(([visitor, activityContent, overview]) => { setSettings(visitor); setContent(activityContent); setMasterData(overview); })
+    ]).then(([visitor, vendorVerification, activityContent, overview]) => { setSettings(visitor); setVerification(vendorVerification); setContent(activityContent); setMasterData(overview); })
       .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
   }, []);
 
@@ -54,6 +57,16 @@ export default function AdminSettings() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); }
   }
 
+  async function saveVerification(next: Partial<VendorVerificationSettings>) {
+    if (!verification) return;
+    setBusy(true); setError(''); setSaved(false);
+    try {
+      setVerification(await api.request<VendorVerificationSettings>('/admin/settings/vendor-verification', { method: 'PATCH', body: JSON.stringify(next) }));
+      setSaved(true);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  }
+
   function updateQuestion(index: number, key: string, value: string | boolean) {
     if (!content) return;
     const bookingQuestions = content.bookingQuestions.map((question, questionIndex) => questionIndex === index ? { ...question, [key]: value } : question);
@@ -65,12 +78,13 @@ export default function AdminSettings() {
     window.dispatchEvent(new PopStateEvent('popstate'));
   }
 
-  if ((!settings || !content || !masterData.length) && !error) return <Loading text="Loading platform settings…" />;
+  if ((!settings || !verification || !content || !masterData.length) && !error) return <Loading text="Loading platform settings…" />;
   return <>
     <div className="admin-hero"><div><h2>Configuration</h2><p className="muted">Master data and system settings that vendors and agents pick from.</p></div></div>
     {error && <ErrorBox error={error} />}
     <Panel title="Master data"><div className="admin-config-grid">{masterData.map((card) => <div className="admin-config-card" key={card.key}><h3>{card.title}</h3><p className="muted">{card.detail}</p><button className="btn small" onClick={() => openMasterData(card.route)}>Manage</button></div>)}</div></Panel>
     {settings && <Panel title="Visitor pricing display"><p className="muted">These settings apply globally to all vendor product forms. Hidden fields continue using their saved/default values in the pricing payload.</p><Toggle checked={settings.showEligibilityBasis} onChange={(value) => { setSettings({ ...settings, showEligibilityBasis: value }); void save({ showEligibilityBasis: value }); }} label="Show Eligibility basis" sub="When enabled, vendors can choose nationality or residency for visitor pricing." /><Toggle checked={settings.showVerificationRequired} onChange={(value) => { setSettings({ ...settings, showVerificationRequired: value }); void save({ showVerificationRequired: value }); }} label="Show Verification required" sub="When enabled, vendors can choose how visitor eligibility is verified." />{busy && <p className="muted">Saving…</p>}{saved && !busy && <p className="success-text">Settings saved.</p>}</Panel>}
+    {verification && <Panel title="Vendor sign-up verification"><p className="muted">Choose which identity checks vendors complete before entering onboarding. SMS must be configured before mobile verification is enabled.</p><Toggle checked={verification.emailVerificationEnabled} onChange={(value) => { setVerification({ ...verification, emailVerificationEnabled: value }); void saveVerification({ emailVerificationEnabled: value }); }} label="Email verification" sub={verification.emailVerificationEnabled ? 'New vendors verify their email with a one-time code before sign-in.' : 'Email OTP is skipped during registration.'} /><Toggle checked={verification.mobileVerificationEnabled} onChange={(value) => { setVerification({ ...verification, mobileVerificationEnabled: value }); void saveVerification({ mobileVerificationEnabled: value }); }} label="Mobile verification" sub={verification.mobileVerificationEnabled ? 'New vendors must verify their mobile number during sign-up and onboarding.' : 'Mobile OTP is hidden; vendors can still provide a contact number during onboarding.'} />{busy && <p className="muted">Saving…</p>}{saved && !busy && <p className="success-text">Settings saved.</p>}</Panel>}
     {content && <Panel title="Activity content defaults"><p className="muted">These defaults are used when AI or the supplier does not provide generic customer-facing content. Vendors can still edit them per activity.</p><label className="field-label">Generic terms and conditions<textarea rows={4} value={content.terms.join('\n')} onChange={(event) => setContent({ ...content, terms: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })} /></label><label className="field-label">Generic how to redeem<textarea rows={4} value={content.howToRedeem.join('\n')} onChange={(event) => setContent({ ...content, howToRedeem: event.target.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean) })} /></label><h4>Generic booking questions</h4><p className="muted">One row per default: code, label, type, required.</p>{content.bookingQuestions.map((question, index) => <div className="experience-form-grid four" key={`${question.code}-${index}`}><input value={question.code} onChange={(event) => updateQuestion(index, 'code', event.target.value)} placeholder="lead_name" /><input value={question.label} onChange={(event) => updateQuestion(index, 'label', event.target.value)} placeholder="Lead traveller name" /><select value={question.type} onChange={(event) => updateQuestion(index, 'type', event.target.value)}><option>TEXT</option><option>NUMBER</option><option>BOOLEAN</option><option>SELECT</option></select><label className="wizard-check"><input type="checkbox" checked={question.required} onChange={(event) => updateQuestion(index, 'required', event.target.checked)} /> Required</label></div>)}<button type="button" className="btn primary" onClick={() => void saveContent()} disabled={busy}>Save activity defaults</button>{saved && !busy && <p className="success-text">Settings saved.</p>}</Panel>}
   </>;
 }

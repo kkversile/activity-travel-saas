@@ -284,8 +284,15 @@ export function Register({ onRegistered, onBack }: { onRegistered: (user: User) 
   const [city, setCity] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [registeredUser, setRegisteredUser] = useState<User | null>(null);
-  const [otp, setOtp] = useState('');
-  const [demoOtp, setDemoOtp] = useState('');
+  const [emailVerificationRequired, setEmailVerificationRequired] = useState(false);
+  const [mobileVerificationRequired, setMobileVerificationRequired] = useState(false);
+  const [emailChallengeId, setEmailChallengeId] = useState('');
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [verifiedEmailUser, setVerifiedEmailUser] = useState<User | null>(null);
+  const [emailOtp, setEmailOtp] = useState('');
+  const [mobileOtp, setMobileOtp] = useState('');
+  const [emailDemoOtp, setEmailDemoOtp] = useState('');
+  const [mobileDemoOtp, setMobileDemoOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -293,6 +300,14 @@ export function Register({ onRegistered, onBack }: { onRegistered: (user: User) 
   const [teamInviteToken] = useState(() => new URLSearchParams(window.location.search).get('teamInvite') || '');
   const [invitePreview, setInvitePreview] = useState<{ email: string; role: string; workspaceName: string; expiresAt: string } | null>(null);
   const [inviteLoading, setInviteLoading] = useState(Boolean(teamInviteToken));
+  const [deviceToken] = useState(() => {
+    const key = 'voya_vendor_trusted_device';
+    const saved = window.localStorage.getItem(key);
+    if (saved) return saved;
+    const created = window.crypto.randomUUID();
+    window.localStorage.setItem(key, created);
+    return created;
+  });
 
   useEffect(() => {
     if (!teamInviteToken) return;
@@ -306,9 +321,20 @@ export function Register({ onRegistered, onBack }: { onRegistered: (user: User) 
     setError('');
     try {
       const result = await api.request<{ demoOtp?: string }>('/vendor/onboarding/otp/request', { method: 'POST', body: JSON.stringify({ contactNumber }) });
-      setDemoOtp(result.demoOtp || '');
+      setMobileDemoOtp(result.demoOtp || '');
+      setMobileOtp('');
       setOtpSent(true);
       setNotice(`A verification code was sent to ${contactNumber}.`);
+    } catch (e) { setError((e as Error).message); }
+  }
+
+  async function requestEmailOtp(accountEmail: string) {
+    setError(''); setNotice(''); setEmailOtp(''); setEmailDemoOtp(''); setEmailChallengeId('');
+    try {
+      const result = await api.requestVendorLoginCode(accountEmail);
+      setEmailChallengeId(result.challengeId);
+      setEmailDemoOtp(result.demoOtp || '');
+      setNotice(result.demoOtp ? 'Local demo sign-in code is shown below.' : 'Check your email for a 6-digit sign-in code.');
     } catch (e) { setError((e as Error).message); }
   }
 
@@ -317,9 +343,20 @@ export function Register({ onRegistered, onBack }: { onRegistered: (user: User) 
     setBusy(true); setError('');
     try {
       if (registeredUser) {
-        if (!otpSent) { setError('Request a mobile verification code before continuing.'); return; }
-        await api.request('/vendor/onboarding/otp/verify', { method: 'POST', body: JSON.stringify({ otp }) });
-        await onRegistered(registeredUser);
+        let finalUser = verifiedEmailUser || registeredUser;
+        if (emailVerificationRequired && !emailVerified) {
+          if (!emailChallengeId) { await requestEmailOtp(registeredUser.email); return; }
+          const result = await api.verifyVendorLoginCode(emailChallengeId, emailOtp, deviceToken);
+          api.setToken(result.accessToken);
+          setEmailVerified(true);
+          setVerifiedEmailUser(result.user);
+          finalUser = result.user;
+        }
+        if (mobileVerificationRequired) {
+          if (!otpSent) { await requestPhoneOtp(mobile); return; }
+          await api.request('/vendor/onboarding/otp/verify', { method: 'POST', body: JSON.stringify({ otp: mobileOtp }) });
+        }
+        await onRegistered(finalUser);
         return;
       }
       if (!acceptedTerms) { setError('Please accept the Partner Terms and Privacy Policy to continue.'); return; }
@@ -337,9 +374,21 @@ export function Register({ onRegistered, onBack }: { onRegistered: (user: User) 
       api.setToken(result.accessToken);
       setRegisteredUser(result.user);
       setMobile(contactNumber);
-      await requestPhoneOtp(contactNumber);
+      const onboarding = await api.request<{ emailVerificationEnabled?: boolean; mobileVerificationEnabled?: boolean }>('/vendor/onboarding');
+      const requireEmail = onboarding.emailVerificationEnabled !== false;
+      const requireMobile = onboarding.mobileVerificationEnabled === true;
+      setEmailVerificationRequired(requireEmail);
+      setMobileVerificationRequired(onboarding.mobileVerificationEnabled === true);
+      if (requireEmail) {
+        await requestEmailOtp(result.user.email);
+      }
+      if (requireMobile) await requestPhoneOtp(contactNumber);
+      if (requireEmail) api.setToken(null);
+      if (!requireEmail && !requireMobile) {
+        await onRegistered(result.user);
+      }
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
 
-  return <div className="register-page"><section className="register-art"><div className="register-brand"><span className="register-logo">P</span><div><b>Partner Hub</b><small>Tours &amp; Attractions</small></div></div><h1>List your tours, tickets and experiences in front of millions of Indian travellers.</h1><ul className="register-benefits"><li><b>No listing fee.</b> You pay commission only on confirmed bookings.</li><li><b>Weekly payouts</b> to your bank, with a statement for every rupee.</li><li><b>Your rules.</b> Set your own prices, time slots, cancellation policy and promotions.</li><li><b>Live in 3–5 working days</b> once your KYC and agreement are done.</li></ul><div className="register-flow"><span>Sign up</span><i>→</i><span>Verify business</span><i>→</i><span>Sign agreement</span><i>→</i><span>List products</span><i>→</i><span>Start selling</span></div><p className="register-muted">Theme parks, monuments, day tours, cruises, adventure, treks, camping and workshops are all welcome.</p></section><section className="register-panel"><div className="register-tabs"><span className="active">{registeredUser ? 'Verify mobile' : 'Create account'}</span><button type="button" onClick={() => { if (registeredUser) api.setToken(null); onBack(); }}>Log in</button></div>{registeredUser ? <form onSubmit={submit}><h2>Verify your mobile</h2><p className="muted">{otpSent ? <>Enter the 6-digit code sent to {mobile} before continuing to your vendor profile.</> : <>We couldn’t send a verification code to {mobile}. You can retry or return to log in.</>}</p>{notice && <div className="alert info" role="status">{notice}</div>}{error && <div className="alert error" role="alert">{error}</div>}<label className="register-field"><span>OTP</span><input required autoComplete="one-time-code" inputMode="numeric" maxLength={6} disabled={!otpSent || busy} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ''))} placeholder="6-digit code" /></label>{demoOtp && <small className="login-demo-note">Local demo OTP: {demoOtp}</small>}<button className="btn primary wide register-submit" disabled={busy || !otpSent || otp.length !== 6}>{busy ? 'Verifying…' : 'Verify mobile & continue'}</button><button type="button" className="link-button" disabled={busy} onClick={() => void requestPhoneOtp(mobile)}>{otpSent ? 'Resend OTP' : 'Try sending again'}</button></form> : teamInviteToken ? <form onSubmit={submit}><h2>Join {invitePreview?.workspaceName || 'the partner workspace'}</h2><p className="muted">{inviteLoading ? 'Checking your invitation…' : invitePreview ? `You were invited as ${{ OWNER: 'Owner', CATALOGUE: 'Manager', OPERATIONS: 'Operations', FINANCE: 'Accounts', VIEWER: 'Viewer' }[invitePreview.role] || invitePreview.role}.` : 'This invitation is invalid or expired. Ask the workspace owner for a new link.'}</p><label className="register-field"><span>Your full name</span><input required minLength={2} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your full name" /></label><label className="register-field"><span>Invited email</span><input required type="email" readOnly value={invitePreview?.email || ''} /></label><label className="register-field"><span>Password</span><input required type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /><small>8+ characters with a number</small></label><label className="register-check"><input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} /> <span>I agree to Partner Terms and Privacy Policy.</span></label>{error && <div className="alert error" role="alert">{error}</div>}<button className="btn primary wide register-submit" disabled={busy || inviteLoading || !invitePreview}>{busy ? 'Joining…' : 'Accept invitation'}</button></form> : <form onSubmit={submit}><div className="register-grid"><label className="register-field"><span>Your full name</span><input required minLength={2} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Savio Fernandes" /></label><label className="register-field"><span>Business / brand name</span><input required minLength={2} value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Goa Coastal" /></label><label className="register-field full"><span>Work email</span><input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@business.com" /></label><label className="register-field full"><span>Mobile number</span><input required type="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="+91 98765 43210" /></label><label className="register-field"><span>What do you offer?</span><select value={category} onChange={(e) => setCategory(e.target.value)}><option>Day tours &amp; sightseeing</option><option>Theme / water park</option><option>Monument / museum</option><option>Adventure &amp; water sports</option><option>Cruises &amp; boats</option><option>Camping &amp; treks</option><option>Workshops &amp; experiences</option></select></label><label className="register-field"><span>Main city</span><input required value={city} onChange={(e) => setCity(e.target.value)} placeholder="North Goa" /></label><label className="register-field full"><span>Password</span><input required type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /><small>8+ characters with a number</small></label></div><label className="register-check"><input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} /> <span>I agree to Partner Terms and Privacy Policy, and receive booking alerts on WhatsApp.</span></label>{error && <div className="alert error">{error}</div>}<button className="btn primary wide register-submit" disabled={busy}>{busy ? 'Creating account…' : 'Create account & continue'}</button><p className="register-note">Next, you’ll add business details and KYC. It takes about 15 minutes; keep PAN, GST and a cancelled cheque handy.</p></form>}</section></div>;
+  return <div className="register-page"><section className="register-art"><div className="register-brand"><span className="register-logo">P</span><div><b>Partner Hub</b><small>Tours &amp; Attractions</small></div></div><h1>List your tours, tickets and experiences in front of millions of Indian travellers.</h1><ul className="register-benefits"><li><b>No listing fee.</b> You pay commission only on confirmed bookings.</li><li><b>Weekly payouts</b> to your bank, with a statement for every rupee.</li><li><b>Your rules.</b> Set your own prices, time slots, cancellation policy and promotions.</li><li><b>Live in 3–5 working days</b> once your KYC and agreement are done.</li></ul><div className="register-flow"><span>Sign up</span><i>→</i><span>Verify business</span><i>→</i><span>Sign agreement</span><i>→</i><span>List products</span><i>→</i><span>Start selling</span></div><p className="register-muted">Theme parks, monuments, day tours, cruises, adventure, treks, camping and workshops are all welcome.</p></section><section className="register-panel"><div className="register-tabs"><span className="active">{registeredUser ? 'Verify account' : 'Create account'}</span><button type="button" onClick={() => { if (registeredUser) api.setToken(null); onBack(); }}>Log in</button></div>{registeredUser ? <form onSubmit={submit}><h2>Verify your account</h2><p className="muted">Complete the enabled checks below to continue to your vendor profile.</p>{notice && <div className="alert info" role="status">{notice}</div>}{error && <div className="alert error" role="alert">{error}</div>}{emailVerificationRequired && <section className="register-verification-section"><h3>Email verification</h3><p className="muted">{emailVerified ? `Verified: ${registeredUser.email}` : `Enter the 6-digit sign-in code sent to ${registeredUser.email}.`}</p>{!emailVerified && <><label className="register-field"><span>Email OTP</span><input required autoComplete="one-time-code" inputMode="numeric" maxLength={6} disabled={busy || !emailChallengeId} value={emailOtp} onChange={(event) => setEmailOtp(event.target.value.replace(/\D/g, ''))} placeholder="6-digit code" /></label>{emailDemoOtp && <small className="login-demo-note">Local demo code: {emailDemoOtp}</small>}<button type="button" className="link-button" disabled={busy} onClick={() => void requestEmailOtp(registeredUser.email)}>{emailChallengeId ? 'Resend email code' : 'Send email code'}</button></>}</section>}{mobileVerificationRequired && <section className="register-verification-section"><h3>Mobile verification</h3><p className="muted">{otpSent ? `Enter the 6-digit code sent to ${mobile}.` : `Verify the mobile number ${mobile}.`}</p><label className="register-field"><span>Mobile OTP</span><input required autoComplete="one-time-code" inputMode="numeric" maxLength={6} disabled={busy || !otpSent} value={mobileOtp} onChange={(event) => setMobileOtp(event.target.value.replace(/\D/g, ''))} placeholder="6-digit code" /></label>{mobileDemoOtp && <small className="login-demo-note">Local demo code: {mobileDemoOtp}</small>}<button type="button" className="link-button" disabled={busy} onClick={() => void requestPhoneOtp(mobile)}>{otpSent ? 'Resend mobile code' : 'Send mobile code'}</button></section>}<button className="btn primary wide register-submit" disabled={busy || (emailVerificationRequired && (!emailChallengeId || !emailVerified && emailOtp.length !== 6)) || (mobileVerificationRequired && (!otpSent || mobileOtp.length !== 6))}>{busy ? 'Verifying…' : 'Verify and continue'}</button></form> : teamInviteToken ? <form onSubmit={submit}><h2>Join {invitePreview?.workspaceName || 'the partner workspace'}</h2><p className="muted">{inviteLoading ? 'Checking your invitation…' : invitePreview ? `You were invited as ${{ OWNER: 'Owner', CATALOGUE: 'Manager', OPERATIONS: 'Operations', FINANCE: 'Accounts', VIEWER: 'Viewer' }[invitePreview.role] || invitePreview.role}.` : 'This invitation is invalid or expired. Ask the workspace owner for a new link.'}</p><label className="register-field"><span>Your full name</span><input required minLength={2} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Your full name" /></label><label className="register-field"><span>Invited email</span><input required type="email" readOnly value={invitePreview?.email || ''} /></label><label className="register-field"><span>Password</span><input required type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /><small>8+ characters with a number</small></label><label className="register-check"><input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} /> <span>I agree to Partner Terms and Privacy Policy.</span></label>{error && <div className="alert error" role="alert">{error}</div>}<button className="btn primary wide register-submit" disabled={busy || inviteLoading || !invitePreview}>{busy ? 'Joining…' : 'Accept invitation'}</button></form> : <form onSubmit={submit}><div className="register-grid"><label className="register-field"><span>Your full name</span><input required minLength={2} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Savio Fernandes" /></label><label className="register-field"><span>Business / brand name</span><input required minLength={2} value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Goa Coastal" /></label><label className="register-field full"><span>Work email</span><input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@business.com" /></label><label className="register-field full"><span>Mobile number</span><input required type="tel" value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="+91 98765 43210" /></label><label className="register-field"><span>What do you offer?</span><select value={category} onChange={(e) => setCategory(e.target.value)}><option>Day tours &amp; sightseeing</option><option>Theme / water park</option><option>Monument / museum</option><option>Adventure &amp; water sports</option><option>Cruises &amp; boats</option><option>Camping &amp; treks</option><option>Workshops &amp; experiences</option></select></label><label className="register-field"><span>Main city</span><input required value={city} onChange={(e) => setCity(e.target.value)} placeholder="North Goa" /></label><label className="register-field full"><span>Password</span><input required type="password" minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" /><small>8+ characters with a number</small></label></div><label className="register-check"><input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} /> <span>I agree to Partner Terms and Privacy Policy.</span></label>{error && <div className="alert error">{error}</div>}<button className="btn primary wide register-submit" disabled={busy}>{busy ? 'Creating account…' : 'Create account & continue'}</button><p className="register-note">Next, you’ll add business details and KYC. It takes about 15 minutes; keep PAN, GST and a cancelled cheque handy.</p></form>}</section></div>;
 }

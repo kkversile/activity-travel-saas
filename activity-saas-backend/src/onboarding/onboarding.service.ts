@@ -12,6 +12,7 @@ import { OnboardingEmailKind } from './onboarding-email-template';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { randomInt } from 'node:crypto';
 import { PublicEntity, publicIdentifierMap } from '../common/public-identifiers';
+import { VENDOR_VERIFICATION_SETTINGS_KEY, defaultVendorVerificationSettings, normalizeVendorVerificationSettings } from '../common/mobile-verification-settings';
 
 const DRAFT_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.DRAFT, VendorOnboardingStatus.CHANGES_REQUESTED];
 const REVIEWABLE_STATUSES: VendorOnboardingStatus[] = [VendorOnboardingStatus.SUBMITTED, VendorOnboardingStatus.UNDER_REVIEW, VendorOnboardingStatus.CHANGES_REQUESTED, VendorOnboardingStatus.REJECTED];
@@ -79,6 +80,15 @@ export class OnboardingService {
     private readonly onboardingEmail: OnboardingEmailService,
   ) {}
 
+  private async vendorVerificationSettings() {
+    const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: VENDOR_VERIFICATION_SETTINGS_KEY }, select: { value: true } });
+    return normalizeVendorVerificationSettings(setting?.value || defaultVendorVerificationSettings);
+  }
+
+  private async requireMobileVerificationEnabled() {
+    if (!(await this.vendorVerificationSettings()).mobileVerificationEnabled) throw new ForbiddenException('Mobile verification is disabled by platform settings.');
+  }
+
   private async ensureApplication(tenantId: string) {
     const profile = await this.prisma.vendorProfile.findUnique({ where: { tenantId }, select: { displayName: true, legalBusinessName: true, operatingCity: true, operatingRegion: true, gstin: true } });
     if (!profile) throw new NotFoundException('Vendor profile not found');
@@ -103,7 +113,8 @@ export class OnboardingService {
     if (JSON.stringify(supplementalData) !== JSON.stringify(application.supplementalData || {})) {
       await this.prisma.vendorOnboardingApplication.update({ where: { id: application.id }, data: { supplementalData: supplementalData as Prisma.InputJsonValue } });
     }
-    return { ...application, contactEmail: user.email, supplementalData, hasSignature: Boolean(await this.prisma.vendorOnboardingApplication.findUnique({ where: { id: application.id }, select: { signatureData: true } }).then((row) => row?.signatureData)), agreementVersion: application.agreementVersion || AGREEMENT_VERSION, documents: await this.documents(tenantId) };
+    const verificationSettings = await this.vendorVerificationSettings();
+    return { ...application, contactEmail: user.email, ...verificationSettings, supplementalData, hasSignature: Boolean(await this.prisma.vendorOnboardingApplication.findUnique({ where: { id: application.id }, select: { signatureData: true } }).then((row) => row?.signatureData)), agreementVersion: application.agreementVersion || AGREEMENT_VERSION, documents: await this.documents(tenantId) };
   }
 
   async lookupIfsc(user: AuthUser, code: string) {
@@ -288,6 +299,7 @@ export class OnboardingService {
   }
 
   async requestOtp(user: AuthUser, contactNumber: string) {
+    await this.requireMobileVerificationEnabled();
     const app = await this.editable(user);
     const normalized = contactNumber.trim();
     if (!/^\+?[1-9]\d{9,14}$/.test(normalized)) throw new BadRequestException('Enter a valid mobile number with country code');
@@ -302,6 +314,7 @@ export class OnboardingService {
   }
 
   async verifyOtp(user: AuthUser, otp: string) {
+    await this.requireMobileVerificationEnabled();
     const app = await this.editable(user);
     if (!app.otpHash || !app.otpExpiresAt || app.otpExpiresAt < new Date()) throw new BadRequestException('OTP has expired; request a new one');
     if (app.otpAttempts >= 5) throw new HttpException('OTP attempt limit reached; request a new one', HttpStatus.TOO_MANY_REQUESTS);
@@ -314,7 +327,8 @@ export class OnboardingService {
     const app = await this.prisma.vendorOnboardingApplication.findUnique({ where: { tenantId }, include: { tenant: { include: { vendorDocuments: { include: { versions: { orderBy: { versionNumber: 'desc' }, take: 1 } } } } } } });
     if (!app) throw new NotFoundException('Onboarding application not found');
     const latest = new Map(app.tenant.vendorDocuments.map((doc) => [doc.type, doc.versions[0]]));
-    if (!app.firstName || !app.lastName || !app.contactNumber || !app.phoneVerifiedAt) throw new BadRequestException('Complete and verify the profile contact details');
+    const mobileVerificationEnabled = (await this.vendorVerificationSettings()).mobileVerificationEnabled;
+    if (!app.firstName || !app.lastName || !app.contactNumber || (mobileVerificationEnabled && !app.phoneVerifiedAt)) throw new BadRequestException(mobileVerificationEnabled ? 'Complete and verify the profile contact details' : 'Complete the profile contact details');
     if (!app.businessDisplayName || !app.legalBusinessName || !app.panNumber || !latest.get('PAN')) throw new BadRequestException('Complete business identity and upload the PAN document');
     if (!app.gstStatus || (app.gstStatus === VendorGstStatus.REGISTERED && (!app.gstin || !app.gstDeclarationAccepted || !latest.get('GSTIN')))) throw new BadRequestException('Complete the GST details and declaration');
     const supplemental = app.supplementalData && typeof app.supplementalData === 'object' && !Array.isArray(app.supplementalData)

@@ -806,11 +806,13 @@ export default function Onboarding({
     if (
       step === 2 &&
       (!validPhone(form.countryCode + form.contactNumber) ||
-        !application?.phoneVerifiedAt ||
+        (application?.mobileVerificationEnabled === true && !application?.phoneVerifiedAt) ||
         !form.supplementalData.contacts[0]?.name.trim() ||
         !validPhone(form.supplementalData.contacts[0]?.mobile || ""))
     )
-      return "Add a reachable primary contact and verify the mobile number with OTP.";
+      return application?.mobileVerificationEnabled === true
+        ? "Add a reachable primary contact and verify the mobile number with OTP."
+        : "Add a reachable primary contact and valid mobile number.";
     if (
       step === 3 &&
       (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(form.panNumber.trim().toUpperCase()) ||
@@ -1203,7 +1205,7 @@ export default function Onboarding({
   };
   const sectionChecks = [
     Boolean(form.businessDisplayName && form.legalBusinessName && form.addressLine && supplemental.entityType),
-    Boolean(application.phoneVerifiedAt && supplemental.contacts[0]?.name && supplemental.contacts[0]?.mobile),
+    Boolean((application.mobileVerificationEnabled !== true || application.phoneVerifiedAt) && supplemental.contacts[0]?.name && supplemental.contacts[0]?.mobile),
     Boolean(form.panNumber && documentFor(application, "PAN")?.latestVersion && form.gstStatus),
     Boolean(
       documentFor(application, "TRADE_LICENSE")?.latestVersion ||
@@ -1236,7 +1238,7 @@ export default function Onboarding({
   ] as const;
   const hasDocument = (type: string) => Boolean(documentFor(application, type)?.latestVersion);
   const contactCount = supplemental.contacts.filter((contact) => contact.name || contact.mobile || contact.email).length;
-  const primaryContactReady = Boolean(application.phoneVerifiedAt && supplemental.contacts[0]?.name && supplemental.contacts[0]?.mobile);
+  const primaryContactReady = Boolean((application.mobileVerificationEnabled !== true || application.phoneVerifiedAt) && supplemental.contacts[0]?.name && supplemental.contacts[0]?.mobile);
   const emergencyContactReady = Boolean(supplemental.contacts[3]?.name && supplemental.contacts[3]?.mobile);
   const contactsReady = primaryContactReady && emergencyContactReady;
   const authorisationMissing = !hasDocument("AUTHORIZATION_LETTER");
@@ -1781,7 +1783,7 @@ export default function Onboarding({
                   </table>
                 </div>
               </div>
-              {!application.phoneVerifiedAt && (
+              {(!application.phoneVerifiedAt || application.mobileVerificationEnabled !== true) && (
                 <div className="onboarding-contact-verification">
                   <label className="field">
                     <span>Primary contact number *</span>
@@ -1791,15 +1793,15 @@ export default function Onboarding({
                       </select>
                       <input value={form.contactNumber} onChange={(event) => update("contactNumber", event.target.value.replace(/\D/g, ""))} placeholder="9876543210" />
                     </div>
-                    <small>We will verify this number with a one-time password.</small>
+                    <small>{application.mobileVerificationEnabled === true ? "We will verify this number with a one-time password." : "Email verification is complete. Mobile OTP is currently disabled by platform settings."}</small>
                   </label>
-                  <div className="otp-row">
+                  {application.mobileVerificationEnabled === true && !application.phoneVerifiedAt && <div className="otp-row">
                     <button className="btn" disabled={busy || !validPhone(form.countryCode + form.contactNumber)} onClick={() => void requestOtp()}>{otpRequested ? "Resend OTP" : "Send OTP"}</button>
                     {otpRequested && <>
                       <input aria-label="Six digit OTP" className="otp-input" inputMode="numeric" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))} placeholder="••••••" />
                       <button className="btn primary" disabled={busy || otp.length !== 6} onClick={() => void verifyOtp()}>Verify</button>
                     </>}
-                  </div>
+                  </div>}
                 </div>
               )}
               <div className="onboarding-form-grid two">

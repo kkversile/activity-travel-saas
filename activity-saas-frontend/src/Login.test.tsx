@@ -18,7 +18,7 @@ describe('vendor passwordless login flow', () => {
     expect(screen.getByRole('heading', { name: 'List your tours, tickets and experiences in front of millions of Indian travellers.' })).toBeInTheDocument();
     expect(screen.getByText('Log in', { selector: 'span' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create account' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Vendor Login' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Vendor Login' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
@@ -114,6 +114,7 @@ describe('vendor registration phone verification', () => {
     const user = { id: 'vendor-2', email: 'owner@example.com', fullName: 'Owner Name', role: 'VENDOR', tenantId: 'tenant-2', organizationRole: 'OWNER', active: true } as never;
     const register = vi.spyOn(api, 'register').mockResolvedValue({ accessToken: 'vendor-token', user });
     const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/vendor/onboarding') return { emailVerificationEnabled: false, mobileVerificationEnabled: true } as never;
       if (path === '/vendor/onboarding/otp/request') return { demoOtp: '123456' } as never;
       if (path === '/vendor/onboarding/otp/verify') return { verified: true } as never;
       throw new Error(`Unexpected request: ${path}`);
@@ -130,11 +131,11 @@ describe('vendor registration phone verification', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByRole('button', { name: 'Create account & continue' }));
 
-    expect(await screen.findByText('Local demo OTP: 123456')).toBeInTheDocument();
+    expect(await screen.findByText('Local demo code: 123456')).toBeInTheDocument();
     expect(register).toHaveBeenCalledWith(expect.objectContaining({ mobile: '+919876543210' }));
     expect(request).toHaveBeenCalledWith('/vendor/onboarding/otp/request', { method: 'POST', body: JSON.stringify({ contactNumber: '+919876543210' }) });
-    fireEvent.change(screen.getByLabelText('OTP'), { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Verify mobile & continue' }));
+    fireEvent.change(screen.getByLabelText('Mobile OTP'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify and continue' }));
 
     await waitFor(() => expect(onRegistered).toHaveBeenCalledWith(user));
     expect(request).toHaveBeenCalledWith('/vendor/onboarding/otp/verify', { method: 'POST', body: JSON.stringify({ otp: '123456' }) });
@@ -143,7 +144,10 @@ describe('vendor registration phone verification', () => {
   it('does not claim an OTP was sent or allow verification when delivery fails', async () => {
     const user = { id: 'vendor-3', email: 'owner@example.com', fullName: 'Owner Name', role: 'VENDOR', tenantId: 'tenant-3', organizationRole: 'OWNER', active: true } as never;
     vi.spyOn(api, 'register').mockResolvedValue({ accessToken: 'vendor-token', user });
-    const request = vi.spyOn(api, 'request').mockRejectedValue(new Error('Mobile verification delivery is not configured'));
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/vendor/onboarding') return { emailVerificationEnabled: false, mobileVerificationEnabled: true } as never;
+      throw new Error('Mobile verification delivery is not configured');
+    });
 
     render(<Register onRegistered={vi.fn()} onBack={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Your full name'), { target: { value: 'Owner Name' } });
@@ -155,11 +159,77 @@ describe('vendor registration phone verification', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByRole('button', { name: 'Create account & continue' }));
 
-    expect(await screen.findByText(/We couldn’t send a verification code/)).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent('Mobile verification delivery is not configured');
-    expect(screen.getByLabelText('OTP')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Verify mobile & continue' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Try sending again' })).toBeEnabled();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Mobile verification delivery is not configured');
+    expect(screen.getByLabelText('Mobile OTP')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Verify and continue' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send mobile code' })).toBeEnabled();
     expect(request).toHaveBeenCalledWith('/vendor/onboarding/otp/request', expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('verifies new vendors by email when global mobile verification is disabled', async () => {
+    vi.spyOn(window.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
+    const user = { id: 'vendor-4', email: 'owner@example.com', fullName: 'Owner Name', role: 'VENDOR', tenantId: 'tenant-4', organizationRole: 'OWNER', active: true } as never;
+    vi.spyOn(api, 'register').mockResolvedValue({ accessToken: 'vendor-token', user });
+    vi.spyOn(api, 'request').mockResolvedValue({ mobileVerificationEnabled: false } as never);
+    const requestCode = vi.spyOn(api, 'requestVendorLoginCode').mockResolvedValue({ challengeId: 'email-challenge', message: 'sent', demoOtp: '123456' });
+    const verifyCode = vi.spyOn(api, 'verifyVendorLoginCode').mockResolvedValue({ accessToken: 'verified-token', user });
+    const onRegistered = vi.fn();
+
+    render(<Register onRegistered={onRegistered} onBack={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Your full name'), { target: { value: 'Owner Name' } });
+    fireEvent.change(screen.getByLabelText('Business / brand name'), { target: { value: 'Coastal Tours' } });
+    fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'owner@example.com' } });
+    fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '+91 98765 43210' } });
+    fireEvent.change(screen.getByLabelText('Main city'), { target: { value: 'Panaji' } });
+    fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), { target: { value: 'safePass123' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create account & continue' }));
+
+    expect(await screen.findByRole('heading', { name: 'Verify your account' })).toBeInTheDocument();
+    expect(screen.queryByText('Verify your mobile')).not.toBeInTheDocument();
+    expect(screen.getByText('Local demo code: 123456')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Email OTP'), { target: { value: '123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify and continue' }));
+
+    await waitFor(() => expect(onRegistered).toHaveBeenCalledWith(user));
+    expect(requestCode).toHaveBeenCalledWith('owner@example.com');
+    expect(verifyCode).toHaveBeenCalledWith('email-challenge', '123456', '00000000-0000-4000-8000-000000000001');
+  });
+
+  it('shows both verification sections together and verifies distinct email and mobile codes', async () => {
+    vi.spyOn(window.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000002');
+    const user = { id: 'vendor-5', email: 'owner@example.com', fullName: 'Owner Name', role: 'VENDOR', tenantId: 'tenant-5', organizationRole: 'OWNER', active: true } as never;
+    vi.spyOn(api, 'register').mockResolvedValue({ accessToken: 'vendor-token', user });
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/vendor/onboarding') return { emailVerificationEnabled: true, mobileVerificationEnabled: true } as never;
+      if (path === '/vendor/onboarding/otp/request') return { demoOtp: '654321' } as never;
+      if (path === '/vendor/onboarding/otp/verify') return { verified: true } as never;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const requestEmail = vi.spyOn(api, 'requestVendorLoginCode').mockResolvedValue({ challengeId: 'both-email-challenge', message: 'sent', demoOtp: '123456' });
+    const verifyEmail = vi.spyOn(api, 'verifyVendorLoginCode').mockResolvedValue({ accessToken: 'verified-token', user });
+    const onRegistered = vi.fn();
+
+    render(<Register onRegistered={onRegistered} onBack={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Your full name'), { target: { value: 'Owner Name' } });
+    fireEvent.change(screen.getByLabelText('Business / brand name'), { target: { value: 'Coastal Tours' } });
+    fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'owner@example.com' } });
+    fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '+91 98765 43210' } });
+    fireEvent.change(screen.getByLabelText('Main city'), { target: { value: 'Panaji' } });
+    fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), { target: { value: 'safePass123' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create account & continue' }));
+
+    expect(await screen.findByLabelText('Email OTP')).toBeInTheDocument();
+    expect(screen.getByLabelText('Mobile OTP')).toBeInTheDocument();
+    expect(requestEmail).toHaveBeenCalledWith('owner@example.com');
+    expect(request).toHaveBeenCalledWith('/vendor/onboarding/otp/request', expect.objectContaining({ method: 'POST' }));
+    fireEvent.change(screen.getByLabelText('Email OTP'), { target: { value: '123456' } });
+    fireEvent.change(screen.getByLabelText('Mobile OTP'), { target: { value: '654321' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Verify and continue' }));
+
+    await waitFor(() => expect(onRegistered).toHaveBeenCalledWith(user));
+    expect(verifyEmail).toHaveBeenCalledWith('both-email-challenge', '123456', '00000000-0000-4000-8000-000000000002');
+    expect(request).toHaveBeenCalledWith('/vendor/onboarding/otp/verify', { method: 'POST', body: JSON.stringify({ otp: '654321' }) });
   });
 });

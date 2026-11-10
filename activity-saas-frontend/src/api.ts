@@ -32,7 +32,7 @@ export type VendorProfile = {
 
 export type VendorOnboardingDocument = { id: string; type: 'GSTIN' | 'PAN' | 'BANK_PROOF' | 'TRADE_LICENSE' | 'LLP_AGREEMENT' | 'LLPIN_CERTIFICATE' | 'AUTH_SIGNATORY_ID' | 'AUTHORIZATION_LETTER' | 'ADDRESS_PROOF' | 'UDYAM_CERTIFICATE' | 'TOURISM_REGISTRATION' | 'VEHICLE_PERMIT' | 'PUBLIC_LIABILITY_INSURANCE' | 'BOAT_LICENSE' | 'ADVENTURE_WATER_SPORTS_LICENSE' | 'FSSAI_LICENSE'; currentStatus: string; latestVersion: { id: string; versionNumber: number; status: string; expiresAt?: string | null; rejectionReason?: string | null; fileAsset: { id: string; originalName: string; mimeType: string; sizeBytes: number; visibility: string } } | null };
 export type VendorOnboardingApplication = {
-  id: string; status: 'DRAFT' | 'SUBMITTED' | 'UNDER_REVIEW' | 'CHANGES_REQUESTED' | 'APPROVED' | 'REJECTED'; currentStep: number;
+  id: string; status: 'DRAFT' | 'SUBMITTED' | 'UNDER_REVIEW' | 'CHANGES_REQUESTED' | 'APPROVED' | 'REJECTED'; currentStep: number; emailVerificationEnabled?: boolean; mobileVerificationEnabled?: boolean;
   firstName?: string | null; lastName?: string | null; contactNumber?: string | null; contactEmail?: string | null; phoneVerifiedAt?: string | null;
   businessDisplayName?: string | null; legalBusinessName?: string | null; panNumber?: string | null; gstStatus?: 'REGISTERED' | 'NOT_REGISTERED' | 'PENDING_REVIEW' | 'REJECTED' | null; gstin?: string | null; gstDeclarationAccepted: boolean;
   addressLine?: string | null; city?: string | null; state?: string | null; pinCode?: string | null; latitude?: string | number | null; longitude?: string | number | null;

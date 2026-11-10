@@ -294,6 +294,16 @@ export class AdminController {
   ) {
     return this.service.updateVisitorPricingSettings(user, dto);
   }
+  @Get("settings/vendor-verification")
+  @Permissions("platform.settings.manage")
+  vendorVerificationSettings() {
+    return this.service.vendorVerificationSettings();
+  }
+  @Patch("settings/vendor-verification")
+  @Permissions("platform.settings.manage")
+  updateVendorVerificationSettings(@CurrentUser() user: AuthUser, @Body() dto: { emailVerificationEnabled?: boolean; mobileVerificationEnabled?: boolean }) {
+    return this.service.updateVendorVerificationSettings(user, dto);
+  }
   @Get("settings/commercial-guardrails")
   @Permissions("platform.settings.manage")
   commercialGuardrails() {
