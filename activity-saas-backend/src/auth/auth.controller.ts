@@ -5,7 +5,7 @@ import { CurrentUser } from '../common/current-user.decorator';
 import { AuthUser } from '../common/auth.types';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { LoginDto, RequestVendorLoginCodeDto, VerifyVendorLoginDto } from './login.dto';
+import { LoginDto, RequestVendorLoginCodeDto, VerifyVendorLoginDto, VerifyVendorLoginLinkDto } from './login.dto';
 import { ChangePasswordDto, RegisterDto, RequestVendorEmailCodeDto, SetVendorPasswordDto, VerifyVendorEmailCodeDto } from './register.dto';
 import { swaggerExamples } from '../common/swagger-examples';
 import { Roles } from '../common/roles.decorator';
@@ -32,6 +32,11 @@ export class AuthController {
   @Post('vendor/login/verify')
   verifyVendorLogin(@Body() dto: VerifyVendorLoginDto) {
     return this.auth.verifyVendorLoginCode(dto.challengeId, dto.code, dto.deviceToken);
+  }
+
+  @Post('vendor/login/verify-link')
+  verifyVendorLoginLink(@Body() dto: VerifyVendorLoginLinkDto) {
+    return this.auth.verifyVendorLoginLink(dto.token, dto.deviceToken);
   }
 
   @Post('register')

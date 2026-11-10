@@ -68,6 +68,35 @@ export class AuthService {
     return this.issueToken(user);
   }
 
+  async verifyVendorLoginLink(token: string, deviceToken: string) {
+    const normalizedToken = token.trim();
+    if (!/^[A-Za-z0-9_-]{43}$/.test(normalizedToken)) throw new UnauthorizedException('Invalid or expired verification link');
+    const tokenHash = hashOtp(normalizedToken);
+    const now = new Date();
+    const challenge = await this.prisma.emailAuthChallenge.findFirst({
+      where: { verificationTokenHash: tokenHash, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, consumedAt: null, expiresAt: { gt: now }, attempts: { lt: 5 } },
+    });
+    if (!challenge) throw new UnauthorizedException('Invalid or expired verification link');
+    const user = await this.prisma.user.findUnique({ where: { email: challenge.email } });
+    if (!user || !user.active || user.role !== UserRole.VENDOR || !user.tenantId) throw new UnauthorizedException('Vendor account is no longer active');
+
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.emailAuthChallenge.updateMany({
+        where: { id: challenge.id, verificationTokenHash: tokenHash, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, consumedAt: null, expiresAt: { gt: now }, attempts: { lt: 5 } },
+        data: { consumedAt: now },
+      });
+      if (consumed.count !== 1) throw new UnauthorizedException('Verification link has already been used');
+      const deviceHash = hashOtp(deviceToken);
+      await tx.vendorTrustedDevice.upsert({
+        where: { tokenHash: deviceHash },
+        create: { userId: user.id, tokenHash: deviceHash, expiresAt: new Date(now.getTime() + 365 * 86400_000), lastUsedAt: now },
+        update: { userId: user.id, expiresAt: new Date(now.getTime() + 365 * 86400_000), lastUsedAt: now },
+      });
+      await tx.user.update({ where: { id: user.id }, data: { lastLoginAt: now } });
+    });
+    return this.issueToken(user);
+  }
+
   async requestVendorLoginCode(email: string) {
     const normalizedEmail = email.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({
@@ -84,10 +113,12 @@ export class AuthService {
     });
     if (recent) throw new HttpException('Please wait before requesting another sign-in code', HttpStatus.TOO_MANY_REQUESTS);
     const code = process.env.NODE_ENV === 'production' ? String(randomInt(100000, 1_000_000)) : (process.env.DEMO_OTP || '123456');
-    await this.deliverVendorEmailCode(normalizedEmail, code, EmailAuthChallengePurpose.LOGIN_VENDOR);
+    const verificationToken = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + 10 * 60_000);
     const challenge = await this.prisma.emailAuthChallenge.create({
-      data: { email: normalizedEmail, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, codeHash: hashOtp(code), expiresAt: new Date(Date.now() + 10 * 60_000) },
+      data: { email: normalizedEmail, purpose: EmailAuthChallengePurpose.LOGIN_VENDOR, codeHash: hashOtp(code), verificationTokenHash: hashOtp(verificationToken), expiresAt },
     });
+    await this.deliverVendorEmailCode(normalizedEmail, code, EmailAuthChallengePurpose.LOGIN_VENDOR, this.vendorLoginVerificationUrl(verificationToken));
     return {
       challengeId: challenge.id,
       message: 'If this email can access a vendor account, a sign-in code has been sent.',
@@ -214,7 +245,19 @@ export class AuthService {
     return { accessToken: await this.jwt.signAsync(payload), user: { id: user.id, publicCode: await publicIdentifier(this.prisma, PublicEntity.USER, user.id), email: user.email, fullName: user.fullName, role: user.role, tenantId: user.tenantId, organizationRole: user.organizationRole, active: user.active, mustChangePassword: user.mustChangePassword } };
   }
 
-  private async deliverVendorEmailCode(email: string, code: string, purpose: EmailAuthChallengePurpose) {
+  private vendorLoginVerificationUrl(token: string) {
+    const configuredBase = process.env.VENDOR_PORTAL_URL?.trim();
+    const allowedOrigin = process.env.CORS_ORIGINS?.split(',').map((value) => value.trim()).find(Boolean) || 'http://localhost:3007';
+    const fallbackBase = `${allowedOrigin.replace(/\/$/, '')}${process.env.NODE_ENV === 'production' ? '/voya' : ''}`;
+    const url = new URL(configuredBase || fallbackBase);
+    if (!['http:', 'https:'].includes(url.protocol)) throw new ServiceUnavailableException('Vendor portal URL must use HTTP or HTTPS');
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/register`.replace(/\/{2,}/g, '/');
+    url.search = '';
+    url.hash = new URLSearchParams({ emailVerify: token }).toString();
+    return url.toString();
+  }
+
+  private async deliverVendorEmailCode(email: string, code: string, purpose: EmailAuthChallengePurpose, verificationUrl?: string) {
     const smtpHost = process.env.SMTP_HOST?.trim();
     const smtpUser = process.env.SMTP_USER?.trim();
     const smtpPassword = process.env.SMTP_PASSWORD;
@@ -238,8 +281,8 @@ export class AuthService {
           },
           to: email,
           subject: isPasswordReset ? 'Reset your Voya vendor password' : isLogin ? 'Your Voya sign-in verification code' : 'Complete your Voya vendor access',
-          text: `Your Voya verification code is ${code}. It expires in 10 minutes.`,
-          html: renderVoyaVendorEmailCodeHtml(code, purpose),
+          text: `Your Voya verification code is ${code}. It expires in 10 minutes.${verificationUrl ? ` Or verify and sign in here: ${verificationUrl}` : ''}`,
+          html: renderVoyaVendorEmailCodeHtml(code, purpose, verificationUrl),
         });
         return;
       } catch (error) {
@@ -254,7 +297,7 @@ export class AuthService {
       console.info(`[demo email OTP] ${email} ${purpose}: ${code}`);
       return;
     }
-    const response = await fetch(webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: email, code, purpose, expiresInMinutes: 10 }) });
+    const response = await fetch(webhook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: email, code, purpose, expiresInMinutes: 10, ...(verificationUrl ? { verificationUrl } : {}) }) });
     if (!response.ok) throw new ServiceUnavailableException('Email delivery failed');
   }
 }

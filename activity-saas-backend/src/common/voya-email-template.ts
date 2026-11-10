@@ -4,7 +4,7 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>'\"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '\"': '&quot;' })[character] ?? character);
 }
 
-export function renderVoyaVendorEmailCodeHtml(code: string, purpose: EmailAuthChallengePurpose) {
+export function renderVoyaVendorEmailCodeHtml(code: string, purpose: EmailAuthChallengePurpose, verificationUrl?: string) {
   const isPasswordReset = purpose === EmailAuthChallengePurpose.RESET_VENDOR_PASSWORD;
     const isLogin = purpose === EmailAuthChallengePurpose.LOGIN_VENDOR;
     const eyebrow = isPasswordReset ? 'PASSWORD RESET' : isLogin ? 'SIGN-IN CODE' : 'VENDOR ACCESS';
@@ -54,7 +54,9 @@ export function renderVoyaVendorEmailCodeHtml(code: string, purpose: EmailAuthCh
                 </td>
               </tr>
             </table>
+            ${verificationUrl ? `<div style="margin:0 0 22px;text-align:center;"><a href="${escapeHtml(verificationUrl)}" style="display:inline-block;padding:14px 22px;border-radius:8px;background:#efa832;color:#111f3d;text-decoration:none;font-weight:700;font-size:15px;">Verify email and continue</a></div><p style="margin:0 0 14px;color:#526886;font-size:14px;line-height:1.6;text-align:center;">Or enter the code above on the verification page.</p>` : ''}
             <p style="margin:0 0 12px;color:#526886;font-size:15px;line-height:1.65;"><strong style="color:#111f3d;">This code expires in 10 minutes.</strong></p>
+            ${verificationUrl ? '<p style="margin:0 0 12px;color:#526886;font-size:14px;line-height:1.65;">The verification link expires in 10 minutes and can be used once.</p>' : ''}
             <p style="margin:0;color:#71809a;font-size:13px;line-height:1.6;">If you did not request this email, you can safely ignore it. Never share this code with anyone.</p>
           </td>
         </tr>

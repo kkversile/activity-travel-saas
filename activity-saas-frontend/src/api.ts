@@ -247,6 +247,10 @@ class ApiClient {
     return this.request<{ accessToken: string; user: User }>('/auth/vendor/login/verify', { method: 'POST', body: JSON.stringify({ challengeId, code, deviceToken }) });
   }
 
+  verifyVendorLoginLink(token: string, deviceToken: string) {
+    return this.request<{ accessToken: string; user: User }>('/auth/vendor/login/verify-link', { method: 'POST', body: JSON.stringify({ token, deviceToken }) });
+  }
+
   requestVendorLoginCode(email: string) {
     return this.request<{ challengeId: string; message: string; demoOtp?: string }>('/auth/vendor/login/request', { method: 'POST', body: JSON.stringify({ email }) });
   }

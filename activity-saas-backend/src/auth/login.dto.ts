@@ -22,3 +22,8 @@ export class VerifyVendorLoginDto {
   @IsString() @Length(6, 6) code!: string;
   @IsString() @MinLength(32) @MaxLength(128) deviceToken!: string;
 }
+
+export class VerifyVendorLoginLinkDto {
+  @IsString() @Length(43, 43) token!: string;
+  @IsString() @MinLength(32) @MaxLength(128) deviceToken!: string;
+}
