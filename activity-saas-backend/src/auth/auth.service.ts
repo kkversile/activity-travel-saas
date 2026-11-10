@@ -247,10 +247,10 @@ export class AuthService {
 
   private vendorLoginVerificationUrl(token: string) {
     const configuredBase = process.env.VENDOR_PORTAL_URL?.trim();
-    const allowedOrigin = process.env.CORS_ORIGINS?.split(',').map((value) => value.trim()).find(Boolean) || 'http://localhost:3007';
-    const fallbackBase = `${allowedOrigin.replace(/\/$/, '')}${process.env.NODE_ENV === 'production' ? '/voya' : ''}`;
+    const fallbackBase = process.env.CORS_ORIGINS?.split(',').map((value) => value.trim()).find(Boolean) || (process.env.NODE_ENV === 'production' ? 'https://demo.dhisoft.in' : 'http://localhost:3007');
     const url = new URL(configuredBase || fallbackBase);
     if (!['http:', 'https:'].includes(url.protocol)) throw new ServiceUnavailableException('Vendor portal URL must use HTTP or HTTPS');
+    if (!configuredBase && process.env.NODE_ENV === 'production' && !url.pathname.replace(/\/+$/, '')) url.pathname = '/voya';
     url.pathname = `${url.pathname.replace(/\/+$/, '')}/register`.replace(/\/{2,}/g, '/');
     url.search = '';
     url.hash = new URLSearchParams({ emailVerify: token }).toString();
