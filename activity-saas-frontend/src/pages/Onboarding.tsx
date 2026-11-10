@@ -534,6 +534,17 @@ function KycDocumentAction({
         >
           {hasDocument ? "View" : "Upload"}
         </button>
+        {hasDocument && (
+          <button
+            type="button"
+            className="btn small"
+            disabled={disabled}
+            aria-label={`Replace ${label}`}
+            onClick={() => inputRef.current?.click()}
+          >
+            Replace
+          </button>
+        )}
         {hasDocument && onDownload && (
           <button
             type="button"
@@ -1245,18 +1256,36 @@ export default function Onboarding({
   const boatLicenceRequired = /cruises\s*&\s*boats/i.test(supplemental.categories || "");
   const boatLicenceMissing = boatLicenceRequired && !hasDocument("BOAT_LICENSE");
   const insurance = displayLicenceRows.find((licence) => licence.key === "publicLiabilityInsurance");
-  const insuranceExpiry = insurance?.validTill ? new Date(`${insurance.validTill}T23:59:59`) : null;
-  const daysUntilInsuranceExpiry = insuranceExpiry ? Math.ceil((insuranceExpiry.getTime() - Date.now()) / 86400000) : null;
-  const insuranceMissing = !hasDocument("PUBLIC_LIABILITY_INSURANCE") && !(supplemental.insuranceAmount && supplemental.insurerPolicy);
-  const insuranceExpiring = !insuranceMissing && daysUntilInsuranceExpiry !== null && daysUntilInsuranceExpiry <= 30;
+  const insuranceDocument = documentFor(application, "PUBLIC_LIABILITY_INSURANCE");
+  const insuranceVersion = insuranceDocument?.latestVersion;
+  const insuranceStatus = String(insuranceVersion?.status || insuranceDocument?.currentStatus || "MISSING").toUpperCase();
+  const insuranceEvidenceUploaded = Boolean(insuranceVersion);
+  const insuranceDetailsProvided = Boolean(supplemental.insuranceAmount && supplemental.insurerPolicy);
+  const insuranceVerified = insuranceStatus === "VERIFIED" || insuranceStatus === "APPROVED";
+  const insuranceRejected = insuranceStatus === "REJECTED";
+  const insuranceExpiryValue = insurance?.validTill || insuranceVersion?.expiresAt;
+  const insuranceExpiry = insuranceExpiryValue ? new Date(`${insuranceExpiryValue.slice(0, 10)}T23:59:59`) : null;
+  const daysUntilInsuranceExpiry = insuranceExpiry && !Number.isNaN(insuranceExpiry.getTime())
+    ? Math.ceil((insuranceExpiry.getTime() - Date.now()) / 86400000)
+    : null;
+  const insuranceMissing = !insuranceEvidenceUploaded && !insuranceDetailsProvided;
   const insuranceExpired = !insuranceMissing && daysUntilInsuranceExpiry !== null && daysUntilInsuranceExpiry < 0;
-  const insuranceDetail = insuranceMissing
-    ? "Public liability cover and policy evidence are required before go-live."
-    : insuranceExpired
-      ? `Insurance expired ${insurance?.validTill}. Renew it before activation.`
-      : insuranceExpiring
-        ? `Insurance expires ${insurance?.validTill}. Products may auto-pause if it is not renewed.`
-        : "Public liability cover is current for the selected activities.";
+  const insuranceExpiring = insuranceVerified && !insuranceExpired && daysUntilInsuranceExpiry !== null && daysUntilInsuranceExpiry <= 30;
+  const insurancePending = !insuranceMissing && !insuranceVerified && !insuranceRejected;
+  const insuranceExpiryUnknown = insuranceVerified && daysUntilInsuranceExpiry === null;
+  const insuranceDetail = insuranceRejected
+    ? insuranceVersion?.rejectionReason || "The uploaded insurance evidence was rejected. Replace it with valid policy documentation."
+    : insuranceMissing
+      ? "Public liability cover and policy evidence are required before go-live."
+      : insuranceExpired
+        ? `Insurance expired ${insuranceExpiryValue}. Renew it before activation.`
+        : insuranceExpiring
+          ? `Insurance expires ${insuranceExpiryValue}. Products may auto-pause if it is not renewed.`
+          : insurancePending
+            ? "Insurance evidence is awaiting verification; cover is not confirmed."
+            : insuranceExpiryUnknown
+              ? "Insurance evidence is verified, but its expiry date is not recorded. Add the policy expiry date."
+              : "Public liability evidence is verified and the policy has not expired.";
   const reviewItems: ReviewItem[] = [
     {
       status: form.businessDisplayName && form.legalBusinessName && form.addressLine && supplemental.entityType ? "ok" : "bad",
@@ -1283,10 +1312,10 @@ export default function Onboarding({
       fixStep: boatLicenceMissing ? 4 : undefined,
     },
     {
-      status: insuranceMissing || insuranceExpired ? "bad" : insuranceExpiring ? "warn" : "ok",
-      title: insuranceMissing ? "Insurance missing" : insuranceExpiring || insuranceExpired ? `Insurance ${insuranceExpired ? "expired" : "expires soon"}` : "Insurance current",
+      status: insuranceMissing || insuranceExpired || insuranceRejected ? "bad" : insurancePending || insuranceExpiring || insuranceExpiryUnknown ? "warn" : "ok",
+      title: insuranceRejected ? "Insurance rejected" : insuranceMissing ? "Insurance missing" : insurancePending ? "Insurance pending review" : insuranceExpired ? "Insurance expired" : insuranceExpiring ? "Insurance expires soon" : insuranceExpiryUnknown ? "Insurance expiry needed" : "Insurance verified",
       detail: insuranceDetail,
-      fixStep: insuranceMissing || insuranceExpired || insuranceExpiring ? 4 : undefined,
+      fixStep: insuranceMissing || insuranceExpired || insuranceRejected || insurancePending || insuranceExpiring || insuranceExpiryUnknown ? 4 : undefined,
     },
     {
       status: application.bankAccountMasked && hasDocument("BANK_PROOF") ? "ok" : "bad",
