@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api';
 import AdminVendors from './AdminVendors';
@@ -79,5 +79,49 @@ describe('Admin vendor list', () => {
     fireEvent.change(screen.getByPlaceholderText('Search vendor, city or ID'), { target: { value: 'SUP-0002' } });
     expect(screen.getByText('Mountain Walks')).toBeInTheDocument();
     expect(screen.queryByText('Coastal Adventures')).not.toBeInTheDocument();
+  });
+
+  it('disables repeat verification for a verified document and verifies a pending document once', async () => {
+    let panStatus = 'PENDING';
+    const vendor = () => ({
+      id: 'vendor-1',
+      name: 'Coastal Adventures',
+      vendorProfile: { legalBusinessName: 'Coastal Adventures', verificationStatus: 'VERIFIED' },
+      users: [],
+      products: [],
+      vendorDocuments: [
+        { type: 'PAN', publicCode: 'DOC-000001', currentStatus: panStatus, versions: [{ id: 'pan-version', status: panStatus, fileAsset: { originalName: 'pan.pdf' } }] },
+        { type: 'AUTH_SIGNATORY_ID', publicCode: 'DOC-000002', currentStatus: 'VERIFIED', versions: [{ id: 'signatory-version', status: 'VERIFIED', fileAsset: { originalName: 'signatory.pdf' } }] },
+      ],
+    });
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path: string, options?: RequestInit) => {
+      if (path === '/admin/vendors') return [{ id: 'vendor-1', name: 'Coastal Adventures', vendorProfile: { legalBusinessName: 'Coastal Adventures', verificationStatus: 'VERIFIED' } }] as never;
+      if (path === '/admin/vendors/vendor-1') return vendor() as never;
+      if (path.endsWith('/onboarding')) return { vendorOnboarding: { status: 'APPROVED', gstStatus: 'NOT_REGISTERED' } } as never;
+      if (path.endsWith('/documents/versions/pan-version') && options?.method === 'PATCH') {
+        panStatus = 'VERIFIED';
+        return vendor() as never;
+      }
+      return {} as never;
+    });
+
+    render(<AdminVendors />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open' }));
+    await screen.findByText('PAN card');
+
+    const signatoryRow = screen.getByText('Authorised signatory ID').closest('.admin-doc');
+    expect(signatoryRow).not.toBeNull();
+    expect(within(signatoryRow as HTMLElement).getByRole('button', { name: 'Verified' })).toBeDisabled();
+
+    const panRow = screen.getByText('PAN card').closest('.admin-doc');
+    expect(panRow).not.toBeNull();
+    fireEvent.click(within(panRow as HTMLElement).getByRole('button', { name: 'Verify' }));
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/admin/vendors/vendor-1/documents/versions/pan-version', {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'VERIFIED' }),
+    }));
+    await waitFor(() => expect(within(screen.getByText('PAN card').closest('.admin-doc') as HTMLElement).getByRole('button', { name: 'Verified' })).toBeDisabled());
+    expect(request).not.toHaveBeenCalledWith('/admin/vendors/vendor-1/documents/versions/signatory-version', expect.anything());
   });
 });
