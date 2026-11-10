@@ -4804,6 +4804,11 @@ export class CatalogueService {
   ) {
     const product = await this.product(user, productId);
     const tenantId = product.tenantId;
+    // Platform admins may edit vendor activities from the admin wizard. The
+    // schedule service intentionally requires tenant scoping, so retain the
+    // admin identity while binding that scope to this already-authorized
+    // product's vendor tenant for activation and audit writes.
+    const scheduleActor = user.tenantId ? user : { ...user, tenantId };
     if (!idempotencyKey?.trim())
       throw new BadRequestException({
         code: "IDEMPOTENCY_KEY_REQUIRED",
@@ -5714,7 +5719,7 @@ export class CatalogueService {
           let scheduleVersion = Number(current.version);
           if (current.status !== ScheduleStatus.ACTIVE) {
             const activated = await this.schedules.activate(
-              user,
+              scheduleActor,
               request.scheduleId,
               scheduleVersion,
             );
