@@ -65,6 +65,9 @@
 .admin-shell .experience-form-grid .field>span,.admin-shell .experience-form-grid .field small,.admin-shell .wizard-check{color:#c9d0e4}
 .admin-shell .experience-form-grid input,.admin-shell .experience-form-grid textarea,.admin-shell .experience-form-grid select{background:#161d2a;border-color:#2a3345;color:#e6e9f1}
 .admin-shell .experience-form-grid input::placeholder,.admin-shell .experience-form-grid textarea::placeholder{color:#66738a}
+.admin-shell .experience-form-grid input[type="file"]{padding:6px 8px;background:#161d2a;border-color:#2a3345;color:#c9d0e4;color-scheme:dark}
+.admin-shell .experience-form-grid input[type="file"]::file-selector-button{margin-right:10px;padding:6px 10px;border:1px solid #34415a;border-radius:6px;background:#1c2433;color:#e6e9f1;font:600 12px/1.2 inherit;cursor:pointer}
+.admin-shell .experience-form-grid input[type="file"]::file-selector-button:hover{border-color:#8d9df5;background:#232c48}
 .admin-shell .option-booking-defaults,.admin-shell .option-ticket-config{background:#1c2433;border-color:#2a3345;color:#e6e9f1}
 .admin-shell .option-booking-defaults .field>span,.admin-shell .option-ticket-config .field>span{color:#c9d0e4}
 .admin-shell .option-pricing-mode{margin:18px 0 0;padding-top:16px;border-top:1px solid #2a3345}
