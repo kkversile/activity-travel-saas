@@ -167,6 +167,31 @@ body:has(.partner-app-shell)::-webkit-scrollbar-thumb,.partner-app-shell *::-web
 .partner-app-shell .partner-upload-icon{background:#232c48;color:#8d9df5}
 .partner-app-shell .partner-upload-drop p,.partner-app-shell .partner-check-list{color:#9aa3b6}
 
+/* The approved-vendor readiness page shares the Partner Hub dark palette. */
+.partner-app-shell .approved-kpi-card,
+.partner-app-shell .approved-panel{background:#161d2a;border-color:#2a3345;color:#e6e9f1}
+.partner-app-shell .approved-kpi-card strong,
+.partner-app-shell .approved-kpi-card>b,
+.partner-app-shell .approved-panel-head h3,
+.partner-app-shell .approved-check-row>b,
+.partner-app-shell .approved-summary-grid b{color:#e6e9f1}
+.partner-app-shell .approved-onboarding-heading p,
+.partner-app-shell .approved-kpi-top>span,
+.partner-app-shell .approved-panel-head>span,
+.partner-app-shell .approved-panel-head div>span,
+.partner-app-shell .approved-check-row>span:last-child,
+.partner-app-shell .approved-summary-grid small,
+.partner-app-shell .approved-summary-grid span{color:#9aa3b6}
+.partner-app-shell .approved-progress{background:#232c48}
+.partner-app-shell .approved-panel-head,
+.partner-app-shell .approved-check-row,
+.partner-app-shell .approved-product-summary{border-color:#2a3345}
+.partner-app-shell .approved-product-summary{background:#1c2433;color:#c1c8d6}
+.partner-app-shell .approved-product-summary span{background:#161d2a;border-color:#2a3345;color:#e6e9f1}
+.partner-app-shell .approved-check-status.success{background:#173327;color:#5cc897}
+.partner-app-shell .approved-check-status.warning{background:#3a2e14;color:#f0c46c}
+.partner-app-shell .approved-check-status.danger{background:#492229;color:#ffaaa0}
+
 /* Products and the embedded product wizard inherit the same prototype surface. */
 .partner-app-shell .products-page{color:#e6e9f1}
 .partner-app-shell .products-toolbar .search-field input,.partner-app-shell .products-toolbar select{background:#161d2a;border-color:#2a3345;color:#e6e9f1}
