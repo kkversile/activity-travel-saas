@@ -67,6 +67,11 @@
 .admin-shell .experience-form-grid input::placeholder,.admin-shell .experience-form-grid textarea::placeholder{color:#66738a}
 .admin-shell .option-booking-defaults,.admin-shell .option-ticket-config{background:#1c2433;border-color:#2a3345;color:#e6e9f1}
 .admin-shell .option-booking-defaults .field>span,.admin-shell .option-ticket-config .field>span{color:#c9d0e4}
+.admin-shell .option-pricing-mode{margin:18px 0 0;padding-top:16px;border-top:1px solid #2a3345}
+.admin-shell .option-pricing-mode-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.admin-shell .option-pricing-mode-card{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-height:72px;padding:12px 14px;border:1px solid #2a3345;border-radius:8px;background:#161d2a;color:#e6e9f1;text-align:left;cursor:pointer}
+.admin-shell .option-pricing-mode-card span{color:#9aa3b6;font-size:13px}
+.admin-shell .option-pricing-mode-card.selected{border-color:#8d9df5;background:#232c48;box-shadow:0 0 0 1px #8d9df5 inset}
 .admin-shell .experience-divider{background:#2a3345}
 .admin-shell .experience-notice{background:#1c2a45;border-color:#2a456f;color:#a9b5ff}
 .admin-shell .experience-pill{background:#1c2433;color:#9aa3b6}
