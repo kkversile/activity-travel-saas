@@ -50,6 +50,31 @@
 .admin-shell .admin-onboarding-modal,.admin-shell .admin-onboarding-modal .admin-onboarding-steps,.admin-shell .admin-onboarding-modal .admin-onboarding-content,.admin-shell .admin-onboarding-modal .admin-onboarding-footer{color-scheme:dark}
 .admin-shell .admin-onboarding-modal .admin-onboarding-footer{background:#161d2a;border-color:#2a3345}
 .admin-shell .admin-onboarding-modal .admin-onboarding-content .alert:not(.success){background:#302023;border-color:#713b3d;color:#f08a76}
+/* Keep the shared activity wizard on the admin console's dark surface. */
+.admin-shell .experience-modal,.admin-shell .experience-modal-header,.admin-shell .experience-modal-body,.admin-shell .experience-wizard,.admin-shell .experience-wizard-content{background:#161d2a;color:#e6e9f1}
+.admin-shell .experience-modal-header{border-bottom-color:#2a3345}
+.admin-shell .experience-modal-header h2,.admin-shell .experience-card-heading h3,.admin-shell .experience-card-heading h4,.admin-shell .experience-section-title,.admin-shell .experience-subcard h4{color:#e6e9f1}
+.admin-shell .experience-modal-header p,.admin-shell .experience-card-heading p,.admin-shell .experience-card-heading small,.admin-shell .experience-help{color:#9aa3b6}
+.admin-shell .experience-wizard-nav,.admin-shell .experience-step-card,.admin-shell .experience-subcard,.admin-shell .example-option,.admin-shell .option-card,.admin-shell .rate-plan-card,.admin-shell .schedule-card,.admin-shell .readiness-card,.admin-shell .experience-empty{background:#161d2a;border-color:#2a3345;color:#e6e9f1}
+.admin-shell .experience-wizard-step{background:#161d2a;color:#9aa3b6}
+.admin-shell .experience-wizard-step:hover{background:#1c2433;color:#e6e9f1}
+.admin-shell .experience-wizard-step.active{background:#232c48;color:#e6e9f1}
+.admin-shell .experience-step-number{background:#1c2433;color:#9aa3b6}
+.admin-shell .experience-wizard-step.active .experience-step-number{background:#f0a040;color:#0e131d}
+.admin-shell .experience-wizard-step.completed .experience-step-number{background:#173327;color:#5cc897}
+.admin-shell .experience-form-grid .field>span,.admin-shell .experience-form-grid .field small,.admin-shell .wizard-check{color:#c9d0e4}
+.admin-shell .experience-form-grid input,.admin-shell .experience-form-grid textarea,.admin-shell .experience-form-grid select{background:#161d2a;border-color:#2a3345;color:#e6e9f1}
+.admin-shell .experience-form-grid input::placeholder,.admin-shell .experience-form-grid textarea::placeholder{color:#66738a}
+.admin-shell .option-booking-defaults,.admin-shell .option-ticket-config{background:#1c2433;border-color:#2a3345;color:#e6e9f1}
+.admin-shell .option-booking-defaults .field>span,.admin-shell .option-ticket-config .field>span{color:#c9d0e4}
+.admin-shell .experience-divider{background:#2a3345}
+.admin-shell .experience-notice{background:#1c2a45;border-color:#2a456f;color:#a9b5ff}
+.admin-shell .experience-pill{background:#1c2433;color:#9aa3b6}
+.admin-shell .experience-footer,.admin-shell .experience-footer-actions,.admin-shell .experience-step-footer{background:#161d2a;border-color:#2a3345;color:#e6e9f1}
+.admin-shell .experience-step-footer .btn{background:#161d2a;border-color:#2a3345;color:#e6e9f1}
+.admin-shell .experience-step-footer .btn.primary{background:#1c2a45;border-color:#8d9df5;color:#e6e9f1}
+.admin-shell .experience-step-footer .btn.accent{background:#f0a040;border-color:#f0a040;color:#0e131d}
+.admin-shell .experience-step-card input[type="checkbox"]{accent-color:#8d9df5;color-scheme:dark}
 @media(max-width:900px){.admin-vendor-overview-grid{grid-template-columns:1fr}.admin-vendor-metrics-panel{max-width:none}}
 @media(max-width:700px){.admin-vendor-detail-backdrop{padding:8px}.admin-vendor-detail-modal{width:calc(100vw - 16px);max-height:calc(100vh - 16px)}.admin-vendor-detail-modal>.panel-head{align-items:flex-start;flex-wrap:wrap;padding:12px}.admin-vendor-detail-modal>.panel-head .status-actions{width:100%}.admin-vendor-detail-modal>.panel-body{padding:12px}.admin-vendor-detail-modal .admin-doc{align-items:flex-start;flex-direction:column}.admin-vendor-detail-modal .admin-doc>span:last-child{flex-wrap:wrap}}
 @media(max-width:560px){.admin-vendor-term-grid,.admin-vendor-commercial-form{grid-template-columns:1fr}.admin-vendor-commercial-form .admin-vendor-commercial-reason,.admin-vendor-commercial-form .modal-actions{grid-column:auto}.admin-vendor-heading-actions{justify-content:flex-start}.admin-vendor-save-row,.admin-vendor-suspend-row{align-items:flex-start;flex-direction:column}}
