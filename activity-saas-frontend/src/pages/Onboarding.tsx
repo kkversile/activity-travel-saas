@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type PointerEvent } from "react";
 import { api, type VendorOnboardingApplication } from "../api";
 import { Badge, ErrorBox, Loading, Panel } from "../components/Ui";
 import { SharedDatePicker } from "../components/SharedDatePicker";
@@ -1372,11 +1372,17 @@ export default function Onboarding({
       <div className="onboarding-progress panel">
         <span className="label">Your progress</span>
         <div className="onboarding-lifecycle">
-          {lifecycle.map((item, index) => <div className={`onboarding-lifecycle-item ${item.state}`} key={item.title}>
-            <b>{item.state === "done" ? "✓ " : ""}{item.title}</b>
-            <small>{item.detail}</small>
-            {index < lifecycle.length - 1 && <span className="onboarding-lifecycle-arrow">→</span>}
-          </div>)}
+          {lifecycle.map((item, index) => (
+            <Fragment key={item.title}>
+              <div className={`onboarding-lifecycle-item ${item.state}`}>
+                <b>{item.state === "done" ? "✓ " : ""}{item.title}</b>
+                <small>{item.detail}</small>
+              </div>
+              {index < lifecycle.length - 1 && (
+                <span className="onboarding-lifecycle-arrow" aria-hidden="true">→</span>
+              )}
+            </Fragment>
+          ))}
         </div>
       </div>
       <div className="onboarding-layout">
