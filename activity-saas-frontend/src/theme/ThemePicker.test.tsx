@@ -10,7 +10,7 @@ afterEach(() => { cleanup(); vi.resetAllMocks(); });
 it('chooses readable header text for light and dark custom header colors', () => {
   applyTheme('revspine-warm', { ...defaultThemeColors('revspine-warm'), raised: '#402020' });
   expect(document.documentElement.style.getPropertyValue('--voya-raised-text')).toBe('#fffaf6');
-  applyTheme('revspine-warm', { ...defaultThemeColors('revspine-warm'), raised: '#f2eadf' });
+  applyTheme('revspine-warm', { ...defaultThemeColors('revspine-warm'), raised: '#e1cbad' });
   expect(document.documentElement.style.getPropertyValue('--voya-raised-text')).toBe('#211c15');
 });
 it('previews without persisting, cancels, and saves the global choice', async () => {

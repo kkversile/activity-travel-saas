@@ -7,11 +7,12 @@ const LEGACY_LAGOON_PALETTES: ThemeColors[] = [
   { page: '#06424d', surface: '#0c6670', raised: '#0b7780', primary: '#72f0d3', accent: '#ffc857' },
 ];
 const LEGACY_WARM_PALETTES: ThemeColors[] = [
+  { page: '#fcf9f3', surface: '#fffaf6', raised: '#f2eadf', primary: '#8a4a20', accent: '#dda04a' },
   { page: '#f2ebdd', surface: '#fff9f0', raised: '#dcc7aa', primary: '#87431e', accent: '#d18a2b' },
 ];
 export const themes: { id: ThemeId; name: string; description: string; colors: ThemeColors }[] = [
   { id: 'voya-midnight', name: 'Midnight', description: 'Ink-blue page, slate panels, steel-blue headers, lavender actions and amber highlights.', colors: { page: '#0d1424', surface: '#1c2a40', raised: '#2e4360', primary: '#91a7ff', accent: '#f0a040' } },
-  { id: 'revspine-warm', name: 'Warm', description: 'Cream page, ivory panels, beige headers, terracotta actions and honey accents.', colors: { page: '#fcf9f3', surface: '#fffaf6', raised: '#f2eadf', primary: '#8a4a20', accent: '#dda04a' } },
+  { id: 'revspine-warm', name: 'Warm', description: 'Cream page, ivory panels, beige headers, terracotta actions and honey accents.', colors: { page: '#fcf9f3', surface: '#fffaf6', raised: '#e1cbad', primary: '#8a4a20', accent: '#dda04a' } },
   { id: 'lagoon', name: 'Lagoon Light', description: 'Seafoam page, pale mint panels, soft turquoise headers, deep teal actions and honey accents.', colors: { page: '#d7ece7', surface: '#f0f7f3', raised: '#a8d5cb', primary: '#0b625e', accent: '#bd7926' } },
   { id: 'canopy', name: 'Canopy', description: 'Pine page, moss panels, leaf-green headers, sage actions and copper-gold accents.', colors: { page: '#13261b', surface: '#2b4b31', raised: '#4b7044', primary: '#b2d27c', accent: '#e4a34a' } },
 ];

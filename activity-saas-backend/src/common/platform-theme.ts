@@ -4,7 +4,7 @@ export type PlatformTheme = typeof PLATFORM_THEMES[number];
 export type PlatformThemeColors = { page: string; surface: string; raised: string; primary: string; accent: string };
 const DEFAULT_COLORS: Record<PlatformTheme, PlatformThemeColors> = {
   'voya-midnight': { page: '#0e131d', surface: '#161d2a', raised: '#1c2433', primary: '#8d9df5', accent: '#f0a040' },
-  'revspine-warm': { page: '#fcf9f3', surface: '#fffaf6', raised: '#f2eadf', primary: '#8a4a20', accent: '#dda04a' },
+  'revspine-warm': { page: '#fcf9f3', surface: '#fffaf6', raised: '#e1cbad', primary: '#8a4a20', accent: '#dda04a' },
   lagoon: { page: '#d7ece7', surface: '#f0f7f3', raised: '#a8d5cb', primary: '#0b625e', accent: '#bd7926' },
   canopy: { page: '#111b17', surface: '#1a2a21', raised: '#26392e', primary: '#91b47f', accent: '#e4ae58' },
 };
@@ -13,6 +13,7 @@ const LEGACY_LAGOON_PALETTES: PlatformThemeColors[] = [
   { page: '#06424d', surface: '#0c6670', raised: '#0b7780', primary: '#72f0d3', accent: '#ffc857' },
 ];
 const LEGACY_WARM_PALETTES: PlatformThemeColors[] = [
+  { page: '#fcf9f3', surface: '#fffaf6', raised: '#f2eadf', primary: '#8a4a20', accent: '#dda04a' },
   { page: '#f2ebdd', surface: '#fff9f0', raised: '#dcc7aa', primary: '#87431e', accent: '#d18a2b' },
 ];
 export function normalizePlatformTheme(value: unknown): PlatformTheme {
