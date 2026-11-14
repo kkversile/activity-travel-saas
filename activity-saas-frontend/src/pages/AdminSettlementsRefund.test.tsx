@@ -4,6 +4,38 @@ import { api } from '../api';
 import AdminSettlements from './AdminSettlements';
 afterEach(() => vi.restoreAllMocks());
 describe('Finance refund evidence', () => {
+  it('shows a server rejection inside the liability dialog, preserves input and allows a corrected retry', async () => {
+    let resolved = false;
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path: string, options?: any) => {
+      if (path.endsWith('/vendor-settlement-resolution')) {
+        if (JSON.parse(options.body).finalVendorPayable === '4000') throw new Error('FINAL_VENDOR_PAYABLE_EXCEEDS_ORIGINAL');
+        resolved = true; return {} as never;
+      }
+      if (path === '/admin/cancellations') return [{ cancellationId: 'cancel-1', bookingCode: 'VY-1', publicCode: 'AG-26110007', bookingAmount: '3780', vendorPayable: '3600', currency: 'INR', financialState: 'REFUNDED', vendorSettlementResolved: resolved }] as never;
+      return [] as never;
+    });
+    render(<AdminSettlements />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Resolve Vendor liability' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Resolve vendor liability' }));
+    fireEvent.change(dialog.getByLabelText('Final Vendor payable'), { target: { value: '4000' } });
+    fireEvent.change(dialog.getByLabelText('Reason'), { target: { value: 'Service not delivered' } });
+    fireEvent.change(dialog.getByLabelText('Reference'), { target: { value: 'DEMO-SETTLEMENT' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Resolve Vendor liability' }));
+    const alert = await dialog.findByRole('alert');
+    expect(alert).toHaveTextContent('Final Vendor payable cannot exceed the original amount.');
+    expect(alert).toHaveTextContent('3,600.00');
+    expect(alert).toHaveFocus();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(dialog.getByLabelText('Final Vendor payable')).toHaveAttribute('aria-describedby', alert.id);
+    expect(dialog.getByLabelText('Reason')).toHaveValue('Service not delivered');
+    expect(dialog.getByLabelText('Reference')).toHaveValue('DEMO-SETTLEMENT');
+    fireEvent.change(dialog.getByLabelText('Final Vendor payable'), { target: { value: '0' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Resolve Vendor liability' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(request.mock.calls.filter(([path]) => path.endsWith('/vendor-settlement-resolution'))).toHaveLength(2);
+  });
+
   it('resolves vendor liability even after the customer refund has been recorded', async () => {
     let vendorResolved = false;
     const openReview = vi.fn();
