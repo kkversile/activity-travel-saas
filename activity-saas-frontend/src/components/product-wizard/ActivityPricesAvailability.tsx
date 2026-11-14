@@ -1108,11 +1108,24 @@ export default function ActivityPricesAvailability({
         onError(result.errors.join(" "));
         return false;
       }
-      await api.request(`/products/${productId}/prices-availability/apply`, {
+      const applied = await api.request<{ saved?: Array<{ variantId: string; commercialVersionId: string; commercialVersionIds?: string[] }> }>(`/products/${productId}/prices-availability/apply`, {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKeyRef.current },
         body: JSON.stringify(body),
       });
+      // Retain the version produced by this save, rather than the version that
+      // was loaded when the editor opened. Do not adopt another session's newer
+      // version: the next save must still detect that concurrent change.
+      if (applied.saved?.length) {
+        const persisted = await api.request<SavedPriceResponse>(`/products/${productId}/prices-availability`);
+        setRows((current) => current.map((row) => {
+          const savedOption = applied.saved?.find((item) => item.variantId === row.variantId);
+          if (!savedOption) return row;
+          const ownIds = new Set([savedOption.commercialVersionId, ...(savedOption.commercialVersionIds || [])]);
+          const ownVersions = persisted.options?.find((item) => item.variantId === row.variantId)?.ratePlans?.flatMap((plan) => plan.versions || []).filter((version) => ownIds.has(version.id)) || [];
+          return ownVersions.length ? { ...row, expectedVersion: Math.max(...ownVersions.map((version) => version.versionNumber)) } : row;
+        }));
+      }
       idempotencyKeyRef.current =
         typeof crypto !== "undefined" && crypto.randomUUID
           ? crypto.randomUUID()

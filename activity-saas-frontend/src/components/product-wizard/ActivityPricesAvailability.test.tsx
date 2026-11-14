@@ -36,6 +36,47 @@ function renderEditor(onError = vi.fn(), response: { options: unknown[] } = save
 afterEach(() => vi.restoreAllMocks());
 
 describe('ActivityPricesAvailability preserves canonical option booking limits', () => {
+  it.each([false, true])('refreshes its own saved version while preserving concurrent-edit detection (%s)', async (concurrentEdit) => {
+    const onError = vi.fn();
+    let appliedCount = 0;
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path, init) => {
+      if (path.endsWith('/prices-availability/preview')) return { valid: true, errors: [], summary: {} } as never;
+      if (path.endsWith('/prices-availability/apply')) {
+        const body = JSON.parse(String(init?.body));
+        const expected = appliedCount === 0 ? 1 : concurrentEdit ? 3 : 2;
+        if (body.options[0].expectedVersion !== expected) throw new Error('This option changed in another session. Reload the activity and retry.');
+        appliedCount += 1;
+        return { saved: [{ variantId: 'v1', commercialVersionId: `own-${appliedCount + 1}` }] } as never;
+      }
+      if (path.endsWith('/prices-availability')) {
+        const plan = saved.options[0].ratePlans[0];
+        const ownNumber = appliedCount + 1;
+        return { options: [{ variantId: 'v1', ratePlans: [{ ...plan, versions: [
+          { ...plan.versions[0], id: `own-${ownNumber}`, versionNumber: ownNumber },
+          ...(concurrentEdit && appliedCount ? [{ ...plan.versions[0], id: 'other-session', versionNumber: 3 }] : []),
+        ] }] }] } as never;
+      }
+      return {} as never;
+    });
+    render(<EditorHarness onError={onError} editorVariants={[variants[0]]} />);
+    const price = await screen.findByLabelText('Entry Only adult or base price');
+    await waitFor(() => expect(price).toHaveValue(900));
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(appliedCount).toBe(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Save (all prices|changes)/ })).toBeEnabled());
+    fireEvent.change(price, { target: { value: '950' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request.mock.calls.filter(([path]) => path.endsWith('/prices-availability/apply'))).toHaveLength(2));
+    const writes = request.mock.calls.filter(([path]) => path.endsWith('/prices-availability/apply'));
+    expect(JSON.parse(String(writes[0][1]?.body)).options[0].expectedVersion).toBe(1);
+    expect(JSON.parse(String(writes[1][1]?.body)).options[0].expectedVersion).toBe(2);
+    if (concurrentEdit) await waitFor(() => expect(onError).toHaveBeenCalledWith(expect.stringContaining('another session')));
+    else {
+      await waitFor(() => expect(appliedCount).toBe(2));
+      expect(onError).not.toHaveBeenCalled();
+    }
+  });
+
   function legacyResponse(versionCutOffMinutes: number | null = 360) {
     const response = structuredClone(saved);
     const plan = response.options[0].ratePlans[0];

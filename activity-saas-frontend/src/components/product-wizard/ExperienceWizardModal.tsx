@@ -91,7 +91,9 @@ export default function ExperienceWizardModal({ product, initialStep = 1, prefer
       const latestRejected = loaded.revisions?.filter((revision) => revision.status === 'REJECTED').sort((a, b) => b.versionNumber - a.versionNumber)[0] || null;
       setSnapshot({ product: loaded, revision: revisionWithQuestions, variants: loaded.variants || [], schedules: [] });
       setRejected(latestRejected);
-      if (!preserveEditor) {
+      // Refresh persisted completion even when unsaved form values are kept.
+      // Child saves (such as itinerary uploads) must update sidebar progress.
+      {
         const prototype = (revisionWithQuestions?.sourcePayload?.prototype || {}) as Record<string, unknown>;
         const existing = new Set<number>();
         if (revisionWithQuestions && [revisionWithQuestions.productName, revisionWithQuestions.type, revisionWithQuestions.subType, revisionWithQuestions.category, revisionWithQuestions.cityName, revisionWithQuestions.stateName, revisionWithQuestions.countryName, revisionWithQuestions.meetingModel].every((value) => String(value || '').trim())) existing.add(1);
@@ -102,6 +104,8 @@ export default function ExperienceWizardModal({ product, initialStep = 1, prefer
         if (prototype.voucherCodeSource || prototype.voucherAcceptedAs || prototype.voucherInstructions) existing.add(8);
         try { const readiness = await api.request<ProductReadiness>(`/products/${id}/readiness`); const keys = ['basicInfo', 'experience', 'mediaFulfilment', 'options', 'rates', 'availability', 'policies', 'voucher'] as const; keys.forEach((key, index) => { const section = readiness.sections[key]; const ready = key === 'mediaFulfilment' ? Boolean(revisionWithQuestions?.media?.some(media => media.kind === 'IMAGE')) && !section.reasonCodes.some(code => !code.startsWith('FULFILMENT_')) : section.ready; if (ready) existing.add(index + 1); else existing.delete(index + 1); }); } catch { /* Retain saved-content indicators if readiness is unavailable. */ }
         setCompletedSteps(existing);
+      }
+      if (!preserveEditor) {
         setForm(toRevisionForm(revisionWithQuestions, loaded));
         setFulfilment(toFulfilmentForm(revisionWithQuestions?.fulfilmentPolicy));
         setDirty(false);
