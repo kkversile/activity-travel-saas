@@ -1136,6 +1136,9 @@ export default function ActivityPricesAvailability({
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random()}`;
       setSaved(true);
+      setAvailabilityTouched(false);
+      setAlsoUpdateCapacity(false);
+      setBookingRulesTouched(false);
       onPricingSaved?.();
       return true;
     } catch (error) {

@@ -73,15 +73,21 @@ describe('ActivityPricesAvailability preserves canonical option booking limits',
     render(<EditorHarness onError={onError} editorVariants={[variants[0]]} />);
     const price = await screen.findByLabelText('Entry Only adult or base price');
     await waitFor(() => expect(price).toHaveValue(900));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Configure availability now' }));
+    fireEvent.change(screen.getByLabelText('Default capacity'), { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Also update capacity/ }));
     fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
     await waitFor(() => expect(appliedCount).toBe(1));
     await waitFor(() => expect(screen.getByRole('button', { name: /Save (all prices|changes)/ })).toBeEnabled());
+    expect(screen.getByRole('checkbox', { name: /Also update capacity/ })).not.toBeChecked();
     fireEvent.change(price, { target: { value: '950' } });
     fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
     await waitFor(() => expect(request.mock.calls.filter(([path]) => path.endsWith('/prices-availability/apply'))).toHaveLength(2));
     const writes = request.mock.calls.filter(([path]) => path.endsWith('/prices-availability/apply'));
     expect(JSON.parse(String(writes[0][1]?.body)).options[0].expectedVersion).toBe(1);
     expect(JSON.parse(String(writes[1][1]?.body)).options[0].expectedVersion).toBe(2);
+    expect(JSON.parse(String(writes[0][1]?.body)).options[0].availability).toBeDefined();
+    expect(JSON.parse(String(writes[1][1]?.body)).options[0].availability).toBeUndefined();
     if (concurrentEdit) await waitFor(() => expect(onError).toHaveBeenCalledWith(expect.stringContaining('another session')));
     else {
       await waitFor(() => expect(appliedCount).toBe(2));
