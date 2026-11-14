@@ -19,6 +19,17 @@ describe('Scoped demo eligibility fixture', () => {
   it('keeps the document explicitly unverified for the exact short-lived fixture', async () => {
     enableDemo(); await expect(getQaOnlyEligibilityOverride(fixture(), 'product-17', 'agent-1', now)).resolves.toMatchObject({ qaOnly: true, documentStatus: 'UNVERIFIED_TEST_FIXTURE' });
   });
+  it('limits the approved commission rehearsal to one product, Agent and rate plan', async () => {
+    enableDemo();
+    const product = '2b3dea95-24e5-432b-93a1-445f50cf0be5';
+    const agent = 'b679db51-a5b6-4853-89b1-f250103b4dc6';
+    const db = fixture({ productId: product, agentTenantId: agent, publicProductCode: 'TA-TN-0005', fixturePurpose: 'COMMISSION_INVOICE', ratePlanId: 'commission-plan', voyaRevenuePercent: 25 });
+    await expect(getQaOnlyEligibilityOverride(db, product, agent, now, 'commission-plan')).resolves.toMatchObject({ documentStatus: 'UNVERIFIED_TEST_FIXTURE', ratePlanId: 'commission-plan' });
+    await expect(getQaOnlyEligibilityOverride(db, product, agent, now, 'other-plan')).resolves.toBeNull();
+    await expect(getQaOnlyEligibilityOverride(db, product, agent, now)).resolves.toBeNull();
+    await expect(getQaOnlyEligibilityOverride(db, 'other-product', agent, now, 'commission-plan')).resolves.toBeNull();
+    await expect(getQaOnlyEligibilityOverride(db, product, 'other-agent', now, 'commission-plan')).resolves.toBeNull();
+  });
   it.each([{ agentTenantId: 'other-agent' }, { productId: 'other-product' }, { expiresAt: '2026-11-14T00:00:00Z' }, { expiresAt: '2026-11-16T00:00:00Z' }, { documentStatus: 'VERIFIED' }])('rejects a mismatched, expired or unbounded fixture %j', async (extra) => {
     enableDemo(); await expect(getQaOnlyEligibilityOverride(fixture(extra), 'product-17', 'agent-1', now)).resolves.toBeNull();
   });

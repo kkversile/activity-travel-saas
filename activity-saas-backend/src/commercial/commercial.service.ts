@@ -205,7 +205,7 @@ export class CommercialService {
     let ambiguousVersion = false;
     try { version = selectEffectiveVersion(selectedVersions as any, input.serviceDate); } catch { ambiguousVersion = true; }
     let rules = await this.resolveRules({ ...input, serviceDate: input.serviceDate.toISOString() } as QuoteDto, client);
-    const qaOverride = await getQaOnlyEligibilityOverride(client, plan.variant.productId, input.agentTenantId);
+    const qaOverride = await getQaOnlyEligibilityOverride(client, plan.variant.productId, input.agentTenantId, new Date(), plan.id);
     if (qaOverride && input.channel === 'VOYA_AGENT') {
       rules = rules.filter((item) => item.rule.kind !== CommercialRuleKind.VOYA_REVENUE && item.rule.kind !== CommercialRuleKind.AGENT_COMMERCIAL);
       const qaVersion = { id: `qa-only:${plan.id}:${input.agentTenantId}`, priority: 1_000_000, stackingMode: CommercialStackingMode.EXCLUSIVE, effectiveFrom: new Date(input.serviceDate), effectiveTo: new Date(qaOverride.expiresAt) };
