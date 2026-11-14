@@ -7,7 +7,7 @@ import FulfilmentSection from './FulfilmentSection';
 
 const sectionLabels: Array<[keyof ProductReadiness['sections'], string, WizardStep]> = [
   ['basicInfo', 'Basics', 1], ['experience', 'Content & itinerary', 2], ['mediaFulfilment', 'Photos', 3],
-  ['options', 'Options & tickets', 4], ['rates', 'Rates', 5], ['availability', 'Availability', 6], ['policies', 'Policies', 7], ['voucher', 'Voucher', 8], ['distribution', 'Review & submit', 9],
+  ['options', 'Options & tickets', 4], ['rates', 'Rates', 5], ['availability', 'Availability', 6], ['policies', 'Policies', 7], ['voucher', 'Voucher', 8], ['distribution', 'Channel distribution', 9],
 ];
 const reasonLabels: Record<string, string> = {
   PRODUCT_NAME_MISSING: 'Product name is missing', PRODUCT_TYPE_MISSING: 'Product type is missing', PRODUCT_SUBTYPE_MISSING: 'Product type classification is missing',
@@ -83,7 +83,7 @@ export default function ReviewSubmitStep({ snapshot, locked, onNavigate, fulfilm
                         <b>{displayLabel}</b>
                         {item.ready ? <p>Configured and available to submit.</p> : <ul>{item.reasonCodes.map((code) => <li key={code}>{reasonLabels[code] || code.replaceAll('_', ' ').toLowerCase()}</li>)}</ul>}
                       </div>
-                      <button type="button" className="link-button" onClick={() => onNavigate(fixStep as WizardStep)}>{item.ready ? 'Review' : 'Fix'}</button>
+                      {key === 'distribution' && !item.ready ? <span className="experience-help">Configured by admin after QC</span> : <button type="button" className="link-button" onClick={() => onNavigate(fixStep as WizardStep)}>{item.ready ? 'Review' : 'Fix'}</button>}
                     </div>;
                   })}
                 </div>

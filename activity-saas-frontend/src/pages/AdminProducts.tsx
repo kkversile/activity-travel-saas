@@ -74,6 +74,14 @@ export default function AdminProducts() {
   );
   const [actionReason, setActionReason] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
+  const [agentSalesBusy, setAgentSalesBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
+  async function enableAgentSales(product: AdminProduct) {
+    setAgentSalesBusy(product.id); setError(""); setNotice("");
+    try { await api.request(`/admin/distribution/products/${product.id}/activate-agent`, { method: "POST" }); setNotice(`Agent sales enabled for ${product.name}. Product, options, rate plans and inventory mappings are active.`); setRefreshKey((value) => value + 1); }
+    catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+    finally { setAgentSalesBusy(null); }
+  }
   useEffect(() => {
     const syncVendorFromUrl = () => {
       const nextVendorId =
@@ -172,7 +180,7 @@ export default function AdminProducts() {
     )[channel] || channel.replaceAll("_", " ");
   return (
     <div className="admin-products-page">
-      {error && <ErrorBox error={error} />}
+      {error && <ErrorBox error={error} />}{notice && <div className="alert success" role="status">{notice}</div>}
       <section className="admin-products-filters" aria-label="Activity filters">
         <div className="admin-products-filter-row">
           <input
@@ -316,6 +324,7 @@ export default function AdminProducts() {
                               </button>
                             </>
                           )}
+                          {live && <button className="btn small" disabled={agentSalesBusy !== null} onClick={() => void enableAgentSales(product)}>{agentSalesBusy === product.id ? "Enabling…" : "Enable agent sales"}</button>}
                           {live && (
                             <button
                               className="btn small"
@@ -379,6 +388,7 @@ export default function AdminProducts() {
       {editingProductId && (
         <ExperienceWizardModal
           product={{ id: editingProductId } as any}
+          vendorNameOverride={data?.items.find((item) => item.id === editingProductId)?.vendor.name}
           adminContext
           onDone={() => setEditingProductId(null)}
           onChanged={() => setRefreshKey((value) => value + 1)}

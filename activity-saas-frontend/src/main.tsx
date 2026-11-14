@@ -4,6 +4,12 @@ import App from './App';
 import './styles.css';
 import './login.css';
 import 'leaflet/dist/leaflet.css';
+import './theme/platform-theme.css';
+import { startPlatformTheme } from './theme/platformTheme';
+
+const stopPlatformTheme = startPlatformTheme();
+const hmr = (import.meta as ImportMeta & { hot?: { dispose(callback: () => void): void } }).hot;
+hmr?.dispose(stopPlatformTheme);
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };

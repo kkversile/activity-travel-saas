@@ -9,7 +9,7 @@ export const PERMISSIONS = [
   'supplier.quality.view.own', 'supplier.quality.view.admin', 'supplier.quality.policy.manage', 'supplier.quality.snapshot.manage', 'supplier.quality.issue.manage', 'supplier.tier.manage',
   'demand.view.admin', 'demand.manage', 'demand.policy.manage', 'demand.target.manage', 'demand.view.vendor', 'demand.respond.vendor',
   'distribution.view', 'distribution.channel.manage', 'distribution.contract.manage', 'distribution.mapping.manage', 'distribution.inventory-rule.manage', 'distribution.credential.manage', 'distribution.event.view', 'distribution.inspect',
-  'buybox.admin.view', 'buybox.admin.manage', 'buybox.vendor.view', 'buybox.vendor.bid', 'platform.settings.manage',
+  'buybox.admin.view', 'buybox.admin.manage', 'buybox.vendor.view', 'buybox.vendor.bid', 'platform.settings.manage', 'registration.offer-types.manage',
   'agent.dashboard.view', 'agent.finance.view', 'agent.reports.view', 'agent.profile.view', 'agent.profile.edit', 'agent.team.manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];

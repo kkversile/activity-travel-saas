@@ -1,11 +1,22 @@
 import 'reflect-metadata';
 import { DocumentReviewStatus, ProductType, VendorVerificationStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsDateString, IsEmail, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { CreateProductDraftDto } from '../catalogue/catalogue.dto';
+
+export class UpdatePlatformThemeDto {
+  @IsIn(['voya-midnight', 'revspine-warm', 'lagoon', 'canopy']) theme!: 'voya-midnight' | 'revspine-warm' | 'lagoon' | 'canopy';
+  @IsOptional() @Matches(/^#[\da-fA-F]{6}$/) page?: string;
+  @IsOptional() @Matches(/^#[\da-fA-F]{6}$/) surface?: string;
+  @IsOptional() @Matches(/^#[\da-fA-F]{6}$/) raised?: string;
+  @IsOptional() @Matches(/^#[\da-fA-F]{6}$/) primary?: string;
+  @IsOptional() @Matches(/^#[\da-fA-F]{6}$/) accent?: string;
+}
 
 export class VendorVerificationDto { @IsEnum(VendorVerificationStatus) status!: VendorVerificationStatus; @IsOptional() @IsString() @MinLength(5) reason?: string; }
 export class DocumentReviewDto { @IsEnum(DocumentReviewStatus) status!: DocumentReviewStatus; @IsOptional() @IsString() @MinLength(5) reason?: string; }
+export class CreateRegistrationOfferTypeDto { @IsString() @MinLength(2) @MaxLength(80) label!: string; @IsOptional() @IsBoolean() status?: boolean; @IsOptional() @IsInt() @Min(0) sortOrder?: number; }
+export class UpdateRegistrationOfferTypeDto { @IsOptional() @IsString() @MinLength(2) @MaxLength(80) label?: string; @IsOptional() @IsBoolean() status?: boolean; @IsOptional() @IsInt() @Min(0) sortOrder?: number; }
 
 export class AgentSuspensionDto { @IsString() @MinLength(5) reason!: string; }
 export class CreateAdminDto { @IsString() @MinLength(2) @MaxLength(120) fullName!: string; @IsEmail() @MaxLength(254) email!: string; @IsString() @MinLength(8) @MaxLength(128) password!: string; }

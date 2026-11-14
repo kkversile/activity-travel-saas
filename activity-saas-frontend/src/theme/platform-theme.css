@@ -1,0 +1,129 @@
+/* Global preset semantics. Legacy declarations keep their original fallback for Midnight. */
+html[data-theme="revspine-warm"] {
+  --voya-page: #fcf9f3;
+  --voya-surface: #fffaf6;
+  --voya-raised: #f2eadf;
+  --voya-text: #211c15;
+  --voya-muted: #6b6053;
+  --voya-border: #dfd2c1;
+  --voya-control: #9b8266;
+  --voya-primary: #8a4a20;
+  --voya-primary-soft: #f2e3d2;
+  --voya-success: #32652a;
+  --voya-success-soft: #e6efdf;
+  --voya-warning: #845010;
+  --voya-warning-soft: #faedcd;
+  --voya-error: #a73118;
+  --voya-error-soft: #fae7df;
+  --voya-color-scheme: light;
+  color-scheme: light;
+  background: var(--voya-page);
+  color: var(--voya-text);
+}
+html[data-theme="revspine-warm"] body { background:var(--voya-page); color:var(--voya-text); color-scheme:light; }
+html[data-theme="revspine-warm"] .brand-mark { background:var(--voya-primary) !important; border-color:var(--voya-primary) !important; color:#fffaf6 !important; }
+html[data-theme="revspine-warm"] :is(.btn.primary, .btn.accent):hover:not(:disabled) { filter:brightness(.9); }
+html[data-theme="revspine-warm"] :is(.btn.primary, .btn.accent):disabled { background:var(--voya-raised) !important; border-color:var(--voya-border) !important; color:var(--voya-muted) !important; }
+html[data-theme="revspine-warm"] :is(button,input,select,textarea,a,summary):focus-visible { outline-color:var(--voya-primary); }
+html[data-theme="revspine-warm"] :is(input,select,textarea) { accent-color:var(--voya-primary); color-scheme:light; }
+html[data-theme="revspine-warm"] :is(input,textarea)::placeholder { color:var(--voya-raised-muted, var(--voya-muted)); opacity:1; }
+html[data-theme="lagoon"] {
+  --voya-raised:#a8d5cb; --voya-text:#203731; --voya-muted:#526e67; --voya-border:#a6c6be;
+  --voya-control:#658c83; --voya-primary:#0b625e; --voya-primary-soft:#c5e5dd; --voya-success:#326b4e; --voya-success-soft:#deefe2;
+  --voya-warning:#79520d; --voya-warning-soft:#f5ebcb; --voya-error:#a13a2e; --voya-error-soft:#f6e3df;
+  color-scheme:light; background:var(--voya-page); color:var(--voya-text);
+}
+html[data-theme="lagoon"] body { background:var(--voya-page); color:var(--voya-text); color-scheme:light; }
+html[data-theme="canopy"] {
+  --voya-raised:#26392e; --voya-text:#e7eee7; --voya-muted:#a8b9a9; --voya-border:#3a5142;
+  --voya-control:#718774; --voya-primary-soft:#26392e; --voya-success:#6dc99b; --voya-success-soft:#1b3b2d;
+  --voya-warning:#e4ae58; --voya-warning-soft:#40361f; --voya-error:#f08f84; --voya-error-soft:#45272a;
+  color-scheme:dark; background:var(--voya-page); color:var(--voya-text);
+}
+html[data-theme="canopy"] body { background:var(--voya-page); color:var(--voya-text); color-scheme:dark; }
+.theme-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; border:0; padding:0; margin:20px 0; min-width:0; }
+.theme-options legend { margin-bottom:12px; font-weight:600; }
+.theme-choice { display:flex; flex-direction:column; gap:12px; align-items:flex-start; border:2px solid color-mix(in srgb,var(--theme-choice-page-text,#fff) 22%,transparent); border-radius:10px; padding:18px; background:var(--theme-choice-page,var(--voya-page,#0e131d)); color:var(--theme-choice-page-text,var(--voya-page-text,#e6e9f1)); }
+.theme-choice.selected { border-color:var(--theme-choice-primary,var(--voya-primary,#8d9df5)); box-shadow:0 0 0 1px var(--theme-choice-primary,var(--voya-primary,#8d9df5)); }
+.theme-choice-top { display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px; }
+.theme-choice-heading { display:flex; align-items:center; gap:12px; cursor:pointer; }
+.theme-choice-heading input { min-width:20px; min-height:20px; margin:0; }
+.theme-choice-apply { flex:0 0 auto; min-width:72px; min-height:34px; }
+.theme-choice p { margin:0; }
+.theme-swatches { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; align-items:start; width:100%; padding:12px; border:1px solid color-mix(in srgb,var(--theme-choice-surface-text,#211c15) 18%,transparent); border-radius:8px; background:var(--theme-choice-surface,var(--voya-surface,#161d2a)); }
+.theme-swatch-item { display:grid; justify-items:center; gap:4px; min-width:0; color:var(--theme-choice-surface-text,var(--voya-muted,#9aa3b6)); font-size:11px; }
+.theme-swatch-item code { color:var(--theme-choice-surface-text,var(--voya-text,#e6e9f1)); font-size:10px; }
+.theme-swatch { display:block; width:38px; height:38px; border:2px solid var(--theme-choice-page,var(--voya-page,#0e131d)); border-radius:50%; background:var(--swatch-color); box-shadow:0 0 0 1px color-mix(in srgb,var(--theme-choice-surface-text,#fff) 40%,transparent),0 2px 5px rgb(0 0 0 / 18%); cursor:pointer; transition:transform .15s ease,box-shadow .15s ease; }
+.theme-swatch:hover { transform:scale(1.08); }
+.theme-swatch-reset { width:100%; min-height:30px; padding:4px 2px; border:1px solid color-mix(in srgb,var(--theme-choice-surface-text,#211c15) 28%,transparent); border-radius:5px; background:transparent; color:var(--theme-choice-surface-text,var(--voya-text,#e6e9f1)); font:inherit; font-size:10px; font-weight:600; line-height:1.2; cursor:pointer; pointer-events:auto; }
+.theme-swatch-reset:hover { border-color:var(--theme-choice-primary,var(--voya-primary,#8d9df5)); background:color-mix(in srgb,var(--theme-choice-primary,var(--voya-primary,#8d9df5)) 10%,var(--theme-choice-surface,var(--voya-surface,#161d2a))); }
+.theme-swatch-reset:focus-visible { outline:3px solid var(--voya-primary,#8d9df5); outline-offset:2px; }
+.theme-swatch.active { box-shadow:0 0 0 2px var(--voya-primary,#8d9df5),0 0 0 5px color-mix(in srgb,var(--voya-primary,#8d9df5) 18%,transparent); }
+.theme-swatch:focus-visible,.theme-color-close:focus-visible { outline:3px solid var(--voya-primary,#8d9df5); outline-offset:3px; }
+.theme-color-dialog { width:min(560px,calc(100vw - 32px)); max-width:none; max-height:calc(100dvh - 32px); margin:auto; padding:18px; overflow:auto; grid-template-columns:minmax(0,1fr) 120px; gap:12px 20px; align-items:center; border:1px solid var(--voya-border,#9b8266); border-radius:12px; background:var(--voya-surface,#fffaf6); color:var(--voya-text,#211c15); box-shadow:0 24px 80px rgb(0 0 0 / 32%); }
+.theme-color-dialog:not([open]) { display:none; }
+.theme-color-dialog[open] { display:grid; }
+.theme-color-dialog::backdrop { background:rgb(12 15 21 / 62%); backdrop-filter:blur(2px); }
+.theme-color-editor-head { grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.theme-color-editor-head strong,.theme-color-editor-head span { display:block; }
+.theme-color-editor-head span { margin-top:3px; color:var(--voya-muted,#6b6053); font-size:12px; }
+.theme-color-current { display:flex; align-items:center; gap:8px; margin-left:auto; padding:5px 8px; border:1px solid var(--voya-border,#dfd2c1); border-radius:8px; background:var(--voya-page,#fcf9f3); }
+.theme-color-current span { width:30px; height:26px; margin:0; border:1px solid color-mix(in srgb,var(--voya-text,#211c15) 18%,transparent); border-radius:5px; }
+.theme-color-current code { color:var(--voya-text,#211c15); font:600 11px ui-monospace,monospace; }
+.theme-color-close { width:32px; height:32px; border:1px solid var(--voya-border,#dfd2c1); border-radius:50%; background:transparent; color:var(--voya-text,#211c15); font-size:20px; cursor:pointer; }
+.theme-color-dialog shop-color-picker { display:block; width:100%; min-height:300px; }
+.theme-hex-field { display:grid; gap:6px; color:var(--voya-muted,#6b6053); font-size:12px; }
+.theme-hex-field input { width:100%; padding:9px 10px; border:1px solid var(--voya-border,#dfd2c1); border-radius:7px; background:var(--voya-page,#fcf9f3); color:var(--voya-text,#211c15); font:600 13px ui-monospace,monospace; text-transform:uppercase; }
+.theme-actions { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+@media(max-width:640px) { .theme-options { grid-template-columns:1fr; }.theme-choice { padding:14px; }.theme-swatches { gap:5px; padding:8px; }.theme-swatch { width:34px; height:34px; }.theme-swatch-item code { font-size:9px; }.theme-swatch-reset { font-size:9px; }.theme-color-dialog { grid-template-columns:1fr; padding:14px; }.theme-color-editor-head { grid-column:1; flex-wrap:wrap; }.theme-color-dialog shop-color-picker { min-height:250px; } }
+
+.theme-options .theme-choice-heading input[type=radio] { width:20px; height:20px; flex:0 0 20px; padding:0; }
+.theme-header-preview { display:grid; gap:3px; width:100%; margin-top:2px; padding:9px 11px; border:1px solid color-mix(in srgb,var(--theme-choice-raised-text) 16%,transparent); border-radius:7px; background:var(--theme-choice-raised); color:var(--theme-choice-raised-text); }
+.theme-header-preview small { color:inherit; opacity:.78; font-size:10px; }
+.theme-header-preview strong { font-size:12px; font-weight:650; }
+
+/* Brand highlights carry RevSpine amber; status text keeps its darker contrast. */
+html[data-theme="revspine-warm"] :is(.progress-bar > span, .progress-bar > i, .onboarding-progress-fill, .experience-score-fill) { background:var(--voya-accent); }
+html[data-theme="revspine-warm"] .voyaMapMarker span { background:var(--voya-primary); }
+html[data-theme] :is(.btn.primary, .btn.accent, .partner-button-primary, .partner-button-accent, .register-tabs button.active, .login-tabs button.active, .brand-mark) { color:var(--voya-on-primary,#fffaf6) !important; }
+
+/* Color controls can move any preset between light and dark. Keep native widgets
+   and shared surfaces tied to the actual selected colors, not preset names. */
+html[data-theme] { color-scheme:var(--voya-color-scheme, dark); }
+html[data-theme] body, html[data-theme] :is(input, select, textarea) { color-scheme:var(--voya-color-scheme, dark); }
+html[data-theme] :is(.admin-shell, .agent-shell, .partner-app-shell, .vendor-theme-scope, .login-page, .register-page) {
+  --ux-on-primary:var(--voya-primary-text, var(--voya-on-primary, #fffaf6));
+  --ux-text:var(--voya-surface-text, var(--voya-text, #e6e9f1));
+  --ux-muted:var(--voya-surface-muted, var(--voya-muted, #aab6cc));
+}
+html[data-theme] :is(.admin-shell, .agent-shell, .partner-app-shell, .vendor-theme-scope, .login-page, .register-page) :is(.panel, .card, .modal-card, .modal, .listing-card, .rate-card, .readiness-card, .register-panel, .login-card, .onboarding-card, .experience-modal) {
+  color:var(--voya-surface-text, var(--voya-text, #e6e9f1));
+}
+html[data-theme] :is(.admin-shell, .agent-shell, .partner-app-shell, .vendor-theme-scope, .login-page, .register-page) :is(.panel-head, .modal-head, .modal-header, .card-head, .section-head, .experience-step-footer) {
+  color:var(--voya-raised-text, var(--voya-surface-text, var(--voya-text, #e6e9f1)));
+}
+html[data-theme] :is(.admin-shell, .agent-shell, .partner-app-shell, .vendor-theme-scope, .login-page, .register-page) :is(.btn.primary, .btn.accent, .partner-button-primary, .partner-button-accent, .register-tabs button.active, .login-tabs button.active) {
+  color:var(--voya-primary-text, var(--voya-on-primary, #fffaf6)) !important;
+}
+/* Strong configured-accent gradient for primary actions; secondary controls keep
+   their own theme color and receive only a soft primary-tinted sheen below. */
+html[data-theme] :is(.btn.primary, .btn.accent, .partner-button-primary, .partner-button-accent, .register-tabs button.active, .login-tabs button.active, .register-tabs .active, .login-tabs .active) {
+  background:var(--voya-action-gradient, var(--voya-primary)) !important;
+  border-color:var(--voya-action-border, var(--voya-primary)) !important;
+  color:var(--voya-action-text, var(--voya-primary-text, var(--voya-text))) !important;
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 28%), 0 1px 2px rgb(0 0 0 / 12%);
+  transition:filter .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+html[data-theme] :is(.btn.primary, .btn.accent, .partner-button-primary, .partner-button-accent) * { color:inherit !important; }
+html[data-theme] button:not(.theme-swatch):not(.primary):not(.accent):not(.partner-button-primary):not(.partner-button-accent) {
+  background-image:linear-gradient(180deg, color-mix(in srgb,var(--voya-primary) 12%,transparent), transparent 54%, color-mix(in srgb,var(--voya-primary) 7%,transparent)) !important;
+}
+html[data-theme] :is(.btn.primary, .btn.accent, .partner-button-primary, .partner-button-accent, .register-tabs .active, .login-tabs .active):hover:not(:disabled) {
+  filter:brightness(1.035);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 32%), 0 2px 5px rgb(0 0 0 / 16%);
+}
+html[data-theme] :is(button:not(.theme-swatch), .btn, .partner-button-primary, .partner-button-accent, .register-tabs .active, .login-tabs .active):focus-visible {
+  outline:3px solid color-mix(in srgb,var(--voya-primary) 55%,transparent);
+  outline-offset:2px;
+}
+html[data-theme] :is(button:not(.theme-swatch), .btn, .partner-button-primary, .partner-button-accent):disabled { opacity:.58; cursor:not-allowed; }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api';
 import Onboarding from './Onboarding';
@@ -51,12 +51,17 @@ describe('Vendor onboarding', () => {
 
     render(<Onboarding />);
 
-    expect(await screen.findByText('Brand / trade name')).toBeInTheDocument();
+    expect(await screen.findByText('Brand / trade name *')).toBeInTheDocument();
     expect(screen.getByText('Business profile & verification')).toBeInTheDocument();
+    expect(screen.getByText('Draft')).toBeInTheDocument();
     expect(screen.getByText(/Signed up/)).toBeInTheDocument();
+    expect(screen.getByText('Details in progress')).toBeInTheDocument();
+    expect(screen.getByText('Starts after you submit')).toBeInTheDocument();
+    expect(screen.getByText('Available in step 7')).toBeInTheDocument();
     expect(screen.getByText('Approved · selling')).toBeInTheDocument();
-    expect(screen.getByText('Sections complete')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'North Goa' })).toBeInTheDocument();
+    expect(screen.getByText('Setup sections complete')).toBeInTheDocument();
+    expect(screen.getByText(/\d+\s*\/\s*7/)).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Onboarding steps' })).getByText('Step 1 of 8')).toBeInTheDocument();
     fireEvent.change(screen.getByRole('textbox', { name: 'Add operating city' }), { target: { value: 'Panaji' } });
     fireEvent.click(screen.getByRole('button', { name: '+ Add city' }));
     expect(screen.getByRole('button', { name: 'Panaji' })).toBeInTheDocument();
@@ -65,6 +70,107 @@ describe('Vendor onboarding', () => {
     expect(screen.queryByText('Search location')).not.toBeInTheDocument();
     expect(screen.queryByText('First name *')).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue('Vendor pending onboarding')).not.toBeInTheDocument();
+  });
+
+  it('retains entered data and reports a failed draft save', async () => {
+    const request = vi.spyOn(api, 'request').mockResolvedValueOnce({ ...draft, startedAt: new Date().toISOString() } as never).mockRejectedValueOnce(new Error('Connection lost'));
+    render(<Onboarding />);
+    const name = await screen.findByRole('textbox', { name: /Brand \/ trade name/ });
+    fireEvent.change(name, { target: { value: 'Mountain Trails' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your changes were not saved');
+    expect(name).toHaveValue('Mountain Trails');
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears a stale city when the state changes and supports a city outside the suggestions', async () => {
+    vi.spyOn(api, 'request').mockResolvedValueOnce({ ...draft, startedAt: new Date().toISOString(), state: 'Kerala', city: 'Munnar' } as never);
+    render(<Onboarding />);
+    const state = await screen.findByRole('combobox', { name: 'State / region *' });
+    fireEvent.change(state, { target: { value: 'Tamil Nadu' } });
+    const city = screen.getByRole('combobox', { name: /City/ });
+    expect(city).toHaveValue('');
+    expect(document.querySelector('#onboarding-cities option[value="Madurai"]')).toBeTruthy();
+    fireEvent.change(city, { target: { value: 'A vendor-entered town' } });
+    expect(city).toHaveValue('A vendor-entered town');
+  });
+
+  it('reuses primary contact details while preserving the target role and hours', async () => {
+    vi.spyOn(api, 'request').mockResolvedValueOnce({ ...draft, startedAt: new Date().toISOString(), currentStep: 2, firstName: 'Binu', lastName: 'Mathew', contactNumber: '+919876543210' } as never);
+    render(<Onboarding />);
+    await screen.findByRole('heading', { name: 'Key contacts' });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Use primary contact details' })[0]);
+    expect(screen.getByLabelText('Reservations & operations name')).toHaveValue('Binu Mathew');
+    expect(screen.getByLabelText('Reservations & operations mobile')).toHaveValue('+919876543210');
+    expect(screen.getByLabelText('Reservations & operations hours')).toHaveValue('07:00–22:00 daily');
+  });
+
+  it('links validation errors to editable fields and makes no save request for an invalid step', async () => {
+    const request = vi.spyOn(api, 'request').mockResolvedValueOnce({ ...draft, startedAt: new Date().toISOString() } as never);
+    render(<Onboarding />);
+    await screen.findByText('Business identity');
+    fireEvent.click(screen.getByRole('button', { name: 'Save & continue →' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Complete the business profile');
+    expect(screen.getByRole('link', { name: 'Enter a 6-digit PIN code.' })).toHaveAttribute('href', '#onboarding-pinCode');
+    expect(screen.getByLabelText(/PIN code/)).toHaveAttribute('aria-invalid', 'true');
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the review form when the server refuses submission', async () => {
+    const started = { ...draft, startedAt: new Date().toISOString(), currentStep: 8 };
+    const request = vi.spyOn(api, 'request').mockResolvedValueOnce(started as never).mockResolvedValueOnce(started as never).mockRejectedValueOnce(new Error('Complete bank details, ownership confirmation, and bank proof'));
+    render(<Onboarding />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Submit for verification' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Complete bank details');
+    expect(screen.getByRole('heading', { name: 'Review & submit' })).toBeInTheDocument();
+    expect(request).toHaveBeenCalledWith('/vendor/onboarding/submit', { method: 'POST' });
+  });
+
+  it('uses the server submission response to show the read-only review state', async () => {
+    const started = { ...draft, startedAt: new Date().toISOString(), currentStep: 8 };
+    vi.spyOn(api, 'request').mockResolvedValueOnce(started as never).mockResolvedValueOnce(started as never).mockResolvedValueOnce({ ...started, status: 'SUBMITTED' } as never);
+    render(<Onboarding />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Submit for verification' }));
+    expect(await screen.findByRole('heading', { name: 'Application under review' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Submit for verification' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save draft' })).not.toBeInTheDocument();
+  });
+
+  it('shows conditional KYC documents only when the selected entity type requires them', async () => {
+    vi.spyOn(api, 'request').mockResolvedValueOnce({
+      ...draft,
+      startedAt: new Date().toISOString(),
+      supplementalData: { entityType: 'SOLE_PROPRIETOR' },
+    } as never);
+
+    render(<Onboarding />);
+    await screen.findByText('Brand / trade name *');
+    fireEvent.click(screen.getByRole('button', { name: /3\.\s*KYC documents/ }));
+
+    expect(await screen.findByRole('group', { name: 'GST registration status' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Upload LLP agreement' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Upload LLPIN certificate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Upload authorisation letter' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('Optional').length).toBeGreaterThan(0);
+    expect(screen.queryByText('GST registration and declaration')).not.toBeInTheDocument();
+  });
+
+  it('renders a single GSTIN control and certificate action for GST-registered vendors', async () => {
+    vi.spyOn(api, 'request').mockResolvedValueOnce({
+      ...draft,
+      startedAt: new Date().toISOString(),
+      gstStatus: 'REGISTERED',
+      gstin: '30AAQFG4821K1Z5',
+      supplementalData: { entityType: 'SOLE_PROPRIETOR' },
+    } as never);
+
+    render(<Onboarding />);
+    await screen.findByText('Brand / trade name *');
+    fireEvent.click(screen.getByRole('button', { name: /3\.\s*KYC documents/ }));
+
+    expect(await screen.findByRole('textbox', { name: 'GSTIN *' })).toHaveValue('30AAQFG4821K1Z5');
+    expect(screen.getAllByRole('textbox', { name: 'GSTIN *' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Upload GST certificate' })).toHaveLength(1);
   });
 
   it('loads the welcome state and starts a saved application', async () => {
@@ -78,15 +184,15 @@ describe('Vendor onboarding', () => {
     fireEvent.click(screen.getByRole('button', { name: /Start onboarding/i }));
 
     await waitFor(() => expect(request).toHaveBeenCalledWith('/vendor/onboarding', expect.objectContaining({ method: 'PATCH' })));
-    expect(await screen.findByText('Your draft is saved automatically as you move through the application.')).toBeInTheDocument();
+    expect(await screen.findByText('Your draft is started. Use Save draft or Save & continue to keep your changes.')).toBeInTheDocument();
   });
 
   it('allows prototype-style step navigation and selects the agreement for each supplier type', async () => {
     vi.spyOn(api, 'request').mockResolvedValueOnce({ ...draft, startedAt: new Date().toISOString(), supplementalData: { supplierType: 'Direct operator' } } as never);
     render(<Onboarding />);
 
-    expect(await screen.findByText('Brand / trade name')).toBeInTheDocument();
-    const commercialStep = screen.getByRole('button', { name: /6\s*Commercial terms/ });
+    expect(await screen.findByText('Brand / trade name *')).toBeInTheDocument();
+    const commercialStep = screen.getByRole('button', { name: /6\.\s*Commercial terms/ });
     expect(commercialStep).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: /Government body/ }));
     fireEvent.click(commercialStep);
@@ -199,7 +305,7 @@ describe('Vendor onboarding', () => {
     render(<Onboarding />);
 
     expect(await screen.findByRole('heading', { name: 'Bank & tax' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Bank name *')).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Bank name \*/)).toBeInTheDocument();
     const ifsc = document.getElementById('vendor-bank-ifsc')!;
     fireEvent.change(ifsc, { target: { value: 'HDFC0001234' } });
     fireEvent.blur(ifsc);
@@ -220,7 +326,7 @@ describe('Vendor onboarding', () => {
     render(<Onboarding />);
 
     expect(await screen.findByRole('heading', { name: 'Your commercial terms' })).toBeInTheDocument();
-    expect(screen.getByText('🔒 Read-only')).toBeInTheDocument();
+    expect(screen.getByText('Read-only')).toBeInTheDocument();
     expect(screen.getByText('18%', { exact: true })).toBeInTheDocument();
     expect(screen.getByText('+ GST', { exact: true })).toBeInTheDocument();
     expect(screen.getByText('Weekly', { exact: true })).toBeInTheDocument();
@@ -231,7 +337,7 @@ describe('Vendor onboarding', () => {
     expect(screen.getByText('YOU AGREE TO')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Message account manager' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Save' }).at(-1)!);
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
     await waitFor(() => expect(request).toHaveBeenCalledWith('/vendor/onboarding', expect.objectContaining({ method: 'PATCH' })));
     expect((request.mock.calls[1][1] as { body: string }).body).toContain('Jatin M.');
   });

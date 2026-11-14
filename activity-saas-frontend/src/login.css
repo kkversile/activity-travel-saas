@@ -1,8 +1,8 @@
 .login-role-buttons {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin: 18px 0;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin:18px 0;
 }
 
 /* Public auth screens use the same Partner Hub prototype theme as the vendor shell. */
@@ -10,445 +10,450 @@
 :root:has(.register-page),
 body:has(.login-page),
 body:has(.register-page) {
-  background: #0e131d;
-  color-scheme: dark;
+  background:var(--voya-page, #0e131d);
+  color-scheme:var(--voya-color-scheme, dark);
 }
 
 .login-page {
-  background: #0e131d;
-  color: #e6e9f1;
-  font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  background:var(--voya-page, #0e131d);
+  color:var(--voya-page-text,var(--voya-text, #e6e9f1));
+  font-family:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
 }
 
 .login-card {
-  background: #161d2a;
-  border-color: #2a3345;
-  box-shadow: 0 24px 70px #0008;
+  background:var(--voya-surface, #161d2a);
+  border-color:var(--voya-border, #2a3345);
+  box-shadow:0 24px 70px #0008;
 }
 
 .login-brand h1,
 .login-card h2,
 .login-card .field>span {
-  color: #e6e9f1;
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
 }
 
 .login-brand p,
 .login-card .muted,
 .login-card .register-prompt {
-  color: #9aa3b6;
+  color:var(--voya-surface-muted,var(--voya-muted, #9aa3b6));
 }
 
 .login-card input {
-  background: #161d2a;
-  border-color: #2a3345;
-  color: #e6e9f1;
+  background:var(--voya-surface, #161d2a);
+  border-color:var(--voya-border, #2a3345);
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
 }
 
 .login-card input::placeholder {
-  color: #6f7a8f;
+  color:var(--voya-surface-muted,var(--voya-muted, #6f7a8f));
+  opacity:1;
 }
 
 .login-card input:focus {
-  border-color: #f0a040;
-  box-shadow: 0 0 0 3px #3a2a14;
+  border-color:var(--voya-warning, #f0a040);
+  box-shadow:0 0 0 3px var(--voya-warning-soft, #3a2a14);
 }
 
 .login-card .btn {
-  background: #161d2a;
-  border-color: #2a3345;
-  color: #e6e9f1;
+  background:var(--voya-surface, #161d2a);
+  border-color:var(--voya-border, #2a3345);
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
 }
 
 .login-card .btn.primary {
-  background: #f0a040;
-  border-color: #f0a040;
-  color: #0e131d;
+  background:var(--voya-warning-soft, #f0a040);
+  border-color:var(--voya-warning, #f0a040);
+  color:var(--voya-accent-text,var(--voya-on-primary,#0e131d));
 }
 
 .login-card .demo-note {
-  background: #1c2433;
-  color: #c9cfdb;
+  background:var(--voya-raised, #1c2433);
+  color:var(--voya-raised-text,var(--voya-text, #c9cfdb));
 }
 
 .login-role-buttons .btn {
-  padding: 10px 12px;
+  padding:10px 12px;
 }
 
 .login-switch {
-  display: block;
-  margin: 4px 0 16px;
+  display:block;
+  margin:4px 0 16px;
 }
 
 .login-demo-note {
-  display: block;
-  margin: 10px 0;
-  color: #8d6b31;
+  display:block;
+  margin:10px 0;
+  color:var(--voya-warning, #8d6b31);
 }
 
 .login-resend {
-  min-height: 24px;
-  margin: 12px 0 2px;
-  text-align: center;
-  color: #71809a;
-  font-size: 13px;
+  min-height:24px;
+  margin:12px 0 2px;
+  text-align:center;
+  color:var(--voya-muted, #71809a);
+  font-size:13px;
 }
 
 .login-resend .link-button {
-  color: #1d4f91;
-  font-size: 13px;
-  font-weight: 700;
+  color:var(--voya-muted, #1d4f91);
+  font-size:13px;
+  font-weight:700;
 }
 
 .register-prompt {
-  margin: 16px 0 0;
-  color: #667085;
-  font-size: 13px;
-  text-align: center;
+  margin:16px 0 0;
+  color:var(--voya-muted, #667085);
+  font-size:13px;
+  text-align:center;
 }
 
 .register-prompt .link-button,
 .register-tabs button {
-  color: #8d9df5;
-  font-weight: 700;
+  color:var(--voya-primary, #8d9df5);
+  font-weight:700;
 }
 
 .register-page {
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(420px, 1fr);
-  gap: 32px;
-  align-items: start;
-  padding: 42px max(32px, 6vw);
-  background: #0e131d;
-  color: #e6e9f1;
-  font: 14px/1.5 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:minmax(0, 1.15fr) minmax(420px, 1fr);
+  gap:32px;
+  align-items:start;
+  padding:42px max(32px, 6vw);
+  background:var(--voya-page, #0e131d);
+  color:var(--voya-page-text,var(--voya-text, #e6e9f1));
+  font:14px/1.5 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
 }
 
 .register-art {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 22px;
-  padding: 8px 0;
-  align-self: center;
+  display:flex;
+  min-width:0;
+  flex-direction:column;
+  gap:22px;
+  padding:8px 0;
+  align-self:center;
 }
 
 .register-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display:flex;
+  align-items:center;
+  gap:10px;
 }
 
 .register-brand b {
-  display: block;
-  font: 700 1.02rem/1.1 "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  display:block;
+  font:700 1.02rem/1.1 "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
 }
 
 .register-brand small {
-  display: block;
-  color: #9aa3b6;
-  font-size: .72rem;
+  display:block;
+  color:var(--voya-page-muted,var(--voya-muted, #9aa3b6));
+  font-size:.72rem;
 }
 
 .register-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  display: grid;
-  place-items: center;
-  background: #8d9df5;
-  color: #0e131d;
-  font: 700 15px "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  width:30px;
+  height:30px;
+  border-radius:7px;
+  display:grid;
+  place-items:center;
+  background:var(--voya-primary, #8d9df5);
+  color:var(--voya-primary-text,var(--voya-on-primary,#0e131d));
+  font:700 15px "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
 }
 
 .register-art h1 {
-  max-width: 20ch;
-  margin: 0;
-  font: 700 clamp(1.6rem, 3.4vw, 2.5rem)/1.12 "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
-  letter-spacing: -.01em;
+  max-width:20ch;
+  margin:0;
+  font:700 clamp(1.6rem, 3.4vw, 2.5rem)/1.12 "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  letter-spacing:-.01em;
 }
 
 .register-benefits {
-  max-width: 52ch;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  max-width:52ch;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  list-style:none;
+  margin:0;
+  padding:0;
 }
 
 .register-benefits li {
-  position: relative;
-  padding-left: 22px;
-  color: #c9cfdb;
+  position:relative;
+  padding-left:22px;
+  color:var(--voya-page-text,var(--voya-text, #c9cfdb));
 }
 
 .register-benefits li::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: .5em;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  background: #f0a040;
+  content:"";
+  position:absolute;
+  left:0;
+  top:.5em;
+  width:10px;
+  height:10px;
+  border-radius:2px;
+  background:var(--voya-warning-soft, #f0a040);
 }
 
 .register-flow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
 }
 
 .register-flow span {
-  border: 1px solid #2a3345;
-  background: #161d2a;
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-weight: 600;
-  font-size: .86rem;
+  border:1px solid var(--voya-border, #2a3345);
+  background:var(--voya-surface, #161d2a);
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
+  border-radius:6px;
+  padding:8px 12px;
+  font-weight:600;
+  font-size:.86rem;
 }
 
 .register-flow i {
-  color: #9aa3b6;
-  font-style: normal;
+  color:var(--voya-page-muted,var(--voya-muted, #9aa3b6));
+  font-style:normal;
 }
 
 .register-muted {
-  color: #9aa3b6;
-  font-size: .82rem;
+  color:var(--voya-page-muted,var(--voya-muted, #9aa3b6));
+  font-size:.82rem;
 }
 
 .register-panel {
-  min-width: 0;
-  background: #161d2a;
-  border: 1px solid #2a3345;
-  border-radius: 8px;
-  padding: 20px;
-  align-self: start;
+  min-width:0;
+  background:var(--voya-surface, #161d2a);
+  border:1px solid var(--voya-border, #2a3345);
+  border-radius:8px;
+  padding:20px;
+  align-self:start;
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
 }
+.register-panel > p { color:var(--voya-surface-muted,var(--voya-muted, #9aa3b6)); }
 
 .register-verification-section {
-  display: grid;
-  gap: 10px;
-  margin: 16px 0;
-  padding: 14px;
-  background: #111722;
-  border: 1px solid #2a3345;
-  border-radius: 8px;
+  display:grid;
+  gap:10px;
+  margin:16px 0;
+  padding:14px;
+  background:var(--voya-raised, #111722);
+  border:1px solid var(--voya-border, #2a3345);
+  border-radius:8px;
 }
 
 .register-verification-section h3,
 .register-verification-section p {
-  margin: 0;
+  margin:0;
 }
 
 .register-tabs {
-  display: flex;
-  border: 1px solid #2a3345;
-  border-radius: 7px;
-  overflow: hidden;
-  margin-bottom: 20px;
+  display:flex;
+  border:1px solid var(--voya-border, #2a3345);
+  border-radius:7px;
+  overflow:hidden;
+  margin-bottom:20px;
 }
 
 .register-tabs span,
 .register-tabs button {
-  flex: 1;
-  border: 0;
-  background: #161d2a;
-  padding: 9px 14px;
-  color: #9aa3b6;
-  cursor: pointer;
-  font-weight: 600;
-  text-align: center;
+  flex:1;
+  border:0;
+  background:var(--voya-surface, #161d2a);
+  padding:9px 14px;
+  color:var(--voya-muted, #9aa3b6);
+  cursor:pointer;
+  font-weight:600;
+  text-align:center;
 }
 
 .register-tabs span.active {
-  background: #8d9df5;
-  color: #0e131d;
+  background:var(--voya-primary, #8d9df5);
+  color:var(--voya-text, #0e131d);
 }
 
 .register-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:16px;
 }
 
 .register-field {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 5px;
+  display:flex;
+  min-width:0;
+  flex-direction:column;
+  gap:5px;
 }
 
 .register-field.full {
-  grid-column: 1 / -1;
+  grid-column:1 / -1;
 }
 
 .register-field > span {
-  color: #e6e9f1;
-  font-size: .86rem;
-  font-weight: 500;
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
+  font-size:.86rem;
+  font-weight:500;
 }
 
 .register-field small {
-  color: #9aa3b6;
-  font-size: .76rem;
+  color:var(--voya-surface-muted,var(--voya-muted, #9aa3b6));
+  font-size:.76rem;
 }
 
 .register-field input,
 .register-field select {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid #2a3345;
-  border-radius: 6px;
-  padding: 9px 10px;
-  background: #161d2a;
-  color: #e6e9f1;
+  width:100%;
+  min-width:0;
+  border:1px solid var(--voya-border, #2a3345);
+  border-radius:6px;
+  padding:9px 10px;
+  background:var(--voya-surface, #161d2a);
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
 }
 
 .register-field input::placeholder {
-  color: #6f7a8f;
+  color:var(--voya-surface-muted,var(--voya-muted, #6f7a8f));
+  opacity:1;
 }
 
 .register-field input:focus,
 .register-field select:focus {
-  border-color: #f0a040;
-  outline: 2px solid #3a2a14;
-  outline-offset: 0;
+  border-color:var(--voya-warning, #f0a040);
+  outline:2px solid var(--voya-warning, #3a2a14);
+  outline-offset:0;
 }
 
 .register-check {
-  display: flex;
-  gap: 9px;
-  align-items: flex-start;
-  margin: 18px 0;
-  color: #c9cfdb;
-  font-size: .84rem;
+  display:flex;
+  gap:9px;
+  align-items:flex-start;
+  margin:18px 0;
+  color:var(--voya-surface-text,var(--voya-text, #c9cfdb));
+  font-size:.84rem;
 }
 
 .register-check input {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  margin-top: 3px;
-  accent-color: #f0a040;
+  width:16px;
+  height:16px;
+  flex:none;
+  margin-top:3px;
+  accent-color:var(--voya-warning-soft, #f0a040);
 }
 
 .register-check span {
-  min-width: 0;
-  flex: 1;
+  min-width:0;
+  flex:1;
 }
 
 .register-submit {
-  background: #f0a040 !important;
-  border-color: #f0a040 !important;
-  color: #0e131d !important;
+  background:var(--ux-primary-action, var(--voya-primary, #8d9df5));
+  border-color:var(--ux-primary-border, var(--voya-primary, #8d9df5));
+  color:var(--ux-on-primary, var(--voya-text, #0e131d));
 }
 
 .register-note {
-  margin: 14px 0 0;
-  color: #9aa3b6;
-  font-size: .82rem;
+  margin:14px 0 0;
+  color:var(--voya-muted, #9aa3b6);
+  font-size:.82rem;
 }
 
 .register-panel .alert.error {
-  margin-bottom: 14px;
+  margin-bottom:14px;
 }
 
 .login-page {
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(420px, .9fr);
-  gap: 32px;
-  align-items: center;
-  padding: 42px max(32px, 6vw);
-  background: #0e131d;
-  color: #e6e9f1;
-  font: 14px/1.5 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:minmax(0, 1.15fr) minmax(420px, .9fr);
+  gap:32px;
+  align-items:center;
+  padding:42px max(32px, 6vw);
+  background:var(--voya-page, #0e131d);
+  color:var(--voya-page-text,var(--voya-text, #e6e9f1));
+  font:14px/1.5 "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
 }
 
 .login-panel {
-  align-self: center;
+  align-self:center;
 }
 
 .login-panel .register-tabs button,
 .login-panel .register-tabs span {
-  white-space: nowrap;
+  white-space:nowrap;
 }
 
 .login-card {
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  width:100%;
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
 }
 
 .login-card > .login-brand {
-  display: none;
+  display:none;
 }
 
 .login-card h2 {
-  margin: 0 0 5px;
-  color: #e6e9f1;
-  font: 700 1.35rem/1.2 "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  margin:0 0 5px;
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
+  font:700 1.35rem/1.2 "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
 }
 
 .login-card .field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin: 0 0 14px;
+  display:flex;
+  flex-direction:column;
+  gap:5px;
+  margin:0 0 14px;
 }
 
 .login-card .field > span {
-  color: #e6e9f1;
-  font-size: .86rem;
-  font-weight: 500;
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
+  font-size:.86rem;
+  font-weight:500;
 }
 
 .login-card .login-switch,
 .login-card .link-button {
-  color: #8d9df5;
+  color:var(--voya-primary, #8d9df5);
 }
 
 .login-panel .login-role-buttons .btn {
-  background: #161d2a;
-  border-color: #2a3345;
-  color: #e6e9f1;
+  background:var(--voya-surface, #161d2a);
+  border-color:var(--voya-border, #2a3345);
+  color:var(--voya-surface-text,var(--voya-text, #e6e9f1));
 }
 
 .login-panel .register-prompt {
-  display: none;
+  display:none;
 }
 
-@media (max-width: 900px) {
-  .login-page { grid-template-columns: 1fr; align-items: start; padding: 28px 20px; }
-  .login-page .register-art { align-self: start; }
-  .login-page .register-art h1 { max-width: 28ch; }
+@media (max-width:900px) {
+  .login-page { grid-template-columns:1fr; align-items:start; padding:28px 20px; }
+  .login-page .register-art { align-self:start; }
+  .login-page .register-art h1 { max-width:28ch; }
 }
 
-@media (max-width: 560px) {
-  .login-page { padding: 20px 14px; }
-  .login-panel { padding: 16px; }
-  .login-page .register-flow { display: none; }
+@media (max-width:560px) {
+  .login-page { padding:20px 14px; }
+  .login-panel { padding:16px; }
+  .login-page .register-flow { display:none; }
 }
 
-@media (max-width: 900px) {
-  .register-page { grid-template-columns: 1fr; padding: 28px 20px; }
-  .register-art { align-self: start; }
-  .register-art h1 { max-width: 28ch; }
+@media (max-width:900px) {
+  .register-page { grid-template-columns:1fr; padding:28px 20px; }
+  .register-art { align-self:start; }
+  .register-art h1 { max-width:28ch; }
 }
 
-@media (max-width: 560px) {
-  .register-page { padding: 20px 14px; }
-  .register-grid { grid-template-columns: 1fr; }
-  .register-field.full { grid-column: auto; }
-  .register-panel { padding: 16px; }
-  .register-flow { display: none; }
+@media (max-width:560px) {
+  .register-page { padding:20px 14px; }
+  .register-grid { grid-template-columns:1fr; }
+  .register-field.full { grid-column:auto; }
+  .register-panel { padding:16px; }
+  .register-flow { display:none; }
 }

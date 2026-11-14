@@ -15,6 +15,17 @@ describe('SharedDatePicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '15' }));
     expect(onChange).toHaveBeenCalledWith('2026-10-15');
+    expect(screen.getByRole('button', { name: '01-10-2026' })).toHaveFocus();
+  });
+
+  it('returns focus to the date trigger when Escape closes the calendar', () => {
+    render(<SharedDatePicker value="" onChange={vi.fn()} ariaLabel="Licence expiry" />);
+    const trigger = screen.getByRole('button', { name: 'Licence expiry' });
+    fireEvent.click(trigger);
+    screen.getByLabelText('Select date month').focus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it('blocks dates outside min and max bounds', () => {

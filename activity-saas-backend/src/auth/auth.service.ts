@@ -1,3 +1,4 @@
+import { readPlatformTheme } from '../common/platform-theme';
 import { BadRequestException, ConflictException, HttpException, HttpStatus, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
@@ -9,12 +10,20 @@ import { hashOtp } from '../common/secret-crypto';
 import { renderVoyaVendorEmailCodeHtml } from '../common/voya-email-template';
 import { allocatePublicCode, allocateVendorVoucherShortCode, ensurePublicIdentifier, PublicEntity } from '../common/public-identifiers';
 import { publicIdentifier } from '../common/public-identifiers';
+import { normalizeRegistrationOfferTypes, REGISTRATION_OFFER_TYPES_SETTING_KEY } from '../common/registration-offer-types';
 import { LoginDto } from './login.dto';
 import { ChangePasswordDto, RegisterDto, SetVendorPasswordDto } from './register.dto';
 
 @Injectable()
 export class AuthService {
   constructor(private readonly prisma: PrismaService, private readonly jwt: JwtService) {}
+
+  appearance() { return readPlatformTheme(this.prisma); }
+
+  async registrationOfferTypes() {
+    const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: REGISTRATION_OFFER_TYPES_SETTING_KEY }, select: { value: true } });
+    return { items: normalizeRegistrationOfferTypes(setting?.value).filter((item) => item.status).map(({ id, label, sortOrder }) => ({ id, label, sortOrder })) };
+  }
 
   async login(dto: LoginDto) {
     const identifier = dto.email.trim();
@@ -201,6 +210,12 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase();
+    if (!dto.teamInviteToken) {
+      if (!dto.category?.trim()) throw new BadRequestException('Select an active offer type before creating your account.');
+      const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: REGISTRATION_OFFER_TYPES_SETTING_KEY }, select: { value: true } });
+      const allowedLabels = normalizeRegistrationOfferTypes(setting?.value).filter((item) => item.status).map((item) => item.label.toLocaleLowerCase());
+      if (!allowedLabels.includes(dto.category.trim().toLocaleLowerCase())) throw new BadRequestException('This offer type is no longer available. Choose an active offer type.');
+    }
     if (await this.prisma.user.findUnique({ where: { email } })) throw new ConflictException('An account with this email already exists');
     const passwordHash = await hash(dto.password, 10);
     if (dto.teamInviteToken) {

@@ -152,7 +152,7 @@ export default function ApprovedOnboardingDashboard({ application, onNavigate }:
 
     <div className="approved-content-grid">
       <section className="approved-panel"><div className="approved-panel-head"><h3>Verification checklist</h3><span>{application.legalBusinessName || application.businessDisplayName || data.profile?.legalBusinessName || 'Vendor account'}</span></div><div className="approved-checklist">
-        <div className="approved-check-row"><b>Business profile</b><span className="approved-check-status success">{profileComplete ? 'Verified' : 'Incomplete'}</span><span>—</span></div>
+        <div className="approved-check-row"><b>Business profile</b><span className={`approved-check-status ${profileComplete ? 'success' : 'warning'}`}>{profileComplete ? 'Verified' : 'Incomplete'}</span><span>—</span></div>
         <div className="approved-check-row"><b>GST / PAN</b><span className={`approved-check-status ${panStatus.tone}`}>{panStatus.label}</span><span>{application.gstStatus === 'NOT_REGISTERED' ? 'GST not applicable' : `${documentLabels.GSTIN}: ${gstStatus.label}`}</span></div>
         <div className="approved-check-row"><b>Bank proof</b><span className={`approved-check-status ${bankStatus.tone}`}>{bankStatus.label}</span><span>{application.bankVerificationStatus?.replaceAll('_', ' ') || 'Pending verification'}</span></div>
         <div className="approved-check-row"><b>Partner agreement</b><span className={`approved-check-status ${agreementStatus.tone}`}>{agreementStatus.label}</span><span>{application.authorizedRepresentative || 'Authorized representative'}</span></div>

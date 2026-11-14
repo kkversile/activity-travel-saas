@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState, type PointerEvent } from "react"
 import { api, type VendorOnboardingApplication } from "../api";
 import { Badge, ErrorBox, Loading, Panel } from "../components/Ui";
 import { SharedDatePicker } from "../components/SharedDatePicker";
+import { indiaStates, citiesForState } from "../components/onboardingRegions";
 import ApprovedOnboardingDashboard from "../components/ApprovedOnboardingDashboard";
 
 const steps = [
@@ -28,7 +29,6 @@ const countryCodes = [
   { value: "+65", label: "Singapore (+65)" },
   { value: "+971", label: "UAE (+971)" },
 ] as const;
-const operatingCityOptions = ["North Goa", "South Goa"];
 const categoryOptions = [
   "Day tours",
   "Cruises & boats",
@@ -103,6 +103,7 @@ type SupplementalData = {
   tradeLicenseNeededFor: string;
   tradeLicenseValidTill: string;
   licences: LicenceRow[];
+  licencesReviewed?: boolean;
   agreementName?: string;
   commercialModel?: string;
   commission?: string;
@@ -235,7 +236,7 @@ const initialForm = {
   supplementalData: initialSupplemental,
 };
 type FormState = typeof initialForm;
-type ReviewStatus = "ok" | "warn" | "bad";
+type ReviewStatus = "ok" | "warn" | "bad" | "info";
 type ReviewItem = {
   status: ReviewStatus;
   title: string;
@@ -449,11 +450,13 @@ function UploadCard({
   document,
   disabled,
   onUpload,
+  onView,
 }: {
   label: string;
   document?: VendorOnboardingApplication["documents"][number];
   disabled: boolean;
   onUpload: (file: File) => void;
+  onView?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -481,6 +484,7 @@ function UploadCard({
           event.currentTarget.value = "";
         }}
       />
+      {document?.latestVersion && onView && <button type="button" className="btn small" onClick={onView} disabled={disabled}>View bank proof</button>}
       <button
         type="button"
         className="btn small"
@@ -523,6 +527,7 @@ function KycDocumentAction({
           event.currentTarget.value = "";
         }}
       />
+      {document?.latestVersion?.status === "REJECTED" && <small className="onboarding-field-error">{document.latestVersion.rejectionReason || "Rejected during review. Replace this document with a corrected copy."}</small>}
       <div className="kyc-document-action-buttons">
         <button
           type="button"
@@ -583,6 +588,14 @@ export default function Onboarding({
   const [cityDraft, setCityDraft] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSaved, setLastSaved] = useState("");
+  const [showValidation, setShowValidation] = useState(false);
+  const [selectedUpload, setSelectedUpload] = useState("");
+  const errorSummaryRef = useRef<HTMLDivElement>(null);
+  const stepHeadingRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setShowValidation(false); setError(""); stepHeadingRef.current?.focus(); }, [step]);
+  useEffect(() => { if (error) errorSummaryRef.current?.focus(); }, [error]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const agreementSignatureRef = useRef<HTMLDivElement>(null);
   const signatureInputRef = useRef<HTMLInputElement>(null);
@@ -605,7 +618,7 @@ export default function Onboarding({
             }
           : formFromApplication(data),
       );
-      setStep(Math.min(8, data.currentStep || 1));
+      if (!preserveLocalForm) setStep(Math.min(8, data.currentStep || 1));
       setStarted(Boolean(data.startedAt));
     } catch (e) {
       setError((e as Error).message);
@@ -655,6 +668,7 @@ export default function Onboarding({
     image.src = data;
   }, [form.signatureData, step]);
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setHasUnsavedChanges(true);
     setForm((current) => ({ ...current, [key]: value }));
     setError("");
   }
@@ -662,6 +676,7 @@ export default function Onboarding({
     key: K,
     value: SupplementalData[K],
   ) {
+    setHasUnsavedChanges(true);
     setForm((current) => ({
       ...current,
       supplementalData: { ...current.supplementalData, [key]: value },
@@ -669,6 +684,7 @@ export default function Onboarding({
     setError("");
   }
   function updateSupplierType(value: string) {
+    setHasUnsavedChanges(true);
     setForm((current) => ({
       ...current,
       supplementalData: {
@@ -703,6 +719,7 @@ export default function Onboarding({
     }
   }
   function updateContact(index: number, key: keyof Contact, value: string) {
+    if (index === 0 && key === "mobile") { const phone = splitPhone(value); update("countryCode", phone.countryCode); update("contactNumber", phone.contactNumber); }
     updateSupplemental(
       "contacts",
       form.supplementalData.contacts.map((contact, contactIndex) =>
@@ -714,7 +731,7 @@ export default function Onboarding({
     const { countryCode, supplementalData, ...rest } = form;
     return {
       ...rest,
-      contactNumber: normalizedPhone(countryCode + form.contactNumber),
+      contactNumber: form.contactNumber.trim() ? normalizedPhone(countryCode + form.contactNumber) : undefined,
       supplementalData,
       currentStep,
       gstStatus: form.gstStatus || undefined,
@@ -730,6 +747,8 @@ export default function Onboarding({
       { method: "PATCH", body: JSON.stringify(patch) },
     );
     setApplication(result);
+    setHasUnsavedChanges(false);
+    setLastSaved(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
     onStatusChange(result.status);
     setForm((current) => ({
       ...current,
@@ -741,6 +760,47 @@ export default function Onboarding({
     }));
     return result;
   }
+  async function saveDraft() {
+    if (busy) return;
+    setSelectedUpload(""); setBusy(true); setError(""); setNotice("");
+    try { await save(payload(step)); setNotice("Draft saved. You can return and continue later."); }
+    catch (e) { setError(`Your changes were not saved. ${(e as Error).message} Try Save draft again.`); }
+    finally { setBusy(false); }
+  }
+  const fieldIssues: Record<string, string> = {};
+  if (step === 1) {
+    if (!form.legalBusinessName.trim()) fieldIssues.legalBusinessName = "Enter the legal name shown on PAN.";
+    if (!form.businessDisplayName.trim()) fieldIssues.businessDisplayName = "Enter the business name customers will see.";
+    if (!form.supplementalData.entityType) fieldIssues.entityType = "Select your legal business type.";
+    if (!form.addressLine.trim()) fieldIssues.addressLine = "Enter the registered business address.";
+    if (!form.state.trim()) fieldIssues.state = "Select or enter a state / region.";
+    if (!form.city.trim()) fieldIssues.city = "Enter the registered city.";
+    if (!/^\d{6}$/.test(form.pinCode)) fieldIssues.pinCode = "Enter a 6-digit PIN code.";
+    if (!form.firstName.trim()) fieldIssues.firstName = "Enter the account contact's first name.";
+    if (!form.lastName.trim()) fieldIssues.lastName = "Enter the account contact's last name.";
+  }
+  if (step === 2 && !form.supplementalData.contacts[0]?.name.trim()) fieldIssues.primaryContactName = "Enter a primary contact name.";
+  if (step === 2 && !validPhone(form.countryCode + form.contactNumber)) fieldIssues.contactNumber = "Enter a reachable mobile number including country code.";
+  if (step === 3) {
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(form.panNumber.toUpperCase())) fieldIssues.panNumber = "Enter a valid PAN: 5 letters, 4 digits and 1 letter.";
+    if (form.gstStatus === "REGISTERED" && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(form.gstin.toUpperCase())) fieldIssues.gstin = "Enter the 15-character GSTIN shown on your certificate.";
+  }
+  if (step === 5) {
+    if (!form.bankName.trim()) fieldIssues.bankName = "Enter or look up the bank name.";
+    if (!form.accountHolderName.trim()) fieldIssues.accountHolderName = "Enter the business account holder name.";
+    if (!application?.bankAccountMasked && !/^\d{9,18}$/.test(form.bankAccountNumber)) fieldIssues.bankAccountNumber = "Enter a 9–18 digit account number.";
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.ifscCode)) fieldIssues.ifscCode = "Enter an 11-character IFSC code.";
+    if (!form.accountType) fieldIssues.accountType = "Select current or savings account.";
+  }
+  if (step === 7) {
+    if (!form.authorizedBusinessName.trim()) fieldIssues.authorizedBusinessName = "Enter the authorised business name.";
+    if (!form.authorizedRepresentative.trim()) fieldIssues.authorizedRepresentative = "Enter the authorised representative's name.";
+    if (!form.signatureData && !application?.hasSignature) fieldIssues.signatureData = "Draw or upload the authorised signature.";
+    if (!form.agreementAccepted) fieldIssues.agreementAccepted = "Read the draft agreement and confirm acceptance to continue.";
+  }
+  const issue = (key: string) => showValidation && fieldIssues[key]
+    ? <small id={`issue-${key}`} className="onboarding-field-error">{fieldIssues[key]}</small> : null;
+  const fieldA11y = (key: string) => ({ id: `onboarding-${key}`, "aria-invalid": showValidation && !!fieldIssues[key], "aria-describedby": showValidation && fieldIssues[key] ? `issue-${key}` : undefined });
   async function start() {
     setBusy(true);
     try {
@@ -751,7 +811,7 @@ export default function Onboarding({
       });
       setStarted(true);
       setNotice(
-        "Your draft is saved automatically as you move through the application.",
+        "Your draft is started. Use Save draft or Save & continue to keep your changes.",
       );
     } catch (e) {
       setError((e as Error).message);
@@ -837,7 +897,8 @@ export default function Onboarding({
           ) ||
             !form.gstDeclarationAccepted ||
             !documentFor(application!, "GSTIN")?.latestVersion)) ||
-        (form.gstStatus === "NOT_REGISTERED" && !form.gstDeclarationAccepted))
+        (form.gstStatus === "NOT_REGISTERED" && !form.gstDeclarationAccepted) ||
+        (form.supplementalData.entityType === "LLP" && ["LLP_AGREEMENT", "LLPIN_CERTIFICATE", "AUTHORIZATION_LETTER"].some((type) => !documentFor(application!, type)?.latestVersion)))
     )
       return "Complete the required KYC details and upload the applicable documents.";
     if (step === 5) {
@@ -868,13 +929,12 @@ export default function Onboarding({
     return "";
   }
   async function next() {
+    setSelectedUpload("");
+    setShowValidation(true);
     const message = validStep();
     if (message) {
       setError(message);
-      window.setTimeout(
-        () => window.scrollTo({ top: 0, behavior: "smooth" }),
-        0,
-      );
+      window.setTimeout(() => errorSummaryRef.current?.focus(), 0);
       return;
     }
     setBusy(true);
@@ -920,6 +980,9 @@ export default function Onboarding({
     file?: File,
   ) {
     if (!file) return;
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(file.type)) { setError("Choose a PDF, JPG or PNG document. Other file types cannot be uploaded."); return; }
+    if (!file.size || file.size > 8 * 1024 * 1024) { setError("Choose a document between 1 byte and 8 MB. Reduce the file size and try again."); return; }
+    setSelectedUpload(file.name);
     setBusy(true);
     setError("");
     try {
@@ -965,6 +1028,7 @@ export default function Onboarding({
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      setSelectedUpload("");
       setBusy(false);
     }
   }
@@ -1147,12 +1211,11 @@ export default function Onboarding({
       <div className="onboarding-page">
         <Panel>
           <div className="onboarding-status">
-            <span className="onboarding-mark">✓</span>
-            <h2>Application under review</h2>
+            <span className="onboarding-mark">{application.status === "REJECTED" ? "!" : "✓"}</span>
+            <h2>{application.status === "REJECTED" ? "Application not approved" : "Application under review"}</h2>
             <Badge value={application.status.replaceAll("_", " ")} />
             <p>
-              Your application and documents are with the Voya team. We will
-              update this workspace when the review is complete.
+              {application.status === "REJECTED" ? "Read the review note below. Contact VOYA if you need clarification about the decision." : "Your application and documents are with the VOYA team. We will update this workspace when the review is complete."}
             </p>
             {application.reviewReason && (
               <div className="alert info">
@@ -1203,7 +1266,7 @@ export default function Onboarding({
     documentFor(application, type)?.latestVersion?.status ||
     documentFor(application, type)?.currentStatus ||
     "Missing";
-  const documentStatusLabel = (type: string) => {
+  const documentStatusLabel = (type: string, emptyLabel = "Missing") => {
     const raw = String(docStatus(type));
     const labels: Record<string, string> = {
       APPROVED: "Verified",
@@ -1212,49 +1275,74 @@ export default function Onboarding({
       PENDING_REVIEW: "Pending",
       UPLOADED: "Uploaded",
       REJECTED: "Rejected",
-      MISSING: "Missing",
+      MISSING: emptyLabel,
     };
     return labels[raw.toUpperCase()] || raw;
   };
+  const entityIsLlp = supplemental.entityType === "LLP";
+  const gstDetailsReady = Boolean(
+    form.gstStatus === "NOT_REGISTERED"
+      ? form.gstDeclarationAccepted
+      : form.gstStatus === "REGISTERED" &&
+        /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(form.gstin.trim().toUpperCase()) &&
+        form.gstDeclarationAccepted &&
+        documentFor(application, "GSTIN")?.latestVersion,
+  );
+  const kycReady = Boolean(
+    /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(form.panNumber.trim().toUpperCase()) &&
+      documentFor(application, "PAN")?.latestVersion &&
+      gstDetailsReady &&
+      (!entityIsLlp || (
+        documentFor(application, "LLP_AGREEMENT")?.latestVersion &&
+        documentFor(application, "LLPIN_CERTIFICATE")?.latestVersion &&
+        documentFor(application, "AUTHORIZATION_LETTER")?.latestVersion
+      )),
+  );
   const sectionChecks = [
-    Boolean(form.businessDisplayName && form.legalBusinessName && form.addressLine && supplemental.entityType),
-    Boolean((application.mobileVerificationEnabled !== true || application.phoneVerifiedAt) && supplemental.contacts[0]?.name && supplemental.contacts[0]?.mobile),
-    Boolean(form.panNumber && documentFor(application, "PAN")?.latestVersion && form.gstStatus),
+    Boolean(form.businessDisplayName.trim() && form.legalBusinessName.trim() && form.addressLine.trim() && form.city.trim() && form.state.trim() && /^\d{6}$/.test(form.pinCode.trim()) && supplemental.entityType),
+    Boolean(form.firstName.trim() && form.lastName.trim() && validPhone(form.countryCode + form.contactNumber) && (application.mobileVerificationEnabled !== true || application.phoneVerifiedAt) && supplemental.contacts[0]?.name.trim() && validPhone(supplemental.contacts[0]?.mobile || "")),
+    kycReady,
     Boolean(
-      documentFor(application, "TRADE_LICENSE")?.latestVersion ||
-        supplemental.licences?.some((licence) =>
-          Boolean(documentFor(application, licence.documentType)?.latestVersion),
-        ) ||
-        supplemental.insuranceAmount ||
-        supplemental.insurerPolicy,
+      supplemental.licencesReviewed || documentFor(application, "TRADE_LICENSE")?.latestVersion ||
+        supplemental.licences?.some((licence) => Boolean(documentFor(application, licence.documentType)?.latestVersion)) ||
+        supplemental.insuranceAmount || supplemental.insurerPolicy,
     ),
-    Boolean(application.bankAccountMasked && documentFor(application, "BANK_PROOF")?.latestVersion),
+    Boolean(application.bankAccountMasked && documentFor(application, "BANK_PROOF")?.latestVersion && form.accountHolderName && form.bankName && form.ifscCode && form.accountType && form.bankOwnershipConfirmed),
     Boolean(supplemental.commercialModel),
-    Boolean(form.agreementAccepted && (form.signatureData || application.hasSignature)),
+    Boolean(form.authorizedRepresentative.trim() && form.agreementAccepted && (form.signatureData || application.hasSignature)),
   ];
   const completeSections = sectionChecks.filter(Boolean).length;
   const needsAction = sectionChecks.length - completeSections;
   const onboardingStatus = String(application.status);
-  const agreementSentAt =
-    application.agreementSentAt ||
-    (application.currentStep >= 7 ? application.updatedAt : null);
+  const onboardingStatusLabel: Record<string, string> = {
+    DRAFT: "Draft",
+    SUBMITTED: "Submitted for review",
+    UNDER_REVIEW: "Under review",
+    CHANGES_REQUESTED: "Changes requested",
+    REJECTED: "Rejected",
+    APPROVED: "Approved · selling",
+  };
+  const agreementSentAt = application.agreementSentAt;
   const agreementSigned = Boolean(
     application.agreementAcceptedAt &&
       (form.signatureData || application.hasSignature),
   );
+  const isDraft = onboardingStatus === "DRAFT";
+  const isApproved = onboardingStatus === "APPROVED";
+  const isSubmitted = ["SUBMITTED", "UNDER_REVIEW", "CHANGES_REQUESTED", "REJECTED", "APPROVED"].includes(onboardingStatus);
   const lifecycle = [
     { title: "Signed up", detail: application.startedAt ? new Date(application.startedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "—", state: "done" },
-    { title: "Details submitted", detail: application.currentStep > 1 ? new Date(application.updatedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "—", state: application.currentStep > 1 ? "done" : "pending" },
-    { title: "Verification", detail: onboardingStatus === "UNDER_REVIEW" ? "Under review" : needsAction ? `${needsAction} items open` : "Ready for review", state: onboardingStatus === "APPROVED" ? "done" : needsAction ? "now" : "pending" },
-    { title: "Agreement", detail: form.agreementAccepted ? "Signed" : "Waiting for your signature", state: form.agreementAccepted ? "done" : "now" },
-    { title: "Approved · selling", detail: onboardingStatus === "APPROVED" ? "Live" : "—", state: onboardingStatus === "APPROVED" ? "done" : "pending" },
+    { title: isDraft ? "Details in progress" : "Details submitted", detail: isDraft ? `Step ${step} of ${steps.length}` : application.submittedAt ? new Date(application.submittedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "Submitted", state: isDraft ? "now" : "done" },
+    { title: "Verification", detail: isApproved ? "Complete" : onboardingStatus === "CHANGES_REQUESTED" ? "Changes requested" : onboardingStatus === "REJECTED" ? "Needs attention" : isSubmitted ? "In review" : "Starts after you submit", state: isApproved ? "done" : isSubmitted ? "now" : "pending" },
+    { title: "Agreement", detail: agreementSigned ? "Signed" : step >= 7 ? "Signature required" : "Available in step 7", state: agreementSigned ? "done" : step >= 7 ? "now" : "pending" },
+    { title: "Approved · selling", detail: isApproved ? "Live" : "After admin approval", state: isApproved ? "done" : "pending" },
   ] as const;
   const hasDocument = (type: string) => Boolean(documentFor(application, type)?.latestVersion);
   const contactCount = supplemental.contacts.filter((contact) => contact.name || contact.mobile || contact.email).length;
   const primaryContactReady = Boolean((application.mobileVerificationEnabled !== true || application.phoneVerifiedAt) && supplemental.contacts[0]?.name && supplemental.contacts[0]?.mobile);
   const emergencyContactReady = Boolean(supplemental.contacts[3]?.name && supplemental.contacts[3]?.mobile);
-  const contactsReady = primaryContactReady && emergencyContactReady;
-  const authorisationMissing = !hasDocument("AUTHORIZATION_LETTER");
+  const contactsReady = primaryContactReady;
+  const llpDocumentsMissing = entityIsLlp && ["LLP_AGREEMENT", "LLPIN_CERTIFICATE", "AUTHORIZATION_LETTER"].some((type) => !documentFor(application, type)?.latestVersion);
   const boatLicenceRequired = /cruises\s*&\s*boats/i.test(supplemental.categories || "");
   const boatLicenceMissing = boatLicenceRequired && !hasDocument("BOAT_LICENSE");
   const insurance = displayLicenceRows.find((licence) => licence.key === "publicLiabilityInsurance");
@@ -1298,14 +1386,14 @@ export default function Onboarding({
     {
       status: contactsReady ? "ok" : "bad",
       title: "Contacts & escalation",
-      detail: `${contactCount} contacts · ${supplemental.escalationLevels.length}-level escalation · ${emergencyContactReady ? "24 × 7 emergency line" : "emergency mobile required"}`,
+      detail: `${contactCount} contacts · ${supplemental.escalationLevels.length}-level escalation · ${emergencyContactReady ? "24 × 7 emergency line" : "emergency contact not added"}`,
       fixStep: 2,
     },
     {
-      status: authorisationMissing ? "bad" : "ok",
-      title: authorisationMissing ? "Authorisation letter missing" : "KYC documents",
-      detail: authorisationMissing ? "Needed before we can countersign your agreement." : `PAN ${documentStatusLabel("PAN")} · GST ${form.gstStatus || "missing"}`,
-      fixStep: authorisationMissing ? 3 : undefined,
+      status: !kycReady ? "bad" : "ok",
+      title: llpDocumentsMissing ? "LLP documents incomplete" : "KYC documents",
+      detail: llpDocumentsMissing ? "LLPs need the agreement, LLPIN certificate and signatory authorisation." : `PAN ${documentStatusLabel("PAN")} · GST ${form.gstStatus || "missing"}${entityIsLlp ? " · LLP evidence complete" : ""}`,
+      fixStep: !kycReady ? 3 : undefined,
     },
     {
       status: boatLicenceMissing ? "bad" : "ok",
@@ -1314,14 +1402,14 @@ export default function Onboarding({
       fixStep: boatLicenceMissing ? 4 : undefined,
     },
     {
-      status: insuranceMissing || insuranceExpired || insuranceRejected ? "bad" : insurancePending || insuranceExpiring || insuranceExpiryUnknown ? "warn" : "ok",
+      status: insuranceMissing || insuranceExpired || insuranceRejected ? "bad" : insuranceExpiring || insuranceExpiryUnknown ? "warn" : insurancePending ? "info" : "ok",
       title: insuranceRejected ? "Insurance rejected" : insuranceMissing ? "Insurance missing" : insurancePending ? "Insurance pending review" : insuranceExpired ? "Insurance expired" : insuranceExpiring ? "Insurance expires soon" : insuranceExpiryUnknown ? "Insurance expiry needed" : "Insurance verified",
       detail: insuranceDetail,
       fixStep: insuranceMissing || insuranceExpired || insuranceRejected || insurancePending || insuranceExpiring || insuranceExpiryUnknown ? 4 : undefined,
     },
     {
       status: application.bankAccountMasked && hasDocument("BANK_PROOF") ? "ok" : "bad",
-      title: application.bankAccountMasked && hasDocument("BANK_PROOF") ? "Bank verified" : "Bank details incomplete",
+      title: application.bankVerificationStatus === "VERIFIED" ? "Bank verified" : application.bankAccountMasked && hasDocument("BANK_PROOF") ? "Bank details provided" : "Bank details incomplete",
       detail: application.bankAccountMasked && hasDocument("BANK_PROOF") ? `${application.bankAccountMasked} · bank proof uploaded` : "Complete bank details and upload bank proof.",
       fixStep: 5,
     },
@@ -1341,27 +1429,30 @@ export default function Onboarding({
     <div className="onboarding-page">
       <div className="onboarding-heading">
         <div>
-          <div className="onboarding-eyebrow">VOYA PARTNER WORKSPACE</div>
+          <div className="onboarding-eyebrow">Account / Business profile &amp; KYC</div>
           <h2>Business profile &amp; verification</h2>
-          <p>
+          <p className="onboarding-description">
             Complete these sections to start selling. You can create products while we verify; they go live once you&apos;re approved.
           </p>
+          <p className="onboarding-mobile-intro">Save as you go. Submit for VOYA review when ready.</p>
         </div>
         <div className="onboarding-heading-actions">
-          <Badge value={onboardingStatus === "APPROVED" ? "Approved · selling" : "Verification in progress"} />
+          <Badge value={onboardingStatusLabel[onboardingStatus] || "Draft"} />
           <button
             type="button"
             className="btn small"
-            onClick={() => void save(payload(step))}
+            onClick={() => void saveDraft()}
             disabled={busy}
           >
             Save
           </button>
         </div>
       </div>
+      {application.status === "CHANGES_REQUESTED" && application.reviewReason && <div className="onboarding-note info"><b>Changes requested by VOYA</b><p>{application.reviewReason}</p><p>Update the requested sections, save your changes and submit again.</p></div>}
       {error && (
-        <div className="alert error" role="alert">
-          {error}
+        <div className="alert error onboarding-error-summary" role="alert" ref={errorSummaryRef} tabIndex={-1}>
+          <b>{error}</b>
+          {showValidation && <ul>{Object.entries(fieldIssues).map(([key, message]) => <li key={key}><a href={`#${({ accountHolderName: "vendor-bank-account-holder", accountType: "vendor-bank-account-type", bankAccountNumber: "vendor-bank-account-number", ifscCode: "vendor-bank-ifsc" } as Record<string, string>)[key] || `onboarding-${key}`}`}>{message}</a></li>)}</ul>}
         </div>
       )}
       {notice && (
@@ -1369,12 +1460,13 @@ export default function Onboarding({
           {notice}
         </div>
       )}
+      <div className="onboarding-save-status" role="status">{busy ? selectedUpload ? `Uploading ${selectedUpload}…` : "Saving your changes…" : hasUnsavedChanges ? "Unsaved changes · use Save draft to keep your progress." : lastSaved ? `Last saved at ${lastSaved}` : "Save a draft at any time to keep your progress."}</div>
       <div className="onboarding-progress panel">
         <span className="label">Your progress</span>
         <div className="onboarding-lifecycle">
           {lifecycle.map((item, index) => (
             <Fragment key={item.title}>
-              <div className={`onboarding-lifecycle-item ${item.state}`}>
+              <div className={`onboarding-lifecycle-item ${item.state}${item.title === "Verification" && ["CHANGES_REQUESTED", "REJECTED"].includes(onboardingStatus) ? " attention" : ""}`}>
                 <b>{item.state === "done" ? "✓ " : ""}{item.title}</b>
                 <small>{item.detail}</small>
               </div>
@@ -1387,6 +1479,10 @@ export default function Onboarding({
       </div>
       <div className="onboarding-layout">
         <nav className="onboarding-stepper" aria-label="Onboarding steps">
+          <div className="onboarding-step-counter" aria-live="polite">
+            <b>Step {step} of {steps.length}</b>
+            <span>{steps[step - 1]}</span>
+          </div>
           {steps.map((label, index) => {
             const number = index + 1;
             const done = Boolean(sectionChecks[index]);
@@ -1395,20 +1491,26 @@ export default function Onboarding({
                 type="button"
                 key={label}
                 className={`${number === step ? "active " : ""}${done ? "done" : ""}`}
+                aria-current={number === step ? "step" : undefined}
+                aria-label={`${number}. ${label}${done ? ", complete" : ""}`}
                 onClick={() => setStep(number)}
               >
-                <span>{done ? "✓" : number}</span>
+                <span aria-hidden="true">{done ? "✓" : number}</span>
                 <b>{label}</b>
               </button>
             );
           })}
           <div className="onboarding-stepper-summary">
-            <span>Sections complete</span>
-            <div><strong>{completeSections} / 7</strong><small>{needsAction ? `${needsAction} need action` : "Ready to submit"}</small></div>
-            <div className="onboarding-summary-bar"><i style={{ width: `${Math.round((completeSections / 7) * 100)}%` }} /></div>
+            <span>Setup sections complete</span>
+            <div><strong>{completeSections} / 7</strong><small>{needsAction ? `${needsAction} need action` : "Ready for final review"}</small></div>
+            <small>7 setup sections, followed by final review.</small><div className="onboarding-summary-bar"><i style={{ width: `${Math.round((completeSections / 7) * 100)}%` }} /></div>
           </div>
         </nav>
         <main className="onboarding-card">
+          <div className="onboarding-current-step" ref={stepHeadingRef} tabIndex={-1}>
+            <span>Step {step} of 8 · {steps[step - 1]}</span>
+            <label className="onboarding-mobile-step">Go to section<select aria-label="Go to onboarding section" value={step} onChange={(event) => setStep(Number(event.target.value))}>{steps.map((label, i) => <option key={label} value={i + 1}>{i + 1}. {label}</option>)}</select></label>
+          </div>
           {step === 1 && (
             <section>
               <header>
@@ -1418,6 +1520,7 @@ export default function Onboarding({
                   decides which agreement is used.
                 </p>
               </header>
+              <p className="onboarding-required-note">Fields marked * are required. Other details help us review your business.</p>
               <div className="onboarding-option-grid">
                 <button
                   type="button"
@@ -1477,19 +1580,20 @@ export default function Onboarding({
                 </button>
               </div>
               <div className="onboarding-form-grid two">
+                <div className="onboarding-group-title full"><h4>Business identity</h4><p>Use the legal details that match your business documents.</p></div>
                 <label className="field">
-                  <span>Legal name (as on PAN) *</span>
+                  <span>Legal name (as on PAN) *</span>{issue("legalBusinessName")}
                   <input
-                    value={form.legalBusinessName}
+                    {...fieldA11y("legalBusinessName")} value={form.legalBusinessName}
                     onChange={(event) =>
                       update("legalBusinessName", event.target.value)
                     }
                   />
                 </label>
                 <label className="field">
-                  <span>Brand / trade name</span>
+                  <span>Brand / trade name *</span>{issue("businessDisplayName")}
                   <input
-                    value={form.businessDisplayName}
+                    {...fieldA11y("businessDisplayName")} value={form.businessDisplayName}
                     onChange={(event) =>
                       update("businessDisplayName", event.target.value)
                     }
@@ -1497,9 +1601,9 @@ export default function Onboarding({
                   <small>Shown to customers as “Operated by”.</small>
                 </label>
                 <label className="field">
-                  <span>Entity type *</span>
+                  <span>Entity type *</span>{issue("entityType")}
                   <select
-                    value={supplemental.entityType}
+                    {...fieldA11y("entityType")} value={supplemental.entityType}
                     onChange={(event) =>
                       updateSupplemental("entityType", event.target.value)
                     }
@@ -1514,7 +1618,7 @@ export default function Onboarding({
                     <option>Government body</option>
                   </select>
                 </label>
-                <label className="field">
+                <label className="field compact-field">
                   <span>Year established</span>
                   <input
                     type="number"
@@ -1524,10 +1628,13 @@ export default function Onboarding({
                     }
                   />
                 </label>
-                <label className="field full">
-                  <span>Registered address *</span>
+                <label className="field"><span>Account contact first name *</span><input {...fieldA11y("firstName")} value={form.firstName} autoComplete="given-name" onChange={(e) => update("firstName", e.target.value)} />{issue("firstName")}</label>
+                <label className="field"><span>Account contact last name *</span><input {...fieldA11y("lastName")} value={form.lastName} autoComplete="family-name" onChange={(e) => update("lastName", e.target.value)} />{issue("lastName")}</label>
+                <div className="onboarding-group-title full"><h4>Registered address</h4><p>The address recorded for your legal business.</p></div>
+                <div className="field full">
+                  <label htmlFor="onboarding-addressLine">Registered address *</label>{issue("addressLine")}
                   <textarea
-                    value={form.addressLine}
+                    {...fieldA11y("addressLine")} value={form.addressLine}
                     onChange={(event) =>
                       update("addressLine", event.target.value)
                     }
@@ -1545,25 +1652,27 @@ export default function Onboarding({
                     />{" "}
                     Operating address is the same
                   </label>
+                </div>
+                <label className="field">
+                  <span>State / region *</span>
+                  <input {...fieldA11y("state")} list="onboarding-states" value={form.state} onChange={(event) => {
+                    update("state", event.target.value);
+                    if (form.state !== event.target.value) update("city", "");
+                  }} placeholder="Select or type state / region" autoComplete="address-level1" />
+                  <datalist id="onboarding-states">{indiaStates.map((state) => <option key={state} value={state} />)}</datalist>
+                  {issue("state")}
                 </label>
                 <label className="field">
                   <span>City *</span>
-                  <input
-                    value={form.city}
-                    onChange={(event) => update("city", event.target.value)}
-                  />
+                  <input {...fieldA11y("city")} list="onboarding-cities" value={form.city} onChange={(event) => update("city", event.target.value)} autoComplete="address-level2" placeholder={form.state ? "Select or enter city" : "Choose a state first"} />
+                  <datalist id="onboarding-cities">{citiesForState(form.state).map((city) => <option key={city} value={city} />)}</datalist>
+                  <small>Suggestions follow your state. You can enter a city that is not listed.</small>
+                  {issue("city")}
                 </label>
-                <label className="field">
-                  <span>State / region *</span>
+                <label className="field compact-field">
+                  <span>PIN code *</span>{issue("pinCode")}
                   <input
-                    value={form.state}
-                    onChange={(event) => update("state", event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  <span>PIN code *</span>
-                  <input
-                    value={form.pinCode}
+                    {...fieldA11y("pinCode")} value={form.pinCode}
                     onChange={(event) =>
                       update(
                         "pinCode",
@@ -1572,8 +1681,9 @@ export default function Onboarding({
                     }
                   />
                 </label>
+                <div className="onboarding-group-title full"><h4>Operating details</h4><p>Help us understand where and how you deliver your experiences.</p></div>
                 <label className="field">
-                  <span>Website</span>
+                  <span>Website <small>(optional)</small></span>
                   <input
                     value={supplemental.website}
                     onChange={(event) =>
@@ -1619,9 +1729,9 @@ export default function Onboarding({
                   />
                 </label>
                 <div className="field">
-                  <span>Operating cities *</span>
+                  <span>Operating cities</span>
                   <div className="prototype-chips">
-                    {Array.from(new Set([...operatingCityOptions, ...supplemental.operatingCities.split(",").map((city) => city.trim()).filter(Boolean)])).map((city) => (
+                    {Array.from(new Set([...citiesForState(form.state).slice(0, 4), ...supplemental.operatingCities.split(",").map((city) => city.trim()).filter(Boolean)])).map((city) => (
                       <button
                         type="button"
                         key={city}
@@ -1646,7 +1756,7 @@ export default function Onboarding({
                   </div>
                 </div>
                 <div className="field">
-                  <span>Categories *</span>
+                  <span>Categories</span>
                   <div className="prototype-chips">
                     {categoryOptions.map((category) => (
                       <button
@@ -1676,7 +1786,7 @@ export default function Onboarding({
                   </div>
                 </div>
                 <label className="field">
-                  <span>How do they take bookings today?</span>
+                  <span>How do you take bookings?</span>
                   <select
                     value={supplemental.bookingMethod}
                     onChange={(event) =>
@@ -1701,69 +1811,23 @@ export default function Onboarding({
               <header>
                 <h3>Contacts &amp; escalation matrix</h3>
                 <p>
-                  Who we call for bookings, payments and on-ground issues. Every
-                  role needs a reachable mobile number.
+                  Add the primary contact for your business. You can reuse their details for bookings, payments and emergencies, or add a different person for each role.
                 </p>
               </header>
               <div className="onboarding-contact-section">
                 <div className="onboarding-section-heading">
                   <h4>Key contacts</h4>
                 </div>
-                <div className="onboarding-table-wrap">
-                  <table className="onboarding-table onboarding-contacts-table">
-                    <thead>
-                      <tr>
-                        <th>Role</th>
-                        <th>Name</th>
-                        <th>Designation</th>
-                        <th>Mobile</th>
-                        <th>Email</th>
-                        <th>Hours</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {supplemental.contacts.map((contact, index) => (
-                        <tr key={contact.role}>
-                          <td><b>{contact.role}</b></td>
-                          <td>
-                            <input
-                              aria-label={`${contact.role} name`}
-                              value={contact.name}
-                              onChange={(event) => updateContact(index, "name", event.target.value)}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              aria-label={`${contact.role} designation`}
-                              value={contact.designation}
-                              onChange={(event) => updateContact(index, "designation", event.target.value)}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              aria-label={`${contact.role} mobile`}
-                              value={contact.mobile}
-                              onChange={(event) => updateContact(index, "mobile", event.target.value)}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              aria-label={`${contact.role} email`}
-                              value={contact.email}
-                              onChange={(event) => updateContact(index, "email", event.target.value)}
-                            />
-                          </td>
-                          <td>
-                            <input
-                              aria-label={`${contact.role} hours`}
-                              value={contact.hours}
-                              onChange={(event) => updateContact(index, "hours", event.target.value)}
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="onboarding-contact-cards">
+                  {supplemental.contacts.map((contact, index) => <fieldset className="onboarding-contact-card" key={contact.role}>
+                    <legend>{contact.role}</legend>
+                    {index > 0 && <button type="button" className="btn small contact-reuse" disabled={busy} onClick={() => updateSupplemental("contacts", supplemental.contacts.map((item, i) => i === index ? { ...supplemental.contacts[0], role: item.role, hours: item.hours } : item))}>Use primary contact details</button>}
+                    <div className="onboarding-form-grid two">
+                      {([['name', 'Full name'], ['designation', 'Designation (optional)'], ['mobile', 'Mobile number'], ['email', 'Email address'], ['hours', 'Available hours']] as const).map(([key, label]) => <label className="field" key={key}>
+                        <span>{label}{index === 0 && (key === "name" || key === "mobile") ? " *" : ""}</span><input {...(index === 0 && key === "mobile" ? fieldA11y("contactNumber") : index === 0 && key === "name" ? fieldA11y("primaryContactName") : {})} aria-label={`${contact.role} ${key}`} type={key === 'email' ? 'email' : key === 'mobile' ? 'tel' : 'text'} value={contact[key]} onChange={(event) => updateContact(index, key, event.target.value)} placeholder={key === 'mobile' ? '+91 98765 43210' : undefined} />{index === 0 && key === "mobile" && issue("contactNumber")}{index === 0 && key === "name" && issue("primaryContactName")}
+                      </label>)}
+                    </div>
+                  </fieldset>)}
                 </div>
               </div>
               <div className="onboarding-contact-section">
@@ -1808,11 +1872,11 @@ export default function Onboarding({
                         );
                         return (
                           <tr key={level.code}>
-                            <td><span className={`onboarding-level-tag ${level.code === "L3" ? "danger" : level.code === "L2" ? "warning" : "info"}`}>{level.code}</span></td>
-                            <td>{level.trigger}</td>
-                            <td>{contact?.name || level.contactRole}</td>
-                            <td className="numeric">{contact?.mobile || "Mobile required"}</td>
-                            <td className="align-right">{level.response}</td>
+                            <td data-label="Level"><span className={`onboarding-level-tag ${level.code === "L3" ? "danger" : level.code === "L2" ? "warning" : "info"}`}>{level.code}</span></td>
+                            <td data-label="When to escalate">{level.trigger}</td>
+                            <td data-label="Contact">{contact?.name || level.contactRole}</td>
+                            <td className="numeric" data-label="Mobile">{contact?.mobile || "Mobile required"}</td>
+                            <td className="align-right" data-label="Respond within">{level.response}</td>
                           </tr>
                         );
                       })}
@@ -1820,7 +1884,7 @@ export default function Onboarding({
                   </table>
                 </div>
               </div>
-              {(!application.phoneVerifiedAt || application.mobileVerificationEnabled !== true) && (
+              {application.mobileVerificationEnabled === true && !application.phoneVerifiedAt && (
                 <div className="onboarding-contact-verification">
                   <label className="field">
                     <span>Primary contact number *</span>
@@ -1828,7 +1892,7 @@ export default function Onboarding({
                       <select aria-label="Country code" value={form.countryCode} onChange={(event) => update("countryCode", event.target.value)}>
                         {countryCodes.map((country) => <option key={country.value} value={country.value}>{country.label}</option>)}
                       </select>
-                      <input value={form.contactNumber} onChange={(event) => update("contactNumber", event.target.value.replace(/\D/g, ""))} placeholder="9876543210" />
+                      <input value={form.contactNumber} onChange={(event) => updateContact(0, "mobile", form.countryCode + event.target.value.replace(/\D/g, ""))} placeholder="9876543210" />
                     </div>
                     <small>{application.mobileVerificationEnabled === true ? "We will verify this number with a one-time password." : "Email verification is complete. Mobile OTP is currently disabled by platform settings."}</small>
                   </label>
@@ -1889,11 +1953,45 @@ export default function Onboarding({
               <header>
                 <h3>KYC documents</h3>
                 <p>
-                  PAN, GSTIN and bank are verified automatically against
-                  government and bank records. Other documents are checked by
-                  the onboarding team.
+                  Add the identity and tax documents that apply to your business.
+                  VOYA reviews uploaded evidence before confirming verification.
                 </p>
               </header>
+              <div className="onboarding-kyc-settings onboarding-gst-status">
+                <div className="onboarding-gst-status-copy">
+                  <b>GST registration</b>
+                  <small>Select the option that applies. GSTIN and its certificate are needed only for registered businesses.</small>
+                </div>
+                <div className="onboarding-kyc-controls choice-grid" role="group" aria-label="GST registration status">
+                  <button
+                    type="button"
+                    className={form.gstStatus === "REGISTERED" ? "selected" : ""}
+                    aria-pressed={form.gstStatus === "REGISTERED"}
+                    onClick={() => update("gstStatus", "REGISTERED")}
+                  >
+                    GST registered<small>Provide GSTIN and certificate.</small>
+                  </button>
+                  <button
+                    type="button"
+                    className={form.gstStatus === "NOT_REGISTERED" ? "selected" : ""}
+                    aria-pressed={form.gstStatus === "NOT_REGISTERED"}
+                    onClick={() => update("gstStatus", "NOT_REGISTERED")}
+                  >
+                    Not registered / not applicable
+                    <small>Confirm the tax information below.</small>
+                  </button>
+                </div>
+                <label className="check-row onboarding-gst-declaration">
+                  <input
+                    type="checkbox"
+                    checked={form.gstDeclarationAccepted}
+                    onChange={(event) => update("gstDeclarationAccepted", event.target.checked)}
+                  />
+                  {form.gstStatus === "NOT_REGISTERED"
+                    ? "I confirm this business is not registered for GST and the information provided is accurate."
+                    : "I confirm the GST and tax information provided is accurate."}
+                </label>
+              </div>
               <div className="onboarding-table-wrap">
                 <table className="onboarding-table onboarding-kyc-table">
                   <thead>
@@ -1907,12 +2005,12 @@ export default function Onboarding({
                   </thead>
                   <tbody>
                     <tr>
-                      <td>
+                      <td data-label="Document">
                         <b>PAN (entity)</b>
                       </td>
-                      <td>
+                      <td data-label="Number / detail">
                         <input
-                          aria-label="PAN number *"
+                          {...fieldA11y("panNumber")} aria-label="PAN number *"
                           value={form.panNumber}
                           onChange={(event) =>
                             update(
@@ -1921,19 +2019,19 @@ export default function Onboarding({
                             )
                           }
                           maxLength={10}
-                        />
+                        />{issue("panNumber")}
                       </td>
-                      <td>
+                      <td data-label="Status">
                         <Badge value={documentStatusLabel("PAN")} />
                       </td>
-                      <td>
+                      <td data-label="Check">
                         <span className="muted">
                           {/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(form.panNumber)
                             ? "Format valid"
                             : "Required"}
                         </span>
                       </td>
-                      <td className="align-right">
+                      <td className="align-right" data-label="Document action">
                         <KycDocumentAction
                           label="PAN document"
                           document={documentFor(application, "PAN")}
@@ -1945,38 +2043,38 @@ export default function Onboarding({
                       </td>
                     </tr>
                     <tr>
-                      <td>
+                      <td data-label="Document">
                         <b>GSTIN</b>
                       </td>
-                      <td>
+                      <td data-label="Number / detail">
                         {form.gstStatus === "REGISTERED" ? (
-                          <input
-                            aria-label="GSTIN *"
+                          <><input
+                            {...fieldA11y("gstin")} aria-label="GSTIN *"
                             value={form.gstin}
                             onChange={(event) =>
                               update("gstin", event.target.value.toUpperCase())
                             }
                             maxLength={15}
-                          />
+                          />{issue("gstin")}</>
                         ) : (
                           "Not registered / not applicable"
                         )}
                       </td>
-                      <td>
+                      <td data-label="Status">
                         <Badge
                           value={
-                            form.gstStatus ? documentStatusLabel("GSTIN") : "Not selected"
+                            form.gstStatus === "REGISTERED" ? documentStatusLabel("GSTIN") : form.gstStatus === "NOT_REGISTERED" ? form.gstDeclarationAccepted ? "Declaration confirmed" : "Declaration needed" : "Not selected"
                           }
                         />
                       </td>
-                      <td>
+                      <td data-label="Check">
                         <span className="muted">
                           {form.gstStatus === "REGISTERED"
                             ? "Active taxpayer details required"
                             : "Declaration required"}
                         </span>
                       </td>
-                      <td className="align-right">
+                      <td className="align-right" data-label="Document action">
                         {form.gstStatus === "REGISTERED" && (
                           <KycDocumentAction
                             label="GST certificate"
@@ -1990,50 +2088,52 @@ export default function Onboarding({
                       </td>
                     </tr>
                     <tr>
-                      <td><b>LLP agreement + LLPIN certificate</b></td>
-                      <td className="mono">
+                      <td data-label="Document"><b>LLP agreement + LLPIN certificate</b></td>
+                      <td className="mono" data-label="Number / detail">
                         {["LLP_AGREEMENT", "LLPIN_CERTIFICATE"].map((type) => documentFor(application, type)?.latestVersion?.fileAsset.originalName).filter(Boolean).join(" · ") || (form.supplementalData.entityType === "LLP" ? "Required for LLP" : "Not applicable")}
                       </td>
-                      <td><Badge value={form.supplementalData.entityType === "LLP" ? (documentFor(application, "LLP_AGREEMENT")?.latestVersion && documentFor(application, "LLPIN_CERTIFICATE")?.latestVersion ? "Uploaded" : "Pending") : "Not needed"} /></td>
-                      <td><span className="muted">Checked by onboarding team</span></td>
-                      <td className="align-right kyc-document-actions">
-                        <KycDocumentAction label="LLP agreement" document={documentFor(application, "LLP_AGREEMENT")} disabled={busy} onUpload={(file) => void upload("llpAgreement", file)} onView={() => viewDocument(documentFor(application, "LLP_AGREEMENT"))} onDownload={() => downloadDocument(documentFor(application, "LLP_AGREEMENT"))} />
-                        <KycDocumentAction label="LLPIN certificate" document={documentFor(application, "LLPIN_CERTIFICATE")} disabled={busy} onUpload={(file) => void upload("llpinCertificate", file)} onView={() => viewDocument(documentFor(application, "LLPIN_CERTIFICATE"))} onDownload={() => downloadDocument(documentFor(application, "LLPIN_CERTIFICATE"))} />
+                      <td data-label="Status"><Badge value={!entityIsLlp ? "Not needed" : (documentFor(application, "LLP_AGREEMENT")?.latestVersion && documentFor(application, "LLPIN_CERTIFICATE")?.latestVersion ? "Uploaded" : "Pending")} /></td>
+                      <td data-label="Check"><span className="muted">Checked by onboarding team</span></td>
+                      <td className="align-right kyc-document-actions" data-label="Document actions">
+                        {entityIsLlp ? <>
+                          <KycDocumentAction label="LLP agreement" document={documentFor(application, "LLP_AGREEMENT")} disabled={busy} onUpload={(file) => void upload("llpAgreement", file)} onView={() => viewDocument(documentFor(application, "LLP_AGREEMENT"))} onDownload={() => downloadDocument(documentFor(application, "LLP_AGREEMENT"))} />
+                          <KycDocumentAction label="LLPIN certificate" document={documentFor(application, "LLPIN_CERTIFICATE")} disabled={busy} onUpload={(file) => void upload("llpinCertificate", file)} onView={() => viewDocument(documentFor(application, "LLPIN_CERTIFICATE"))} onDownload={() => downloadDocument(documentFor(application, "LLPIN_CERTIFICATE"))} />
+                        </> : <span className="muted">Not needed for this business type</span>}
                       </td>
                     </tr>
                     <tr>
-                      <td><b>Authorised signatory ID</b></td>
-                      <td className="mono">{documentFor(application, "AUTH_SIGNATORY_ID")?.latestVersion?.fileAsset.originalName || form.authorizedRepresentative || "Not provided"}</td>
-                      <td><Badge value={documentStatusLabel("AUTH_SIGNATORY_ID")} /></td>
-                      <td><span className="muted">Signatory identity required</span></td>
-                      <td className="align-right">
+                      <td data-label="Document"><b>Authorised signatory ID</b></td>
+                      <td className="mono" data-label="Number / detail">{documentFor(application, "AUTH_SIGNATORY_ID")?.latestVersion?.fileAsset.originalName || form.authorizedRepresentative || "Not provided"}</td>
+                      <td data-label="Status"><Badge value={documentStatusLabel("AUTH_SIGNATORY_ID", "Optional")} /></td>
+                      <td data-label="Check"><span className="muted">Supporting document · optional</span></td>
+                      <td className="align-right" data-label="Document action">
                         <KycDocumentAction label="authorised signatory ID" document={documentFor(application, "AUTH_SIGNATORY_ID")} disabled={busy} onUpload={(file) => void upload("signatoryId", file)} onView={() => viewDocument(documentFor(application, "AUTH_SIGNATORY_ID"))} onDownload={() => downloadDocument(documentFor(application, "AUTH_SIGNATORY_ID"))} />
                       </td>
                     </tr>
                     <tr>
-                      <td><b>Authorisation letter for signatory</b></td>
-                      <td className="mono">{documentFor(application, "AUTHORIZATION_LETTER")?.latestVersion?.fileAsset.originalName || "Not uploaded"}</td>
-                      <td><Badge value={documentStatusLabel("AUTHORIZATION_LETTER")} /></td>
-                      <td><span className="muted">Partner resolution naming who signs</span></td>
-                      <td className="align-right">
-                        <KycDocumentAction label="authorisation letter" document={documentFor(application, "AUTHORIZATION_LETTER")} disabled={busy} onUpload={(file) => void upload("authorizationLetter", file)} onView={() => viewDocument(documentFor(application, "AUTHORIZATION_LETTER"))} onDownload={() => downloadDocument(documentFor(application, "AUTHORIZATION_LETTER"))} />
+                      <td data-label="Document"><b>Authorisation letter for signatory</b></td>
+                      <td className="mono" data-label="Number / detail">{documentFor(application, "AUTHORIZATION_LETTER")?.latestVersion?.fileAsset.originalName || "Not uploaded"}</td>
+                      <td data-label="Status"><Badge value={entityIsLlp ? documentStatusLabel("AUTHORIZATION_LETTER") : documentStatusLabel("AUTHORIZATION_LETTER", "Optional")} /></td>
+                      <td data-label="Check"><span className="muted">{entityIsLlp ? "Required for LLP signatory" : "Required only for LLPs"}</span></td>
+                      <td className="align-right" data-label="Document action">
+                        {entityIsLlp ? <KycDocumentAction label="authorisation letter" document={documentFor(application, "AUTHORIZATION_LETTER")} disabled={busy} onUpload={(file) => void upload("authorizationLetter", file)} onView={() => viewDocument(documentFor(application, "AUTHORIZATION_LETTER"))} onDownload={() => downloadDocument(documentFor(application, "AUTHORIZATION_LETTER"))} /> : <span className="muted">Not needed for this business type</span>}
                       </td>
                     </tr>
                     <tr>
-                      <td><b>Address proof</b></td>
-                      <td className="mono">{documentFor(application, "ADDRESS_PROOF")?.latestVersion?.fileAsset.originalName || form.addressLine || "Not provided"}</td>
-                      <td><Badge value={documentStatusLabel("ADDRESS_PROOF")} /></td>
-                      <td><span className="muted">{form.addressLine ? "Matches registered address" : "Registered address required"}</span></td>
-                      <td className="align-right">
+                      <td data-label="Document"><b>Address proof</b></td>
+                      <td className="mono" data-label="Number / detail">{documentFor(application, "ADDRESS_PROOF")?.latestVersion?.fileAsset.originalName || form.addressLine || "Not provided"}</td>
+                      <td data-label="Status"><Badge value={documentStatusLabel("ADDRESS_PROOF", "Optional")} /></td>
+                      <td data-label="Check"><span className="muted">{form.addressLine ? "Matches registered address" : "Supporting document · optional"}</span></td>
+                      <td className="align-right" data-label="Document action">
                         <KycDocumentAction label="address proof" document={documentFor(application, "ADDRESS_PROOF")} disabled={busy} onUpload={(file) => void upload("addressProof", file)} onView={() => viewDocument(documentFor(application, "ADDRESS_PROOF"))} onDownload={() => downloadDocument(documentFor(application, "ADDRESS_PROOF"))} />
                       </td>
                     </tr>
                     <tr>
-                      <td><b>Shop &amp; establishment / trade licence</b></td>
-                      <td className="mono">{form.supplementalData.tradeLicenseNeededFor || "Not specified"}</td>
-                      <td><Badge value={documentStatusLabel("TRADE_LICENSE")} /></td>
-                      <td><span className="muted">In review</span></td>
-                      <td className="align-right">
+                      <td data-label="Document"><b>Shop &amp; establishment / trade licence</b></td>
+                      <td className="mono" data-label="Number / detail">{form.supplementalData.tradeLicenseNeededFor || "Not specified"}</td>
+                      <td data-label="Status"><Badge value={documentStatusLabel("TRADE_LICENSE", "Not uploaded")} /></td>
+                      <td data-label="Check"><span className="muted">May be requested during review</span></td>
+                      <td className="align-right" data-label="Document action">
                         <KycDocumentAction
                           label="trade licence"
                           document={documentFor(application, "TRADE_LICENSE")}
@@ -2045,74 +2145,23 @@ export default function Onboarding({
                       </td>
                     </tr>
                     <tr>
-                      <td><b>Udyam (MSME) certificate</b></td>
-                      <td className="mono">{documentFor(application, "UDYAM_CERTIFICATE")?.latestVersion?.fileAsset.originalName || "Not captured"}</td>
-                      <td><Badge value={documentStatusLabel("UDYAM_CERTIFICATE")} /></td>
-                      <td><span className="muted">Optional; MSME payment timelines apply</span></td>
-                      <td className="align-right">
+                      <td data-label="Document"><b>Udyam (MSME) certificate</b></td>
+                      <td className="mono" data-label="Number / detail">{documentFor(application, "UDYAM_CERTIFICATE")?.latestVersion?.fileAsset.originalName || "Not captured"}</td>
+                      <td data-label="Status"><Badge value={documentStatusLabel("UDYAM_CERTIFICATE", "Optional")} /></td>
+                      <td data-label="Check"><span className="muted">Optional; MSME payment timelines apply</span></td>
+                      <td className="align-right" data-label="Document action">
                         <KycDocumentAction label="Udyam certificate" document={documentFor(application, "UDYAM_CERTIFICATE")} disabled={busy} onUpload={(file) => void upload("udyamCertificate", file)} onView={() => viewDocument(documentFor(application, "UDYAM_CERTIFICATE"))} onDownload={() => downloadDocument(documentFor(application, "UDYAM_CERTIFICATE"))} />
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <details className="onboarding-kyc-settings">
-                <summary>GST registration and declaration</summary>
-                <div className="onboarding-kyc-controls choice-grid">
-                  <button
-                    type="button"
-                    className={form.gstStatus === "REGISTERED" ? "selected" : ""}
-                    onClick={() => update("gstStatus", "REGISTERED")}
-                  >
-                    GST registered<small>Provide GSTIN and certificate.</small>
-                  </button>
-                  <button
-                    type="button"
-                    className={
-                      form.gstStatus === "NOT_REGISTERED" ? "selected" : ""
-                    }
-                    onClick={() => update("gstStatus", "NOT_REGISTERED")}
-                  >
-                    Not registered / not applicable
-                    <small>Voya may request clarification during review.</small>
-                  </button>
-                </div>
-              {form.gstStatus === "REGISTERED" && (
-                <>
-                  <label className="field">
-                    <span>GSTIN *</span>
-                    <input
-                      value={form.gstin}
-                      onChange={(event) =>
-                        update("gstin", event.target.value.toUpperCase())
-                      }
-                      maxLength={15}
-                    />
-                  </label>
-                  <UploadCard
-                    label="GST certificate *"
-                    document={documentFor(application, "GSTIN")}
-                    disabled={busy}
-                    onUpload={(file) => void upload("gstin", file)}
-                  />
-                </>
-              )}
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={form.gstDeclarationAccepted}
-                  onChange={(event) =>
-                    update("gstDeclarationAccepted", event.target.checked)
-                  }
-                />{" "}
-                I confirm the KYC and tax details provided are accurate.
-              </label>
-              </details>
               <div className="onboarding-note">
-                The required documents depend on entity type. For an LLP: LLP
-                agreement, LLPIN certificate and an authorisation letter for the
-                signatory. A Pvt Ltd needs a COI, MoA and board resolution. A
-                proprietor needs PAN and Aadhaar only.
+                Upload PDF, JPG or PNG files up to 8 MB. Use View to check the saved document.
+                The checklist depends on your legal business type. LLPs must
+                provide an LLP agreement, LLPIN certificate and authorisation
+                letter. The onboarding team may request supporting evidence
+                for other business types during review.
               </div>
             </section>
           )}
@@ -2139,8 +2188,8 @@ export default function Onboarding({
                   </thead>
                   <tbody>
                     <tr>
-                      <td><b>Trade licence / activity permit</b></td>
-                      <td>
+                      <td data-label="Licence"><b>Trade licence / activity permit</b></td>
+                      <td data-label="Needed for">
                         <input
                           aria-label="Trade licence needed for"
                           value={supplemental.tradeLicenseNeededFor}
@@ -2148,7 +2197,7 @@ export default function Onboarding({
                           placeholder="Activity, city or category"
                         />
                       </td>
-                      <td>
+                      <td data-label="Valid until">
                         <SharedDatePicker
                           value={supplemental.tradeLicenseValidTill}
                           onChange={(value) => updateSupplemental("tradeLicenseValidTill", value)}
@@ -2156,8 +2205,8 @@ export default function Onboarding({
                           ariaLabel="Trade licence valid till"
                         />
                       </td>
-                      <td><Badge value={docStatus("TRADE_LICENSE")} /></td>
-                      <td className="align-right">
+                      <td data-label="Status"><Badge value={documentStatusLabel("TRADE_LICENSE", "If applicable")} /></td>
+                      <td className="align-right" data-label="Document actions">
                         <KycDocumentAction
                           label="trade licence or permit"
                           document={documentFor(application, "TRADE_LICENSE")}
@@ -2170,15 +2219,15 @@ export default function Onboarding({
                     </tr>
                     {displayLicenceRows.map((licence) => (
                       <tr key={licence.key}>
-                        <td><b>{licence.label}</b></td>
-                        <td>
+                        <td data-label="Licence"><b>{licence.label}</b></td>
+                        <td data-label="Needed for">
                           <input
                             aria-label={`${licence.label} needed for`}
                             value={licence.neededFor}
                             onChange={(event) => updateSupplemental("licences", licenceRows.map((row) => row.key === licence.key ? { ...row, neededFor: event.target.value } : row))}
                           />
                         </td>
-                        <td>
+                        <td data-label="Valid until">
                           <SharedDatePicker
                             value={licence.validTill}
                             onChange={(value) => updateSupplemental("licences", licenceRows.map((row) => row.key === licence.key ? { ...row, validTill: value } : row))}
@@ -2186,8 +2235,8 @@ export default function Onboarding({
                             ariaLabel={`${licence.label} valid till`}
                           />
                         </td>
-                        <td><Badge value={documentStatusLabel(licence.documentType)} /></td>
-                        <td className="align-right">
+                        <td data-label="Status"><Badge value={documentStatusLabel(licence.documentType, "Not uploaded")} /></td>
+                        <td className="align-right" data-label="Document actions">
                           <KycDocumentAction
                             label={licence.label}
                             document={documentFor(application, licence.documentType)}
@@ -2230,6 +2279,7 @@ export default function Onboarding({
                   />
                 </label>
               </div>
+              <label className="check-row"><input type="checkbox" checked={Boolean(supplemental.licencesReviewed)} onChange={(event) => updateSupplemental("licencesReviewed", event.target.checked)} />I have reviewed the licence and insurance checklist for my activities.</label>
               <div className="onboarding-note">
                 If a permit or insurance policy is not applicable, explain that
                 during review. Voya may request evidence before the listing can
@@ -2245,9 +2295,9 @@ export default function Onboarding({
               </header>
               <div className="onboarding-form-grid two">
                 <label className="field" htmlFor="vendor-bank-account-holder">
-                  <span>Account holder name *</span>
+                  <span>Account holder name *</span>{issue("accountHolderName")}
                   <input
-                    id="vendor-bank-account-holder"
+                    id="vendor-bank-account-holder" aria-invalid={showValidation && !!fieldIssues.accountHolderName} aria-describedby={showValidation && fieldIssues.accountHolderName ? "issue-accountHolderName" : undefined}
                     value={form.accountHolderName}
                     onChange={(event) =>
                       update("accountHolderName", event.target.value)
@@ -2255,9 +2305,9 @@ export default function Onboarding({
                   />
                 </label>
                 <label className="field" htmlFor="vendor-bank-account-type">
-                  <span>Account type *</span>
+                  <span>Account type *</span>{issue("accountType")}
                   <select
-                    id="vendor-bank-account-type"
+                    id="vendor-bank-account-type" aria-invalid={showValidation && !!fieldIssues.accountType} aria-describedby={showValidation && fieldIssues.accountType ? "issue-accountType" : undefined}
                     value={form.accountType}
                     onChange={(event) =>
                       update("accountType", event.target.value)
@@ -2269,10 +2319,10 @@ export default function Onboarding({
                   </select>
                 </label>
                 <label className="field" htmlFor="vendor-bank-account-number">
-                  <span>Account number *</span>
+                  <span>Account number *</span>{issue("bankAccountNumber")}
                   <input
-                    id="vendor-bank-account-number"
-                    type="password"
+                    id="vendor-bank-account-number" aria-invalid={showValidation && !!fieldIssues.bankAccountNumber} aria-describedby={showValidation && fieldIssues.bankAccountNumber ? "issue-bankAccountNumber" : undefined}
+                    type="text"
                     value={form.bankAccountNumber}
                     onChange={(event) =>
                       update(
@@ -2280,13 +2330,13 @@ export default function Onboarding({
                         event.target.value.replace(/\D/g, ""),
                       )
                     }
-                    placeholder={application.bankAccountMasked || "9–18 digits"}
+                    placeholder={application.bankAccountMasked || "9–18 digits"} inputMode="numeric" autoComplete="off"
                   />
                 </label>
                 <label className="field" htmlFor="vendor-bank-ifsc">
-                  <span>IFSC *</span>
+                  <span>IFSC *</span>{issue("ifscCode")}
                   <input
-                    id="vendor-bank-ifsc"
+                    id="vendor-bank-ifsc" aria-invalid={showValidation && !!fieldIssues.ifscCode} aria-describedby={showValidation && fieldIssues.ifscCode ? "issue-ifscCode" : undefined}
                     value={form.ifscCode}
                     onChange={(event) =>
                       update("ifscCode", event.target.value.toUpperCase())
@@ -2299,25 +2349,27 @@ export default function Onboarding({
                   </small>
                 </label>
               </div>
+              <label className="field"><span>Bank name *</span>{issue("bankName")}<input {...fieldA11y("bankName")} value={form.bankName} onChange={(event) => update("bankName", event.target.value)} placeholder="Filled from IFSC when available" /><small>Check the bank name. Enter it manually if the IFSC lookup is unavailable.</small></label>
               <UploadCard
                 label="Cancelled cheque / bank proof *"
                 document={documentFor(application, "BANK_PROOF")}
                 disabled={busy}
                 onUpload={(file) => void upload("bankProof", file)}
+                onView={() => void viewDocument(documentFor(application, "BANK_PROOF"))}
               />
               <div className="onboarding-tax-card">
                 <div className="row-between">
-                  <b>Penny-drop verification</b>
+                  <b>Bank review</b>
                   <Badge
                     value={
-                      application.bankAccountMasked ? "Verified" : "Pending"
+                      application.bankVerificationStatus === "VERIFIED" ? "Verified" : application.bankVerificationStatus === "FAILED" ? "Verification failed" : application.bankAccountMasked ? "Pending review" : "Not provided"
                     }
                   />
                 </div>
                 <p>
                   {application.bankAccountMasked
-                    ? `₹1 verification completed. Name returned by bank: ${form.accountHolderName || "—"} · 100% match with PAN name. Cancelled cheque uploaded.`
-                    : "A ₹1 verification is run after the bank proof is reviewed. The returned account name must match the PAN name."}
+                    ? `Account ${application.bankAccountMasked} is saved. Saving account details does not confirm bank verification; VOYA reviews the account and supporting proof.`
+                    : "Enter the business account and upload bank proof. Verification is completed separately during review."}
                 </p>
               </div>
               <label className="check-row">
@@ -2333,22 +2385,8 @@ export default function Onboarding({
               <div className="onboarding-form-grid two">
                 <div className="field">
                   <span>GST registration</span>
-                  <div className="segmented-options">
-                    {[
-                      ["REGISTERED", "Registered (regular)"],
-                      ["COMPOSITION", "Composition"],
-                      ["NOT_REGISTERED", "Not registered"],
-                    ].map(([value, label]) => (
-                      <button
-                        type="button"
-                        key={value}
-                        className={form.gstStatus === value ? "selected" : ""}
-                        onClick={() => update("gstStatus", value)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
+                  <div className="onboarding-tax-summary">{form.gstStatus === "REGISTERED" ? `Registered · ${form.gstin || "GSTIN not provided"}` : form.gstStatus === "NOT_REGISTERED" ? "Not registered" : "Not selected"}</div>
+                  <button type="button" className="btn small" onClick={() => setStep(3)}>Edit GST details in KYC</button>
                   <small>
                     {form.gstStatus === "NOT_REGISTERED"
                       ? "Not registered needs a signed GST non-registration declaration."
@@ -2388,7 +2426,7 @@ export default function Onboarding({
                       profile. You accept them by signing the agreement.
                     </p>
                   </div>
-                  <span className="commercial-readonly-badge">🔒 Read-only</span>
+                  <span className="commercial-readonly-badge">Read-only</span>
                 </div>
               </header>
               <div className="commercial-terms-card">
@@ -2511,7 +2549,7 @@ export default function Onboarding({
                         <tr><td>Legal entity</td><td>{form.legalBusinessName || "Not provided"}</td></tr>
                         <tr><td>Address</td><td>{[form.addressLine, form.city, form.state, form.pinCode].filter(Boolean).join(", ") || "Not provided"}</td></tr>
                         <tr><td>Contact person</td><td>{[form.firstName, form.lastName].filter(Boolean).join(" ") || "Not provided"}</td></tr>
-                        <tr><td>Phone / email</td><td>{[normalizedPhone(form.countryCode + form.contactNumber), application.contactEmail].filter(Boolean).join(" · ") || "Not provided"}</td></tr>
+                        <tr><td>Phone / email</td><td>{[form.contactNumber ? normalizedPhone(form.countryCode + form.contactNumber) : "", application.contactEmail].filter(Boolean).join(" · ") || "Not provided"}</td></tr>
                         <tr><td>Commission (cl. 2.5)</td><td><b>{supplemental.commission || "To be confirmed"}</b></td></tr>
                       </tbody>
                     </table>
@@ -2520,10 +2558,10 @@ export default function Onboarding({
                 <div>
                   <span className="agreement-prototype-label">Signing status</span>
                   <div className="agreement-status-list agreement-prototype-status">
-                    <div><span className="agreement-status-icon ok">✓</span><div><b>Sent for signature</b><small>{agreementTimestamp(agreementSentAt)} · to {[form.firstName, form.lastName].filter(Boolean).join(" ") || "authorized representative"}</small></div></div>
+                    <div><span className={"agreement-status-icon " + (agreementSentAt ? "ok" : "pending")}>{agreementSentAt ? "✓" : ""}</span><div><b>{agreementSentAt ? "Sent for signature" : "Ready for review"}</b><small>{agreementTimestamp(agreementSentAt)} · to {[form.firstName, form.lastName].filter(Boolean).join(" ") || "authorized representative"}</small></div></div>
                     <div><span className={"agreement-status-icon " + (application.agreementOpenedAt ? "ok" : "pending")}>{application.agreementOpenedAt ? "✓" : ""}</span><div><b>Opened by you</b><small>{application.agreementOpenedAt ? agreementTimestamp(application.agreementOpenedAt) : "Open this agreement to begin review"}</small></div></div>
-                    <div><span className={"agreement-status-icon " + (agreementSigned ? "ok" : "warn")}>{agreementSigned ? "✓" : "…"}</span><div><b>Your signature</b><small>{agreementSigned ? "Saved and accepted" : (supplemental.signingMethod || "Aadhaar eSign (OTP)") + " · reminder goes out automatically after 48h"}</small></div></div>
-                    <div><span className={"agreement-status-icon " + (application.agreementCountersignedAt ? "ok" : "pending")}>{application.agreementCountersignedAt ? "✓" : ""}</span><div><b>Countersigned by us</b><small>{application.agreementCountersignedAt ? agreementTimestamp(application.agreementCountersignedAt) : "Within 1 working day of your signature"}</small></div></div>
+                    <div><span className={"agreement-status-icon " + (agreementSigned ? "ok" : "warn")}>{agreementSigned ? "✓" : "…"}</span><div><b>Your signature</b><small>{agreementSigned ? "Saved and accepted" : "Add your signature below and accept the draft agreement."}</small></div></div>
+                    <div><span className={"agreement-status-icon " + (application.agreementCountersignedAt ? "ok" : "pending")}>{application.agreementCountersignedAt ? "✓" : ""}</span><div><b>Countersigned by us</b><small>{application.agreementCountersignedAt ? agreementTimestamp(application.agreementCountersignedAt) : "Pending VOYA review and countersignature"}</small></div></div>
                   </div>
                   <label className="field agreement-signing-method">
                     <span>Signing method</span>
@@ -2552,18 +2590,18 @@ export default function Onboarding({
               </div>
               <div className="onboarding-form-grid two">
                 <label className="field">
-                  <span>Authorized business name *</span>
+                  <span>Authorized business name *</span>{issue("authorizedBusinessName")}
                   <input
-                    value={form.authorizedBusinessName}
+                    {...fieldA11y("authorizedBusinessName")} value={form.authorizedBusinessName}
                     onChange={(event) =>
                       update("authorizedBusinessName", event.target.value)
                     }
                   />
                 </label>
                 <label className="field">
-                  <span>Authorized representative *</span>
+                  <span>Authorized representative *</span>{issue("authorizedRepresentative")}
                   <input
-                    value={form.authorizedRepresentative}
+                    {...fieldA11y("authorizedRepresentative")} value={form.authorizedRepresentative}
                     onChange={(event) =>
                       update("authorizedRepresentative", event.target.value)
                     }
@@ -2601,7 +2639,7 @@ export default function Onboarding({
                   </div>
                 </div>
                 <canvas
-                  ref={canvasRef}
+                  {...fieldA11y("signatureData")} ref={canvasRef}
                   width={640}
                   height={180}
                   className="signature-canvas"
@@ -2630,13 +2668,13 @@ export default function Onboarding({
               <label className="check-row">
                 <input
                   type="checkbox"
-                  checked={form.agreementAccepted}
+                  {...fieldA11y("agreementAccepted")} checked={form.agreementAccepted}
                   onChange={(event) =>
                     update("agreementAccepted", event.target.checked)
                   }
                 />{" "}
                 I have read and accept the draft partner agreement.
-              </label>
+              </label>{issue("agreementAccepted")}{issue("signatureData")}
             </section>
           )}
           {step === 8 && (
@@ -2644,21 +2682,21 @@ export default function Onboarding({
               <header>
                 <h3>Review &amp; submit</h3>
                 <p>
-                  We verify within 2 working days. Fix the items below to avoid
-                  delays.
+                  Review your details before sending the application to VOYA. Pending document verification is completed by the review team.
                 </p>
               </header>
+              <div className="onboarding-note info"><b>What this review means</b><p>Complete your business identity, primary contact, required KYC, bank details and agreement before submitting. Uploaded documents remain pending until VOYA verifies them. Insurance and licence checks may require follow-up before approval.</p></div>
               <div className="review-checklist" role="list">
                 {reviewItems.map((item) => (
                   <div className={`review-item ${item.status}`} role="listitem" key={item.title}>
-                    <span className="check-icon" aria-hidden="true">{item.status === "ok" ? "✓" : "!"}</span>
+                    <span className="check-icon" aria-hidden="true">{item.status === "ok" ? "✓" : item.status === "info" ? "i" : "!"}</span>
                     <div className="review-item-copy">
                       <b>{item.title}</b>
                       <span>{item.detail}</span>
                     </div>
-                    {item.fixStep && item.status !== "ok" && (
+                    {item.fixStep && (
                       <button type="button" className="btn small" onClick={() => { setError(""); setStep(item.fixStep!); }}>
-                        Fix
+                        {item.status === "ok" ? "Edit" : "Review"}
                       </button>
                     )}
                   </div>
@@ -2699,11 +2737,6 @@ export default function Onboarding({
             </section>
           )}
           <footer className="onboarding-footer">
-            {error && (
-              <div className="onboarding-footer-error" role="alert">
-                {error}
-              </div>
-            )}
             <button
               type="button"
               className="btn"
@@ -2716,14 +2749,14 @@ export default function Onboarding({
               <button
                 type="button"
                 className="btn"
-                onClick={() => void save(payload(step))}
+                onClick={() => void saveDraft()}
                 disabled={busy}
               >
-                {step === 6 ? "Save" : "Save draft"}
+                {busy ? "Saving…" : "Save draft"}
               </button>
               <button
                 type="button"
-                className="btn accent"
+                className="btn primary"
                 onClick={() => void next()}
                 disabled={busy}
               >
@@ -2731,7 +2764,7 @@ export default function Onboarding({
                   ? "Saving…"
                   : step === 8
                     ? "Submit for verification"
-                    : "Next →"}
+                    : "Save & continue →"}
               </button>
             </div>
           </footer>

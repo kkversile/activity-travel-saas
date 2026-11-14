@@ -57,6 +57,12 @@ export class CatalogueController {
   @ApiBody({ description: 'Creates multiple draft products after validating every product import in the batch. The payload is limited to 2,000 section rows and 200 products; existing products are rejected by this create-only endpoint.', schema: { type: 'object', required: ['products'], properties: { products: { type: 'array', maxItems: 200, items: { type: 'object', additionalProperties: true } } } } })
   @Permissions('product.edit')
   importBatch(@CurrentUser() user: AuthUser, @Body() dto: ImportProductBatchDto) { return this.service.importBatch(user, dto); }
+  @Post('products/import/batch/validate')
+  @Permissions('product.edit')
+  validateImportBatch(@CurrentUser() user: AuthUser, @Body() dto: ImportProductBatchDto) { return this.service.importBatch(user, dto, true); }
+  @Post('products/rates/import/batch/validate')
+  @Permissions('product.edit')
+  validateRateImportBatch(@CurrentUser() user: AuthUser, @Body() dto: VendorBulkRateUpdateDto) { return this.service.importRateBatch(user, dto, true); }
   @Post('products/rates/import/batch')
   @ApiBody({ description: 'Applies rate changes to existing vendor products by productCode and optionCode. Every row is preview-validated before any product is changed.', schema: { type: 'object', required: ['rows'], properties: { rows: { type: 'array', maxItems: 2000, items: { type: 'object', required: ['productCode', 'optionCode', 'validFrom', 'validTo'], properties: { productCode: { type: 'string' }, optionCode: { type: 'string' }, validFrom: { type: 'string', format: 'date' }, validTo: { type: 'string', format: 'date' }, adultSellInr: { type: 'string' }, childSellInr: { type: 'string' }, seniorSellInr: { type: 'string' }, mrpInr: { type: 'string' } } } } } } })
   @Permissions('product.edit')

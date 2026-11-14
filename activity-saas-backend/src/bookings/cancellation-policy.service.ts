@@ -13,6 +13,7 @@ export class CancellationPolicyService {
     }
     if (!rows.length) rows = await client.cancellationRule.findMany({ where: { ratePlanId }, orderBy: [{ minDaysBefore: 'asc' }, { id: 'asc' }] });
     if (!rows.length) throw new ConflictException('CANCELLATION_POLICY_MISSING');
+    rows.sort((left, right) => Number(left.minDaysBefore) - Number(right.minDaysBefore));
     for (const row of rows) {
       if (row.minDaysBefore < 0 || (row.maxDaysBefore != null && row.maxDaysBefore < row.minDaysBefore) || Number(row.chargeValue) < 0 || !Object.values(ChargeType).includes(row.chargeType)) throw new ConflictException('CANCELLATION_POLICY_INVALID');
     }

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 export type VendorShellNavItem = {
   key: string;
@@ -13,6 +13,7 @@ type Props = {
   vendorName: string;
   vendorLocation?: string;
   statusLabel: string;
+  onboardingStatus?: string | null;
   onNavigate: (key: string) => void;
   onSignOut: () => void;
   onChangePassword: () => void;
@@ -31,21 +32,26 @@ export default function VendorShell({
   vendorName,
   vendorLocation,
   statusLabel,
+  onboardingStatus,
   onNavigate,
   onSignOut,
   onChangePassword,
   children,
 }: Props) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const awaitingApproval = onboardingStatus !== undefined && onboardingStatus !== "APPROVED";
   const initials = vendorName.trim().split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'V';
 
   return <div className={`partner-app-shell${activeKey === 'onboarding' ? ' partner-onboarding-shell' : ''}${activeKey === 'add-product' || activeKey === 'edit-product' ? ' partner-product-builder-shell' : ''}`}>
-    <aside className="partner-sidebar">
+    <a className="partner-skip-link" href="#partner-page-content">Skip to main content</a>
+    <aside className={`partner-sidebar${menuOpen ? " partner-menu-open" : ""}`}>
       <div className="partner-brand">
         <div className="partner-logo">P</div>
         <div><b>Partner Hub</b><small>Tours &amp; Attractions</small></div>
       </div>
 
-      <nav className="partner-nav" aria-label="Partner Hub navigation">
+      <button type="button" className="partner-menu-toggle btn" aria-expanded={menuOpen} aria-controls="partner-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? "Close menu" : "Menu"}</button>
+      <nav id="partner-navigation" className="partner-nav" aria-label="Partner Hub navigation">
         {sections.map(({ key, label }) => {
           const items = navItems.filter((item) => (item.section || 'main') === key);
           if (!items.length) return null;
@@ -55,9 +61,12 @@ export default function VendorShell({
               type="button"
               key={item.key}
               className={activeKey === item.key || (activeKey === 'edit-product' && item.key === 'add-product') ? 'active' : ''}
-              onClick={() => onNavigate(item.key)}
+              aria-label={`${item.label}${awaitingApproval && ['bookings', 'payouts', 'promotions', 'reports'].includes(item.key) ? ' After approval' : ''}`}
+              aria-disabled={awaitingApproval && ['bookings', 'payouts', 'promotions', 'reports'].includes(item.key) || undefined}
+              title={awaitingApproval && ['bookings', 'payouts', 'promotions', 'reports'].includes(item.key) ? 'Available after your business is approved' : undefined}
+              onClick={() => { if (awaitingApproval && ['bookings', 'payouts', 'promotions', 'reports'].includes(item.key)) return; onNavigate(item.key); setMenuOpen(false); }}
             >
-              <span>{item.label}</span>
+              <span>{item.label}{awaitingApproval && ['bookings', 'payouts', 'promotions', 'reports'].includes(item.key) && <small className="partner-access-hint"> After approval</small>}</span>
               {item.count !== undefined && item.count > 0 && <span className="partner-nav-count">{item.count}</span>}
             </button>)}
           </div>;
@@ -84,7 +93,7 @@ export default function VendorShell({
           <button type="button" className="partner-link-button" onClick={onSignOut}>Sign out</button>
         </div>
       </header>
-      <div className="partner-content">{children}</div>
+      <div className="partner-content" id="partner-page-content" tabIndex={-1}>{children}</div>
     </main>
   </div>;
 }

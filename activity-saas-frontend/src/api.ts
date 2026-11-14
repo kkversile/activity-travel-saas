@@ -221,7 +221,7 @@ class ApiClient {
         const body = await res.json();
         const payload = body.message && typeof body.message === 'object' ? body.message : body;
         message = Array.isArray(payload.message) ? payload.message.join(', ') : payload.message || message;
-        throw new ApiError(res.status, message, payload.code, payload.details || payload.gates);
+        throw new ApiError(res.status, message, payload.code, payload.details || payload.gates || payload.issues || payload.products);
       } catch (error) {
         if (error instanceof ApiError) throw error;
         throw new ApiError(res.status, message);

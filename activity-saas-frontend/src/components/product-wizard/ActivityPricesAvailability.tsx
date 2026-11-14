@@ -88,7 +88,7 @@ type RatePeriod = {
   adjustmentType: "PERCENT" | "FLAT";
   adjustmentValue: string;
 };
-const cancellationPresetOptions: Array<{
+export const cancellationPresetOptions: Array<{
   value: CancellationPreset;
   label: string;
   rules: CancellationRule[];
@@ -105,7 +105,7 @@ const cancellationPresetOptions: Array<{
       },
       {
         minDaysBefore: "0",
-        maxDaysBefore: "1",
+        maxDaysBefore: "0",
         chargeValue: "100",
         chargeType: "PERCENTAGE",
       },
@@ -123,13 +123,13 @@ const cancellationPresetOptions: Array<{
       },
       {
         minDaysBefore: "1",
-        maxDaysBefore: "2",
+        maxDaysBefore: "1",
         chargeValue: "50",
         chargeType: "PERCENTAGE",
       },
       {
         minDaysBefore: "0",
-        maxDaysBefore: "1",
+        maxDaysBefore: "0",
         chargeValue: "100",
         chargeType: "PERCENTAGE",
       },
@@ -147,13 +147,13 @@ const cancellationPresetOptions: Array<{
       },
       {
         minDaysBefore: "3",
-        maxDaysBefore: "7",
+        maxDaysBefore: "6",
         chargeValue: "50",
         chargeType: "PERCENTAGE",
       },
       {
         minDaysBefore: "0",
-        maxDaysBefore: "3",
+        maxDaysBefore: "2",
         chargeValue: "100",
         chargeType: "PERCENTAGE",
       },
@@ -235,8 +235,7 @@ function latestVersion(plan: any) {
       .sort(
         (a, b) => Number(b.versionNumber || 0) - Number(a.versionNumber || 0),
       )
-      .find((version) => version.status === "DRAFT") ||
-    plan?.versions?.find((version: any) => version.status === "ACTIVE")
+      [0]
   );
 }
 
@@ -1046,6 +1045,7 @@ export default function ActivityPricesAvailability({
     }
   }
   async function saveAll(): Promise<boolean> {
+    if (loadingExisting) { onError("Wait for saved rates and availability to finish loading."); return false; }
     const clientErrors = validationErrors();
     if (clientErrors.length) {
       onError(clientErrors.join(" "));
@@ -1132,6 +1132,7 @@ export default function ActivityPricesAvailability({
     return () => onRegisterPricingSave?.(null);
   }, [onRegisterPricingSave, saveAll]);
 
+  if (loadingExisting) return <div className="experience-step-card" role="status">Loading saved prices, availability and policies…</div>;
   return (
     <div className={`experience-step-stack activity-editor-section-${section}`}>
       <div className="experience-step-card activity-prices-card">
@@ -1157,10 +1158,10 @@ export default function ActivityPricesAvailability({
         <div className="experience-notice">
           <b>How this works:</b>{" "}
           {isPricing
-            ? "Rates are saved as versioned commercial records. Existing contracts and booking snapshots remain untouched."
+            ? "Choose the dates these prices apply to. Confirmed bookings retain their agreed prices."
             : isPolicies
               ? "Policies apply to the selected options and remain reviewable before submission."
-              : "Availability is saved as schedule and slot records. Price changes do not reset existing sessions or inventory."}
+              : "Set operating dates, time slots and capacity. Changing prices does not change your saved availability."}
           {protectedRateCount > 0 && (
             <>
               <br />
@@ -1182,12 +1183,12 @@ export default function ActivityPricesAvailability({
             <div className="prototype-commercial-terms">
               <div className="prototype-commercial-heading">
                 <span>🔒 Your commercial terms · set at onboarding</span>
-                <span className="experience-pill success">Agreement signed</span>
+                <span className="experience-pill">Account settings</span>
               </div>
               <div className="prototype-commercial-grid">
                 <div><small>Commission</small><strong>{commissionPercent ? `${commissionPercent}%` : "Set by account"}</strong><em>of sell price</em></div>
-                <div><small>Settlement</small><strong>Weekly</strong><em>T+7 after activity date</em></div>
-                <div><small>Agreement valid</small><strong>{dateFrom} – {dateTo}</strong></div>
+                <div><small>Settlement</small><strong>See commercial terms</strong><em>In Business profile &amp; KYC</em></div>
+                <div><small>Selling period</small><strong>{dateFrom} – {dateTo}</strong></div>
               </div>
               <p>These terms can't be changed here. Contact your account manager to revise them.</p>
             </div>
@@ -1756,7 +1757,7 @@ export default function ActivityPricesAvailability({
         )}
         {rows.length > 0 && <section className="prototype-rate-preview" aria-label="Customer price preview">
           <div className="experience-card-heading"><div><h4>Commercial price preview</h4><p>Review the customer price, commission and supplier settlement before saving.</p></div><span className="experience-pill">Commission {commissionPercent || "—"}%</span></div>
-          <div className="prototype-rate-breakdown"><div className="prototype-rate-breakdown-head"><span>Option</span><span>MRP</span><span>Your sell price</span><span>Commission</span><span>You receive</span><span>Saving shown</span></div>{rows.map((row) => { const sell = Number(row.pricingUnit === "PER_PERSON" ? row.adult : row.base); const mrp = Number(row.mrp); const commission = Number(commissionPercent || 0); const fee = sell && commission ? sell * commission / 100 : 0; const receive = sell ? sell - fee : 0; const saving = mrp > 0 && sell > 0 ? Math.max(0, (mrp - sell) / mrp * 100) : 0; const name = byId.get(row.variantId)?.name || "Option"; return <div className="prototype-rate-breakdown-row" key={`breakdown-${row.variantId}`}><b>{name}</b><span>{mrp > 0 ? `₹${mrp.toFixed(2)}` : "—"}</span><span>{sell > 0 ? `₹${sell.toFixed(2)}` : "—"}</span><span>{fee > 0 ? `₹${fee.toFixed(2)}` : "—"}</span><span>{receive > 0 ? `₹${receive.toFixed(2)}` : "—"}</span><span>{saving > 0 ? `${saving.toFixed(1)}%` : "—"}</span></div>; })}</div>
+          <div className="prototype-rate-breakdown"><div className="prototype-rate-breakdown-head"><span>Option</span><span>MRP</span><span>Your sell price</span><span>Commission</span><span>You receive</span><span>Saving shown</span></div>{rows.map((row) => { const sell = Number(row.pricingUnit === "PER_PERSON" ? row.adult : row.base); const mrp = Number(row.mrp); const commission = Number(commissionPercent || 0); const fee = sell && commission ? sell * commission / 100 : 0; const receive = sell ? sell - fee : 0; const saving = mrp > 0 && sell > 0 ? Math.max(0, (mrp - sell) / mrp * 100) : 0; const name = byId.get(row.variantId)?.name || "Option"; return <div className="prototype-rate-breakdown-row" key={`breakdown-${row.variantId}`}><b>{name}</b><span>{mrp > 0 ? `₹${mrp.toFixed(2)}` : "—"}</span><span>{sell > 0 ? `₹${sell.toFixed(2)}` : "—"}</span><span>{fee > 0 ? `₹${fee.toFixed(2)}` : "—"}</span><span>{commissionPercent.trim() && receive > 0 ? `₹${receive.toFixed(2)}` : "—"}</span><span>{saving > 0 ? `${saving.toFixed(1)}%` : "—"}</span></div>; })}</div>
           <div className="prototype-final-price-preview"><b>Final price preview</b>{rows.map((row) => { const sell = Number(row.pricingUnit === "PER_PERSON" ? row.adult : row.base); const name = byId.get(row.variantId)?.name || "Option"; return <span key={`final-${row.variantId}`}>{name}: <strong>{sell > 0 ? `₹${sell.toFixed(2)}` : "Enter a sell price"}</strong> per traveller</span>; })}</div>
         </section>}
       </div>
@@ -1764,7 +1765,7 @@ export default function ActivityPricesAvailability({
         <div className="experience-card-heading">
           <div>
             <h4>
-              Availability <span className="experience-pill">Optional</span>
+              Availability <span className="experience-pill">Required before submission</span>
             </h4>
             <p>Price-only saves never reset sessions or inventory.</p>
           </div>
@@ -1998,9 +1999,9 @@ export default function ActivityPricesAvailability({
           </div>
         )}
         {includeAvailability && <div className="prototype-availability-calendar">
-          <div className="experience-card-heading"><div><h4>{new Date(`${dateFrom || today()}T00:00:00Z`).toLocaleString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })} · {slots[0]?.slotCode || "all day"} slot</h4><p>Saved session inventory determines Open, Under 25% and Sold out. Tap a date only to toggle a manual blackout.</p></div><div className="prototype-calendar-legend"><span><i className="open" />Open</span><span><i className="low" />Under 25%</span><span><i className="sold-out" />Sold out</span><span><i className="blackout" />Blackout</span></div></div>
+          <div className="experience-card-heading"><div><h4>{new Date(`${dateFrom || today()}T00:00:00Z`).toLocaleString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })} · {slots[0]?.slotCode || "all day"} slot</h4><p>Open, Under 25% and Sold out reflect saved inventory. Unconfigured dates have no saved inventory. Save availability to generate sessions. Tap a date to toggle a manual blackout.</p></div><div className="prototype-calendar-legend"><span><i className="open" />Open</span><span><i className="low" />Under 25%</span><span><i className="sold-out" />Sold out</span><span><i className="blackout" />Blackout</span></div></div>
           <div className="prototype-calendar-weekdays">{["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => <span key={day}>{day}</span>)}</div>
-          <div className="prototype-calendar-grid">{calendarDays.map((day, index) => { if (!day) return <span key={`blank-${index}`} aria-hidden="true" />; const derived = inventoryStates[day] || "OPEN"; const state = blackoutDates.includes(day) ? "BLACKOUT" : availabilityStates[day] || derived; const nextState: AvailabilityState = state === "BLACKOUT" ? derived : "BLACKOUT"; return <button type="button" key={day} className={state.toLowerCase().replace("_", "-")} onClick={() => { setAvailabilityStates((old) => ({ ...old, [day]: nextState })); setBlackoutDates((old) => nextState === "BLACKOUT" ? (old.includes(day) ? old : [...old, day]) : old.filter((value) => value !== day)); setAvailabilityTouched(true); dirty(); }} disabled={locked} aria-label={`${day} ${state.toLowerCase().replace("_", " ")}`}>{new Date(`${day}T00:00:00Z`).getUTCDate()}</button>; })}</div>
+          <div className="prototype-calendar-grid">{calendarDays.map((day, index) => { if (!day) return <span key={`blank-${index}`} aria-hidden="true" />; const derived = inventoryStates[day]; const state: string = blackoutDates.includes(day) ? "BLACKOUT" : availabilityStates[day] || derived || "UNSAVED"; const nextState: AvailabilityState = state === "BLACKOUT" ? (derived || "OPEN") : "BLACKOUT"; return <button type="button" key={day} className={state.toLowerCase().replace("_", "-")} onClick={() => { setAvailabilityStates((old) => ({ ...old, [day]: nextState })); setBlackoutDates((old) => nextState === "BLACKOUT" ? (old.includes(day) ? old : [...old, day]) : old.filter((value) => value !== day)); setAvailabilityTouched(true); dirty(); }} disabled={locked || day < dateFrom || day >= dateTo} aria-label={`${day} ${state === "UNSAVED" ? "unconfigured" : state.toLowerCase().replace("_", " ")}`}>{new Date(`${day}T00:00:00Z`).getUTCDate()}</button>; })}</div>
         </div>}
         {includeAvailability && (
           <label className="wizard-check activity-capacity-check">

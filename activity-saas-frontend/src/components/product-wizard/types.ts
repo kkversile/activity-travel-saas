@@ -141,6 +141,8 @@ export type WizardStepProps = {
   onError: (message: string) => void;
   onPricingSaved?: () => void;
   onPricingDirty?: () => void;
+  onContentDirty?: () => void;
+  onRegisterContentSave?: (handler: (() => Promise<boolean>) | null) => void;
   onRegisterPricingSave?: (handler: (() => Promise<boolean>) | null) => void;
 };
 

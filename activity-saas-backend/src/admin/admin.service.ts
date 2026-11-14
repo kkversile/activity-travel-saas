@@ -1,7 +1,8 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { PLATFORM_THEME_KEY, PLATFORM_THEMES, PlatformTheme, PlatformThemeColors, normalizePlatformTheme, normalizePlatformThemeColors, readPlatformTheme } from '../common/platform-theme';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AgentCommercialChangeStatus, AgentVerificationStatus, AgentWalletCreditApprovalStatus, BookingStatus, DocumentReviewStatus, PayoutStatus, PlatformCouponStatus, Prisma, ProductRevisionStatus, ProductStatus, RefundStatus, SupplierCommercialModel, TenantKind, UserRole, VendorCommercialChangeStatus, VendorOnboardingStatus, VendorVerificationStatus } from '@prisma/client';
 import { hash } from 'bcryptjs';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
 import { OutboxService } from '../outbox/outbox.service';
@@ -16,6 +17,7 @@ import { PublicEntity, allocatePublicCode, allocateVendorVoucherShortCode, ensur
 import { summarizeVendorCommercialTerms, summarizeVendorMetrics } from './vendor-metrics';
 import { assertVendorOnboardingDocumentsApproved } from './vendor-onboarding-approval';
 import { OnboardingEmailService } from '../onboarding/onboarding-email.service';
+import { DEFAULT_REGISTRATION_OFFER_TYPES, normalizeRegistrationOfferTypes, REGISTRATION_OFFER_TYPES_SETTING_KEY, RegistrationOfferType } from '../common/registration-offer-types';
 
 const profileSelect = { id: true, tenantId: true, legalBusinessName: true, operatingCity: true, operatingRegion: true, supplierType: true, accountManagerName: true, defaultSupplierModel: true, defaultSupplierCommissionPercent: true, voucherShortCode: true, gstin: true, category: true, verificationStatus: true, readinessScore: true, payoutAccountMasked: true, payoutAccountHolder: true, payoutBankName: true, payoutBranch: true, payoutIfsc: true, payoutSwift: true, payoutAccountType: true, payoutCurrency: true } satisfies Prisma.VendorProfileSelect;
 const documentsInclude = { vendorDocuments: { include: { versions: { orderBy: { versionNumber: 'desc' as const }, include: { fileAsset: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true, visibility: true, purpose: true } } } } } } };
@@ -30,6 +32,24 @@ const defaultAgentTiers = [
 @Injectable()
 export class AdminService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, @Optional() private readonly distributionMappings?: ChannelMappingService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService, @Optional() private readonly onboardingEmail?: OnboardingEmailService) {}
+
+  appearance() { return readPlatformTheme(this.prisma); }
+
+  async updateAppearance(actor: AuthUser, theme: PlatformTheme, colors?: Partial<PlatformThemeColors>) {
+    this.assertSuperAdmin(actor);
+    if (!PLATFORM_THEMES.includes(theme)) throw new BadRequestException('Unknown theme');
+    const safeColors = normalizePlatformThemeColors(theme, colors);
+    return this.prisma.$transaction(async (tx) => {
+      // Nullable tenantId is not unique in PostgreSQL; serialize global creation.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(724091)::text`;
+      const before = await tx.globalSetting.findFirst({ where: { tenantId: null, key: PLATFORM_THEME_KEY } });
+      const saved = before
+        ? await tx.globalSetting.update({ where: { id: before.id }, data: { value: { theme, colors: safeColors }, adminId: actor.sub } })
+        : await tx.globalSetting.create({ data: { tenantId: null, key: PLATFORM_THEME_KEY, value: { theme, colors: safeColors }, adminId: actor.sub } });
+      await this.audit.write(tx, { actor, action: 'PLATFORM_THEME_UPDATED', entityType: 'GlobalSetting', entityId: saved.id, beforeState: { theme: normalizePlatformTheme(before?.value), colors: normalizePlatformThemeColors(normalizePlatformTheme(before?.value), (before?.value as any)?.colors) }, afterState: { theme, colors: safeColors } });
+      return { theme, colors: safeColors, updatedAt: saved.updatedAt };
+    });
+  }
 
   private assertSuperAdmin(actor: AuthUser) {
     if (actor.role !== UserRole.SUPER_ADMIN)
@@ -77,6 +97,48 @@ export class AdminService {
   async visitorPricingSettings() {
     const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: VISITOR_PRICING_SETTINGS_KEY }, select: { value: true, updatedAt: true, adminId: true } });
     return { ...normalizeVisitorPricingSettings(setting?.value || defaultVisitorPricingSettings), updatedAt: setting?.updatedAt || null, updatedById: setting?.adminId || null };
+  }
+
+  async registrationOfferTypes() {
+    const setting = await this.prisma.globalSetting.findFirst({ where: { tenantId: null, key: REGISTRATION_OFFER_TYPES_SETTING_KEY }, select: { value: true, updatedAt: true } });
+    return { items: normalizeRegistrationOfferTypes(setting?.value ?? DEFAULT_REGISTRATION_OFFER_TYPES), updatedAt: setting?.updatedAt || null };
+  }
+
+  private async changeRegistrationOfferTypes(actor: AuthUser, action: string, mutate: (items: RegistrationOfferType[]) => RegistrationOfferType[]) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(1836020834, 1)`;
+      const currentSetting = await tx.globalSetting.findFirst({ where: { tenantId: null, key: REGISTRATION_OFFER_TYPES_SETTING_KEY }, select: { id: true, value: true } });
+      const before = normalizeRegistrationOfferTypes(currentSetting?.value ?? DEFAULT_REGISTRATION_OFFER_TYPES);
+      const after = normalizeRegistrationOfferTypes(mutate(before));
+      const duplicateLabel = after.find((item, index) => after.findIndex((other) => other.label.toLocaleLowerCase() === item.label.toLocaleLowerCase()) !== index);
+      if (duplicateLabel) throw new ConflictException('An offer type with this name already exists');
+      const saved = currentSetting
+        ? await tx.globalSetting.update({ where: { id: currentSetting.id }, data: { value: after as Prisma.InputJsonValue, adminId: actor.sub }, select: { id: true, updatedAt: true } })
+        : await tx.globalSetting.create({ data: { tenantId: null, adminId: actor.sub, key: REGISTRATION_OFFER_TYPES_SETTING_KEY, value: after as Prisma.InputJsonValue }, select: { id: true, updatedAt: true } });
+      await this.audit.write(tx, { actor, action, entityType: 'GlobalSetting', entityId: saved.id, beforeState: before, afterState: after });
+      return { items: after, updatedAt: saved.updatedAt };
+    });
+  }
+
+  createRegistrationOfferType(actor: AuthUser, input: { label: string; status?: boolean; sortOrder?: number }) {
+    const label = input.label.trim();
+    if (label.length < 2 || label.length > 80) throw new BadRequestException('Offer type name must be between 2 and 80 characters');
+    return this.changeRegistrationOfferTypes(actor, 'REGISTRATION_OFFER_TYPE_CREATED', (items) => [...items, { id: randomUUID(), label, status: input.status ?? true, sortOrder: input.sortOrder ?? (Math.max(0, ...items.map((item) => item.sortOrder)) + 10) }]);
+  }
+
+  updateRegistrationOfferType(actor: AuthUser, id: string, input: { label?: string; status?: boolean; sortOrder?: number }) {
+    if (input.label !== undefined && (input.label.trim().length < 2 || input.label.trim().length > 80)) throw new BadRequestException('Offer type name must be between 2 and 80 characters');
+    return this.changeRegistrationOfferTypes(actor, 'REGISTRATION_OFFER_TYPE_UPDATED', (items) => {
+      if (!items.some((item) => item.id === id)) throw new NotFoundException('Registration offer type not found');
+      return items.map((item) => item.id === id ? { ...item, ...(input.label !== undefined ? { label: input.label.trim() } : {}), ...(input.status !== undefined ? { status: input.status } : {}), ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}) } : item);
+    });
+  }
+
+  deleteRegistrationOfferType(actor: AuthUser, id: string) {
+    return this.changeRegistrationOfferTypes(actor, 'REGISTRATION_OFFER_TYPE_DELETED', (items) => {
+      if (!items.some((item) => item.id === id)) throw new NotFoundException('Registration offer type not found');
+      return items.filter((item) => item.id !== id);
+    });
   }
 
   async updateVisitorPricingSettings(actor: AuthUser, input: Partial<VisitorPricingSettings>) {

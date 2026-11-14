@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 
-export default function ChangePasswordDialog({ onClose, required = false, onChanged }: { onClose: () => void; required?: boolean; onChanged?: () => void }) {
+export default function ChangePasswordDialog({ onClose, required = false, onChanged, theme }: { onClose: () => void; required?: boolean; onChanged?: () => void; theme?: 'vendor' | 'console' }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -39,7 +39,7 @@ export default function ChangePasswordDialog({ onClose, required = false, onChan
   }
 
   const dialog = (
-    <div className="change-password-backdrop" role="presentation" onMouseDown={(event) => { if (!required && event.target === event.currentTarget) onClose(); }}>
+    <div className={`change-password-backdrop${theme === 'vendor' ? ' vendor-theme-scope' : theme === 'console' ? ' console-theme-scope' : ''}`} role="presentation" onMouseDown={(event) => { if (!required && event.target === event.currentTarget) onClose(); }}>
       <section className="change-password-modal" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
         <div className="modal-head">
           <div>

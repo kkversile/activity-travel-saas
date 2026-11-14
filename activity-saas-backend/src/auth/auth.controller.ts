@@ -18,6 +18,14 @@ import { StartImpersonationDto } from './impersonation.dto';
 export class AuthController {
   constructor(private readonly auth: AuthService, private readonly impersonation: ImpersonationService) {}
 
+  @Get('appearance')
+  appearance() { return this.auth.appearance(); }
+
+  @Get('vendor-registration-offer-types')
+  registrationOfferTypes() {
+    return this.auth.registrationOfferTypes();
+  }
+
   @Post('login')
   @ApiBody({ description: 'Demo credentials are loaded from deployment configuration. Replace with a registered user when needed.', schema: { type: 'object', example: swaggerExamples.auth.login } })
   login(@Body() dto: LoginDto) {

@@ -1,0 +1,450 @@
+/* Semantic colours shared by the vendor workspace and activity dialogs.
+   Decorative dividers stay quiet; interactive controls have stronger boundaries. */
+.partner-app-shell, .vendor-theme-scope, .voya-experience-ux, .login-page, .register-page {
+  --ux-primary-action:var(--voya-primary, #8d9df5);
+  --ux-on-primary:var(--voya-primary-text, var(--voya-on-primary, #0e131d));
+  --ux-primary-border:var(--voya-primary, #8d9df5);
+  --ux-primary-hover:var(--voya-primary, #a4b1ff);
+  --ux-control-border:var(--voya-control, #60718d);
+  --ux-placeholder:var(--voya-muted, #9aa8bf);
+  --ux-focus:var(--voya-primary, #a9b5ff);
+  --ux-info-surface:var(--voya-raised, #232c48);
+  --ux-info-text:var(--voya-primary, #b6c0ff);
+  --ux-success-surface:var(--voya-success-soft, #17372f);
+  --ux-success-text:var(--voya-success, #87dcb1);
+  --ux-warning-surface:var(--voya-warning-soft, #3a2a14);
+  --ux-warning-text:var(--voya-warning, #ffc16b);
+  --ux-error-surface:var(--voya-error-soft, #3a2028);
+  --ux-error-text:var(--voya-error, #ffb4ad);
+}
+
+/* The foreground follows the surface it sits on, including edited palettes. */
+.partner-app-shell, .vendor-theme-scope, .voya-experience-ux, .login-page, .register-page {
+  --ux-text:var(--voya-surface-text, var(--voya-text, #e6e9f1));
+  --ux-muted:var(--voya-surface-muted, var(--voya-muted, #aab6cc));
+  --ux-placeholder:var(--voya-raised-muted, var(--voya-muted, #9aa8bf));
+  --ux-on-primary:var(--voya-primary-text, var(--voya-on-primary, #fffaf6));
+}
+.partner-app-shell :is(.panel, .card, .modal-card, .modal, .onboarding-card, .experience-modal),
+.vendor-theme-scope :is(.panel, .card, .modal-card, .modal, .onboarding-card, .experience-modal),
+.voya-experience-ux { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell :is(.panel-head, .modal-head, .modal-header, .section-head, .experience-step-footer),
+.vendor-theme-scope :is(.panel-head, .modal-head, .modal-header, .section-head, .experience-step-footer),
+.voya-experience-ux :is(.panel-head, .modal-head, .modal-header, .section-head, .experience-step-footer) { color:var(--voya-raised-text, var(--voya-surface-text, var(--voya-text, #e6e9f1))); }
+.partner-app-shell :is(.btn.primary, .btn.accent, .partner-button-primary, .partner-button-accent),
+.vendor-theme-scope :is(.btn.primary, .btn.accent, .partner-button-primary, .partner-button-accent),
+.voya-experience-ux :is(.btn.primary, .btn.accent, .partner-button-primary, .partner-button-accent) { color:var(--voya-primary-text, var(--voya-on-primary, #fffaf6)); }
+.partner-app-shell { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell .partner-main, .partner-app-shell .partner-content { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell :is(.partner-sidebar, .partner-topbar) { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell :is(.partner-page-head, .partner-page-header, .products-heading, .admin-hero) :is(h1, h2) { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell :is(.partner-page-head, .partner-page-header, .products-heading, .admin-hero) p { color:var(--voya-page-muted, var(--voya-muted, #aab6cc)); }
+.partner-app-shell .partner-sidebar .partner-nav button.active { background:var(--voya-primary); color:var(--voya-primary-text, var(--voya-on-primary, #fffaf6)); }
+.partner-onboarding-shell .onboarding-page { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-onboarding-shell .onboarding-page > :is(header, .onboarding-heading) :is(h1, h2) { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-onboarding-shell .onboarding-page > :is(header, .onboarding-heading) p { color:var(--voya-page-muted, var(--voya-muted, #aab6cc)); }
+.partner-onboarding-shell .onboarding-stepper button.active { background:var(--voya-primary); color:var(--voya-primary-text, var(--voya-on-primary, #fffaf6)); border-color:var(--voya-primary); }
+.partner-onboarding-shell .onboarding-lifecycle-item.now { color:var(--voya-raised-text, var(--voya-surface-text, #e6e9f1)); }
+.partner-onboarding-shell .onboarding-lifecycle-item.now b { color:inherit; }
+.partner-app-shell .partner-signout { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-onboarding-shell .onboarding-eyebrow { color:var(--voya-page-muted, var(--voya-muted, #aab6cc)); }
+.partner-onboarding-shell .onboarding-save-status { color:var(--voya-page-muted, var(--voya-muted, #aab6cc)); }
+.partner-onboarding-shell .onboarding-stepper-summary { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+html[data-theme] .partner-onboarding-shell .onboarding-lifecycle-item.now > b { color:var(--voya-raised-text, var(--voya-surface-text, #e6e9f1)); }
+.partner-product-builder-shell { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-product-builder-shell .partner-product-builder-header :is(h1, p, .partner-product-builder-crumb) { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-product-builder-shell .partner-product-builder-header :is(p, .partner-product-builder-crumb) { color:var(--voya-page-muted, var(--voya-muted, #aab6cc)); }
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-product-builder-shell .experience-wizard-counter { color:var(--voya-surface-muted, var(--voya-muted, #aab6cc)); }
+.partner-product-builder-shell .experience-step-context { background:var(--voya-raised); color:var(--voya-raised-text, var(--voya-surface-text, #e6e9f1)); border-color:var(--voya-border); }
+.partner-product-builder-shell .experience-step-context :is(b, p) { color:var(--voya-raised-text, var(--voya-surface-text, #e6e9f1)); }
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { background:var(--voya-raised); color:var(--voya-raised-text, var(--voya-surface-text, #e6e9f1)); border-color:var(--voya-control, var(--voya-border)); }
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux :is(input, textarea)::placeholder { color:var(--voya-raised-muted, var(--voya-muted)); opacity:1; }
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .field > span { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .experience-wizard-step.active .experience-step-number { background:var(--voya-primary); color:var(--voya-primary-text, var(--voya-on-primary, #fffaf6)); }
+.partner-onboarding-shell .onboarding-stepper .onboarding-step-counter { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-onboarding-shell .onboarding-stepper .onboarding-step-counter > b { color:inherit; }
+.partner-onboarding-shell .onboarding-card .onboarding-current-step { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-onboarding-shell .onboarding-card .onboarding-current-step > span { color:inherit; }
+
+/* One primary action colour, including actions formerly called "accent". */
+.partner-app-shell .btn:is(.primary, .accent),
+.partner-app-shell :is(.partner-button-primary, .partner-button-accent),
+.partner-app-shell .partner-page-actions button:is(.primary, .accent),
+.login-page .login-card .btn.primary,
+.register-page .register-panel .btn.primary,
+.partner-onboarding-shell .onboarding-footer .btn:is(.primary, .accent),
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .btn:is(.primary, .accent),
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .experience-wizard-content > .experience-step-footer .btn:is(.primary, .accent),
+.experience-modal.voya-experience-ux .btn:is(.primary, .accent) {
+  background:var(--ux-primary-action);
+  border-color:var(--ux-primary-border);
+  color:var(--ux-on-primary);
+}
+.partner-app-shell .btn:is(.primary, .accent):hover:not(:disabled),
+.login-page .btn.primary:hover:not(:disabled),
+.register-page .btn.primary:hover:not(:disabled),
+.voya-experience-ux .btn:is(.primary, .accent):hover:not(:disabled) {
+  --ux-primary-action:var(--ux-primary-hover);
+  --ux-primary-border:var(--ux-primary-hover);
+}
+.partner-app-shell .btn:is(.primary, .accent):disabled,
+.login-page .btn.primary:disabled,
+.register-page .btn.primary:disabled,
+.voya-experience-ux .btn:is(.primary, .accent):disabled {
+  --ux-primary-action:var(--voya-raised, #232c3d);
+  --ux-primary-border:var(--voya-control, #46536b);
+  --ux-on-primary:var(--voya-muted, #aab6cc);
+}
+
+/* Preserve error outlines while raising normal field boundaries above 3:1
+   against the darkest input, card and raised-card backgrounds. */
+.partner-onboarding-shell .onboarding-card :is(input:not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea),
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux :is(input:not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea),
+.experience-modal.voya-experience-ux :is(input:not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea) {
+  background:var(--ux-bg);
+  border-color:var(--ux-control-border);
+  color:var(--ux-text);
+}
+.partner-onboarding-shell .onboarding-card:is(input, textarea)::placeholder,
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux :is(input, textarea)::placeholder,
+.experience-modal.voya-experience-ux :is(input, textarea)::placeholder {
+  color:var(--ux-placeholder);
+  opacity:1;
+}
+.partner-onboarding-shell .onboarding-card:is(input, select, textarea):focus,
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux :is(input, select, textarea):focus,
+.experience-modal.voya-experience-ux :is(input, select, textarea):focus {
+  border-color:var(--ux-focus);
+  outline-color:var(--ux-focus);
+}
+.partner-onboarding-shell .onboarding-card:is(input, select, textarea):disabled,
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux :is(input, select, textarea):is(:disabled, [readonly]),
+.experience-modal.voya-experience-ux :is(input, select, textarea):is(:disabled, [readonly]) {
+  background:var(--ux-raised);
+  color:var(--ux-muted);
+  border-color:var(--ux-border);
+}
+.partner-onboarding-shell .shared-date-picker-trigger,
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .shared-date-picker-trigger,
+.experience-modal.voya-experience-ux .shared-date-picker-trigger {
+  background:var(--ux-bg);
+  color:var(--ux-text);
+  border-color:var(--ux-control-border);
+}
+
+/* Legacy option components supplied colours intended for a light surface. */
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux:is(.option-card, .rate-plan-card, .schedule-card),
+.experience-modal.voya-experience-ux :is(.option-card, .rate-plan-card, .schedule-card) {
+  background:var(--ux-raised);
+  color:var(--ux-text);
+}
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux:is(.option-card, .rate-plan-card, .schedule-card) :is(b, h4),
+.experience-modal.voya-experience-ux :is(.option-card, .rate-plan-card, .schedule-card) :is(b, h4) {
+  color:var(--ux-text);
+  font-size:16px;
+}
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux:is(.option-card, .rate-plan-card, .schedule-card) :is(p, small),
+.experience-modal.voya-experience-ux :is(.option-card, .rate-plan-card, .schedule-card) :is(p, small) {
+  color:var(--ux-muted);
+  font-size:13px;
+  line-height:1.5;
+}
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .experience-card-heading > div > b,
+.experience-modal.voya-experience-ux .experience-card-heading > div > b {
+  color:var(--ux-text);
+}
+
+/* In progress is informational. Amber signals an actionable review problem. */
+.partner-onboarding-shell .onboarding-lifecycle-item.now {
+  background:var(--ux-info-surface);
+  border-color:var(--ux-primary-border);
+}
+.partner-onboarding-shell .onboarding-lifecycle-item.now b { color:var(--ux-info-text); }
+.partner-onboarding-shell .onboarding-lifecycle-item.now.attention {
+  background:var(--ux-warning-surface);
+  border-color:var(--ux-warning-text);
+}
+.partner-onboarding-shell .onboarding-lifecycle-item.now.attention b { color:var(--ux-warning-text); }
+.partner-onboarding-shell .onboarding-stepper button.active > span,
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .experience-wizard-step.active .experience-step-number,
+.experience-modal.voya-experience-ux .experience-wizard-step.active .experience-step-number {
+  background:var(--ux-primary-action);
+  color:var(--ux-on-primary);
+}
+.partner-onboarding-shell .onboarding-card .badge:is(.pending, .pending-review, .under-review, .uploaded),
+.voya-experience-ux .badge:is(.pending, .pending-review, .under-review, .uploaded) {
+  background:var(--ux-info-surface);
+  color:var(--ux-info-text);
+}
+.partner-onboarding-shell .onboarding-card .badge:is(.verified, .approved),
+.voya-experience-ux .badge:is(.verified, .approved, .active) {
+  background:var(--ux-success-surface);
+  color:var(--ux-success-text);
+}
+.partner-onboarding-shell .onboarding-card .badge:is(.missing, .changes-requested),
+.voya-experience-ux .badge:is(.missing, .changes-requested) {
+  background:var(--ux-warning-surface);
+  color:var(--ux-warning-text);
+}
+.partner-onboarding-shell .onboarding-card .badge:is(.rejected, .failed),
+.voya-experience-ux .badge:is(.rejected, .failed) {
+  background:var(--ux-error-surface);
+  color:var(--ux-error-text);
+}
+.partner-onboarding-shell .review-checklist .review-item.ok .check-icon { background:var(--ux-success-surface); color:var(--ux-success-text); }
+.partner-onboarding-shell .review-checklist .review-item.info .check-icon { background:var(--ux-info-surface); color:var(--ux-info-text); }
+.partner-onboarding-shell .review-checklist .review-item.warn .check-icon { background:var(--ux-warning-surface); color:var(--ux-warning-text); }
+.partner-onboarding-shell .review-checklist .review-item.bad .check-icon { background:var(--ux-error-surface); color:var(--ux-error-text); }
+.partner-onboarding-shell .badge:is(.submitted, .under-review),
+.partner-onboarding-shell .badge.under.review { background:var(--ux-info-surface); color:var(--ux-info-text); }
+.partner-onboarding-shell .badge.changes.requested { background:var(--ux-warning-surface); color:var(--ux-warning-text); }
+.partner-onboarding-shell .badge.rejected { background:var(--ux-error-surface); color:var(--ux-error-text); }
+.login-page .login-card:is(input:not([type=checkbox]), select),
+.register-page .register-panel :is(input:not([type=checkbox]), select) { border-color:var(--ux-control-border); }
+.login-page .login-card input::placeholder,
+.register-page .register-panel input::placeholder { color:var(--ux-placeholder); opacity:1; }
+.login-page .login-card:is(input, select):focus,
+.register-page .register-panel :is(input, select):focus { border-color:var(--ux-focus); outline-color:var(--ux-focus); }
+.partner-onboarding-shell input:is([type=checkbox], [type=radio]),
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux input:is([type=checkbox], [type=radio]),
+.experience-modal.voya-experience-ux input:is([type=checkbox], [type=radio]),
+.login-page input:is([type=checkbox], [type=radio]),
+.register-page input:is([type=checkbox], [type=radio]) { accent-color:var(--ux-primary-action); }
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .option-card > small,
+.experience-modal.voya-experience-ux .option-card > small { display:block; margin-top:4px; }
+
+/* Portal dialogs cannot inherit the workspace's tokens. Keep their theme
+   explicit and vendor-scoped, without changing admin or agent screens. */
+.partner-app-shell, .vendor-theme-scope {
+  --good:var(--ux-success-text);
+  --good-soft:var(--ux-success-surface);
+  --warn:var(--ux-warning-text);
+  --warn-soft:var(--ux-warning-surface);
+  --bad:var(--ux-error-text);
+  --bad-soft:var(--ux-error-surface);
+}
+.vendor-theme-scope {
+  --ux-bg:var(--voya-page, #0e131d);
+  --ux-surface:var(--voya-surface, #161d2a);
+  --ux-raised:var(--voya-raised, #1c2535);
+  --ux-border:var(--voya-border, #354159);
+  --ux-text:var(--voya-text, #e6e9f1);
+  --ux-muted:var(--voya-muted, #aab6cc);
+  color-scheme:var(--voya-color-scheme, dark);
+  color:var(--ux-text);
+}
+.partner-app-shell .partner-legacy-page, .partner-app-shell .activity-ai-modal, .vendor-theme-scope {
+  --ink:var(--ux-text);
+  --ink2:var(--ux-muted);
+  --grey:var(--ux-muted);
+  --bg:var(--ux-bg);
+  --panel:var(--ux-surface);
+  --line:var(--ux-border);
+  --grey-soft:var(--ux-raised);
+  --good:var(--ux-success-text);
+  --good-soft:var(--ux-success-surface);
+  --warn:var(--ux-warning-text);
+  --warn-soft:var(--ux-warning-surface);
+  --bad:var(--ux-error-text);
+  --bad-soft:var(--ux-error-surface);
+}
+.vendor-theme-scope.change-password-backdrop { background:#080c14d9; }
+.vendor-theme-scope .change-password-modal,
+.partner-app-shell .voucher-modal {
+  background:var(--ux-surface);
+  color:var(--ux-text);
+  border:1px solid var(--ux-border);
+  color-scheme:var(--voya-color-scheme, dark);
+}
+.vendor-theme-scope:is(.modal-head, .modal-actions),
+.partner-app-shell .voucher-modal :is(.modal-head, .modal-actions) {
+  background:var(--ux-surface);
+  border-color:var(--ux-border);
+}
+.vendor-theme-scope:is(h3, .field > span),
+.partner-app-shell .voucher-modal :is(h3, h4) { color:var(--ux-text); }
+.partner-app-shell .booking-detail {
+  height:auto;
+  max-height:calc(100dvh - 40px);
+  overflow:auto;
+  display:block;
+  padding:0 20px 20px;
+}
+.partner-app-shell .booking-detail > .modal-head { margin:0 -20px 20px; padding:16px 20px; }
+.partner-app-shell .booking-detail .timeline-row { display:flex; flex-wrap:wrap; gap:8px 16px; padding:8px 0; border-bottom:1px solid var(--ux-border); }
+.partner-app-shell .booking-detail .timeline-row span { color:var(--ux-muted); }
+.partner-app-shell .booking-detail .btn.accent:not(:disabled) { background:var(--ux-error-surface); color:var(--ux-error-text); border-color:var(--ux-error-text); }
+.vendor-theme-scope .muted { color:var(--ux-muted); }
+.boot.vendor-theme-scope { background:var(--ux-bg); color:var(--ux-muted); }
+.vendor-theme-scope .modal-close,
+.partner-app-shell .modal-close { background:var(--ux-raised); color:var(--ux-text); }
+.vendor-theme-scope .btn { background:var(--ux-surface); color:var(--ux-text); border-color:var(--ux-control-border); }
+.vendor-theme-scope .btn.primary { background:var(--ux-primary-action); color:var(--ux-on-primary); border-color:var(--ux-primary-border); }
+.vendor-theme-scope .btn.primary:hover:not(:disabled) { background:var(--ux-primary-hover); }
+.vendor-theme-scope .btn.primary:disabled { background:var(--ux-raised); color:var(--ux-muted); border-color:var(--ux-border); }
+.vendor-theme-scope .alert.error { background:var(--ux-error-surface); color:var(--ux-error-text); border-color:var(--voya-error, #8a3f4a); }
+.vendor-theme-scope .alert.success { background:var(--ux-success-surface); color:var(--ux-success-text); border-color:var(--voya-success, #2d6d54); }
+
+/* The same control treatment on search, filters, reports, team forms and
+   nested dialogs as on onboarding and the product builder. */
+.partner-app-shell .partner-content:is(input:not([type=checkbox]):not([type=radio]), select, textarea),
+.vendor-theme-scope :is(input:not([type=checkbox]):not([type=radio]), select, textarea) {
+  background:var(--ux-bg);
+  color:var(--ux-text);
+  border-color:var(--ux-control-border);
+  color-scheme:var(--voya-color-scheme, dark);
+}
+.partner-app-shell .partner-content:is(input, textarea)::placeholder,
+.vendor-theme-scope :is(input, textarea)::placeholder { color:var(--ux-placeholder); opacity:1; }
+.partner-app-shell .partner-content:is(input, select, textarea):disabled,
+.vendor-theme-scope :is(input, select, textarea):disabled {
+  background:var(--ux-raised);
+  color:var(--ux-muted);
+  border-color:var(--ux-border);
+}
+.partner-app-shell .partner-content:is(input, select, textarea)[aria-invalid=true],
+.vendor-theme-scope :is(input, select, textarea)[aria-invalid=true] { border-color:var(--ux-error-text); }
+.partner-app-shell:is(button, input, select, textarea, summary, a):focus-visible,
+.vendor-theme-scope :is(button, input, select, textarea, a):focus-visible {
+  outline:3px solid var(--ux-focus);
+  outline-offset:3px;
+}
+.partner-app-shell input:is([type=checkbox], [type=radio]) {
+  background-color:var(--ux-bg);
+  accent-color:var(--ux-primary-action);
+}
+.partner-app-shell input[type=file]::file-selector-button {
+  background:var(--ux-info-surface);
+  color:var(--ux-text);
+  border:1px solid var(--ux-control-border);
+  border-radius:6px;
+  padding:8px 12px;
+  margin-right:12px;
+}
+.partner-app-shell .shared-date-picker-trigger {
+  background:var(--ux-bg);
+  border-color:var(--ux-control-border);
+  color:var(--ux-text);
+}
+.partner-app-shell .shared-date-picker-trigger.is-empty { color:var(--ux-placeholder); }
+.partner-app-shell .shared-date-picker-trigger:disabled { background:var(--ux-raised); color:var(--ux-muted); border-color:var(--ux-border); }
+.partner-app-shell .shared-date-picker-trigger.is-invalid { border-color:var(--ux-error-text); }
+.partner-app-shell .shared-date-picker-grid button.is-outside { color:var(--ux-muted); }
+.partner-app-shell .shared-date-picker-grid button.is-disabled { color:var(--voya-muted, #77849b); }
+
+/* Legacy operational views still use the shared listing and inventory UI. */
+.partner-app-shell .partner-legacy-page:is(.listing-card, .metric-grid > div) {
+  background:var(--ux-surface);
+  color:var(--ux-text);
+  border-color:var(--ux-border);
+}
+.partner-app-shell .partner-legacy-page:is(.listing-info b, .listing-price, .kpi-card strong) { color:var(--ux-text); }
+.partner-app-shell .partner-legacy-page:is(.listing-card small, .listing-card p, .listing-info small) { color:var(--ux-muted); }
+.partner-app-shell .partner-legacy-page .listing-card:hover { border-color:var(--ux-primary-border); background:var(--ux-raised); }
+.partner-app-shell .partner-legacy-page .inventory-table th { background:var(--ux-raised); color:var(--ux-muted); }
+.partner-app-shell .partner-legacy-page:is(.link-button, .workspace-tabs button.active) { color:var(--ux-info-text); }
+.partner-app-shell .partner-legacy-page .workspace-tabs button.active { border-color:var(--ux-primary-border); }
+.partner-app-shell .partner-legacy-page .promo-summary { background:var(--ux-raised); color:var(--ux-text); }
+
+/* Map controls and unloaded tiles are application surfaces; preserve the
+   original marker colours and exported document/signature assets. */
+.partner-app-shell .leaflet-container { background:var(--ux-bg); }
+.partner-app-shell .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.85); }
+.partner-app-shell:is(.leaflet-bar a, .leaflet-control-attribution, .leaflet-popup-content-wrapper, .leaflet-popup-tip) {
+  background:var(--ux-surface);
+  color:var(--ux-text);
+  border-color:var(--ux-border);
+}
+.partner-app-shell .leaflet-bar a:hover { background:var(--ux-raised); color:var(--ux-info-text); }
+.partner-app-shell .leaflet-control-attribution a { color:var(--ux-info-text); }
+/* Invert only the interactive canvas presentation. Saved PNG pixels and
+   uploaded signatures retain their original colours for document output. */
+.partner-onboarding-shell .signature-canvas { background:var(--voya-warning-soft, #f1ece2); filter:invert(1); border-color:var(--voya-warning, #9f8e72); }
+
+/* Semantic badges also apply outside the onboarding and editor scopes. */
+.partner-app-shell .badge:is(.pending, .under-review, .submitted, .uploaded, .scheduled, .in-transit) { background:var(--ux-info-surface); color:var(--ux-info-text); }
+.partner-app-shell .badge:is(.verified, .approved, .live, .active, .confirmed, .paid, .ready, .pass, .redeemed, .succeeded, .completed) { background:var(--ux-success-surface); color:var(--ux-success-text); }
+.partner-app-shell .badge:is(.missing, .expired, .warning, .warn, .changes-requested) { background:var(--ux-warning-surface); color:var(--ux-warning-text); }
+.partner-app-shell .badge:is(.rejected, .cancelled, .failed, .fail) { background:var(--ux-error-surface); color:var(--ux-error-text); }
+.partner-app-shell .badge.under.review { background:var(--ux-info-surface); color:var(--ux-info-text); }
+.partner-app-shell .badge.changes.requested { background:var(--ux-warning-surface); color:var(--ux-warning-text); }
+.partner-app-shell .badge:is(.attention, .not-uploaded) { background:var(--ux-warning-surface); color:var(--ux-warning-text); }
+.partner-app-shell .badge.current { background:var(--ux-success-surface); color:var(--ux-success-text); }
+.partner-app-shell .approved-blocker i.complete { background:var(--ux-success-surface); color:var(--ux-success-text); }
+.partner-app-shell .approved-blocker i.attention { background:var(--ux-warning-surface); color:var(--ux-warning-text); }
+.partner-app-shell .approved-progress i { background:var(--ux-primary-action); }
+.partner-app-shell .approved-kpi-card:first-child .approved-progress i { background:var(--ux-success-text); }
+.partner-app-shell:is(.activity-ai-review-field, .activity-ai-media-card, .activity-ai-media-fallback, .activity-ai-supplier-row, .activity-ai-preview) {
+  background:var(--ux-raised);
+  color:var(--ux-text);
+  border-color:var(--ux-border);
+}
+.partner-app-shell .activity-ai-media-card img { background:var(--ux-bg); }
+.partner-app-shell .activity-ai-preview ul { color:var(--ux-error-text); }
+.partner-app-shell .activity-ai-modal .icon-button { background:var(--ux-raised); color:var(--ux-text); }
+.partner-app-shell .voya-experience-ux .product-tag.selected {
+  background:var(--ux-info-surface);
+  color:var(--ux-info-text);
+  border-color:var(--ux-primary-border);
+}
+.partner-app-shell .link-button { color:var(--ux-info-text); }
+.partner-app-shell .voya-experience-ux .field-error,
+.partner-app-shell .partner-content .field-error { color:var(--ux-error-text); }
+.partner-app-shell .prototype-rate-period-preview b { color:var(--ux-text); }
+.partner-app-shell .voya-experience-ux .day-picker > span { color:var(--ux-text); }
+.partner-app-shell .partner-notes b { color:var(--ux-info-text); }
+.partner-app-shell .partner-notes span { color:var(--ux-muted); }
+.partner-app-shell .partner-report-card strong { color:var(--ux-info-text); }
+.partner-app-shell .check-row { color:var(--ux-text); }
+.partner-app-shell .upload-status { color:var(--ux-success-text); }
+.partner-onboarding-shell .agreement-status-icon.warn { background:var(--ux-warning-surface); color:var(--ux-warning-text); }
+.partner-onboarding-shell .agreement-status-icon.success { background:var(--ux-success-surface); color:var(--ux-success-text); }
+.partner-app-shell .partner-legacy-page button:not([class]) {
+  background:var(--ux-surface);
+  color:var(--ux-text);
+  border:1px solid var(--ux-control-border);
+  border-radius:8px;
+  padding:9px 14px;
+  cursor:pointer;
+}
+
+@media (max-width:650px) {
+  /* Full-screen sheets must not also retain the backdrop's desktop inset. */
+  .partner-app-shell .modal-backdrop:has(> :is(.import-modal, .rate-plan-modal, .activity-ai-modal)) { padding:0; }
+  .partner-app-shell .modal-backdrop > :is(.import-modal, .rate-plan-modal, .activity-ai-modal) {
+    width:100%;
+    min-width:0;
+    max-width:100vw;
+    height:100dvh;
+    max-height:100dvh;
+    border-radius:0;
+  }
+  .partner-app-shell .modal-card:is(.modal-head, .modal-header) > div { min-width:0; }
+  .partner-app-shell .modal-card:is(.modal-close, .icon-button) { flex-shrink:0; }
+  .partner-app-shell .modal-card .modal-actions { flex-wrap:wrap; }
+}
+
+/* Final contrast layer: keep the page, cards, headings and form controls on
+   their own semantic foregrounds after legacy component styles are loaded. */
+.partner-app-shell { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell .partner-main, .partner-app-shell .partner-content { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell .partner-sidebar, .partner-app-shell .partner-topbar { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell .partner-nav button.active { background:var(--voya-primary); color:var(--voya-primary-text, var(--voya-on-primary, #fffaf6)); }
+.partner-app-shell .partner-signout { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell .partner-page-head :is(h1, h2), .partner-app-shell .partner-page-header :is(h1, h2), .partner-app-shell .products-heading :is(h1, h2) { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-app-shell .partner-page-head p, .partner-app-shell .partner-page-header p, .partner-app-shell .products-heading p { color:var(--voya-page-muted, var(--voya-muted, #aab6cc)); }
+.partner-onboarding-shell .onboarding-page > :is(header, .onboarding-heading) :is(h1, h2) { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-onboarding-shell .onboarding-page > :is(header, .onboarding-heading) p, .partner-onboarding-shell .onboarding-eyebrow, .partner-onboarding-shell .onboarding-save-status { color:var(--voya-page-muted, var(--voya-muted, #aab6cc)); }
+.partner-onboarding-shell .onboarding-stepper-summary { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-onboarding-shell .onboarding-stepper button.active { background:var(--voya-primary); color:var(--voya-primary-text, var(--voya-on-primary, #fffaf6)); border-color:var(--voya-primary); }
+html[data-theme] .partner-onboarding-shell .onboarding-lifecycle-item.now > b { color:var(--voya-raised-text, var(--voya-surface-text, #e6e9f1)); }
+.partner-product-builder-shell .partner-product-builder-header :is(h1, p, .partner-product-builder-crumb) { color:var(--voya-page-text, var(--voya-text, #e6e9f1)); }
+.partner-product-builder-shell .partner-product-builder-header :is(p, .partner-product-builder-crumb) { color:var(--voya-page-muted, var(--voya-muted, #aab6cc)); }
+.partner-product-builder-shell .experience-wizard-counter { color:var(--voya-surface-muted, var(--voya-muted, #aab6cc)); }
+.partner-product-builder-shell .experience-step-context { background:var(--voya-raised); color:var(--voya-raised-text, var(--voya-surface-text, #e6e9f1)); border-color:var(--voya-border); }
+.partner-product-builder-shell .experience-step-context :is(b, p) { color:var(--voya-raised-text, var(--voya-surface-text, #e6e9f1)); }
+.partner-app-shell.partner-product-builder-shell .partner-editor-card.voya-experience-ux .experience-form-grid :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { background:var(--voya-raised); color:var(--voya-raised-text, var(--voya-surface-text, #e6e9f1)); border-color:var(--voya-control, var(--voya-border)); }
+.partner-app-shell.partner-product-builder-shell .partner-editor-card.voya-experience-ux .experience-form-grid :is(input, textarea)::placeholder { color:var(--voya-raised-muted, var(--voya-muted)); opacity:1; }
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .field > span { color:var(--voya-surface-text, var(--voya-text, #e6e9f1)); }
+.partner-product-builder-shell .partner-editor-card.voya-experience-ux .experience-wizard-step.active .experience-step-number { background:var(--voya-primary); color:var(--voya-primary-text, var(--voya-on-primary, #fffaf6)); }

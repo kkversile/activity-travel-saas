@@ -272,7 +272,7 @@ describe('AdminService governance', () => {
   });
 
   it('rejects unsupported vendor verification transitions', async () => {
-    const prisma: any = { vendorProfile: { findUnique: jest.fn() } };
+    const prisma: any = { vendorProfile: { findUnique: jest.fn().mockResolvedValue({ id: 'profile-1', verificationStatus: VendorVerificationStatus.PENDING }) } };
     const service = new AdminService(prisma, {} as any, {} as any);
     await expect(service.verification(actor, 't1', VendorVerificationStatus.PENDING)).rejects.toMatchObject({ status: 409 });
   });

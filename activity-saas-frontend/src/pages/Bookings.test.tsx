@@ -6,6 +6,41 @@ import Bookings from './Bookings';
 afterEach(() => vi.restoreAllMocks());
 
 describe('vendor bookings prototype parity', () => {
+  it('does not imply a zero refund when vendor cancellation needs a finance decision', async () => {
+    const row = { id: 'supplier-cancel', bookingCode: 'VY-1', recordType: 'CANONICAL', status: 'CONFIRMED', serviceDate: '2026-11-22', currency: 'INR', travellers: [], timeline: [], economics: { vendorPayable: '2400' } };
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path.includes('/page?')) return { items: [row], pagination: { page: 1, limit: 25, total: 1, totalPages: 1 } } as never;
+      if (path.endsWith('/preview')) return { eligible: true, financialState: 'CANCELLED_PENDING_FINANCIAL' } as never;
+      return {} as never;
+    });
+    render(<Bookings />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel service' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Cancel service' }));
+    expect(dialog.getByRole('status')).toHaveTextContent('No refund amount has been decided yet');
+    expect(dialog.queryByText(/Estimated refund/)).not.toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Confirm cancellation' })).toBeDisabled();
+    fireEvent.change(dialog.getByLabelText('Supplier cancellation reason'), { target: { value: 'Unsafe weather' } });
+    fireEvent.change(dialog.getByLabelText('Reason category'), { target: { value: 'WEATHER' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Confirm cancellation' }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/vendor/bookings/supplier-cancel/cancellation', expect.objectContaining({ body: JSON.stringify({ reason: 'Unsafe weather', reasonCategory: 'WEATHER' }) })));
+  });
+
+  it('does not present the original payable as a current payout after cancellation', async () => {
+    const row = { id: 'cancelled-1', bookingCode: 'BK-CANCELLED', status: 'CANCELLED', serviceDate: '2026-11-20', currency: 'INR', travellers: [], timeline: [], economics: { vendorPayable: '2400' }, cancellation: { reason: 'Guest request', cancellationCharge: '0', refundEntitlement: '2520', financialState: 'REFUNDED', refund: { status: 'CONFIRMED' } } };
+    vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path.includes('/page?')) return { items: [row], pagination: { page: 1, totalPages: 1, total: 1, limit: 25 } } as never;
+      return row as never;
+    });
+    render(<Bookings />);
+    const table = await screen.findByRole('table');
+    expect(within(table).queryByText(/2,400/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(dialog.getByText('Original vendor amount:')).toBeInTheDocument();
+    expect(dialog.getByRole('status')).toHaveTextContent('REFUNDED');
+    expect(dialog.getByText(/Cancellation settlement is handled separately/)).toBeInTheDocument();
+  });
+
   it('shows the prototype booking columns using the canonical booking projection', async () => {
     vi.spyOn(api, 'request').mockImplementation(async (path) => {
       if (path.startsWith('/vendor/bookings/page?')) return { items: [{

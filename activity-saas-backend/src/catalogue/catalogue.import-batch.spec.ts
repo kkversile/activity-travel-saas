@@ -27,6 +27,14 @@ describe('CatalogueService batch product import', () => {
       .rejects.toMatchObject({ response: expect.objectContaining({ code: 'IMPORT_ROW_LIMIT_EXCEEDED' }) });
   });
 
+  it('validates a batch without writing drafts', async () => {
+    const { service } = createService();
+    const spy = jest.spyOn(service, 'importJson').mockResolvedValue({ valid: true } as any);
+    await expect(service.importBatch(vendor, { products: [productImport('ONE')] as any }, true)).resolves.toMatchObject({ valid: true, productCount: 1 });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][3]).toBe(true);
+  });
+
   it('rejects duplicate product keys before preflight or writes', async () => {
     const { service } = createService();
     const importSpy = jest.spyOn(service, 'importJson').mockResolvedValue({ valid: true } as any);
@@ -90,6 +98,13 @@ describe('CatalogueService bulk rate update import', () => {
     const apply = jest.spyOn(service, 'applyActivityPricesAvailability').mockResolvedValue({ saved: true } as any);
     return { service, prisma, preview, apply };
   }
+
+  it('validates rates without applying any prices', async () => {
+    const { service, preview, apply } = rateService();
+    await expect(service.importRateBatch(vendor, { rows: [rateRow() as any] }, true)).resolves.toMatchObject({ valid: true, productCount: 1 });
+    expect(preview).toHaveBeenCalledTimes(1);
+    expect(apply).not.toHaveBeenCalled();
+  });
 
   it('maps product and option codes to editable versions and previews all updates before applying', async () => {
     const { service, preview, apply } = rateService();

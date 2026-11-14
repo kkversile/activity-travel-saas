@@ -53,6 +53,7 @@ export function SharedDatePicker({ value, onChange, min, max, disabled = false, 
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState(() => monthStart(selected || parseDate(min) || new Date()));
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const next = parseDate(value.slice(0, 10)) || parseDate(min?.slice(0, 10));
@@ -64,7 +65,7 @@ export function SharedDatePicker({ value, onChange, min, max, disabled = false, 
     const close = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { setOpen(false); triggerRef.current?.focus(); } };
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', escape);
     return () => {
@@ -99,10 +100,12 @@ export function SharedDatePicker({ value, onChange, min, max, disabled = false, 
     if (isBefore(next, min?.slice(0, 10)) || isAfter(next, max?.slice(0, 10))) return;
     onChange(includeTime ? `${next}T${value.slice(11, 16) || '00:00'}` : next);
     setOpen(false);
+    triggerRef.current?.focus();
   };
 
   return <div className="shared-date-picker" ref={rootRef}>
     <button
+      ref={triggerRef}
       type="button"
       id={id}
       className={`shared-date-picker-trigger${!value ? ' is-empty' : ''}${ariaInvalid ? ' is-invalid' : ''}`}

@@ -11,6 +11,7 @@ import {
   Query,
   UseGuards,
 } from "@nestjs/common";
+import { UpdatePlatformThemeDto } from './governance.dto';
 import { ApiBody, ApiOkResponse, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { BookingMode, BookingRecordType, BookingStatus, UserRole } from "@prisma/client";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -29,11 +30,13 @@ import {
   CommercialGuardrailConfigurationDto,
   CreateAdminDto,
   CreatePlatformCouponDto,
+  CreateRegistrationOfferTypeDto,
   CreateVendorDto,
   DocumentReviewDto,
   EligibilityInspectDto,
   ResetAdminPasswordDto,
   UpdateAdminStatusDto,
+  UpdateRegistrationOfferTypeDto,
   VendorCommercialChangeDto,
   VendorCommercialReviewDto,
   VendorVerificationDto,
@@ -280,6 +283,13 @@ export class AdminController {
   ) {
     return this.service.auditLog({ action, entityType, limit });
   }
+  @Get("settings/appearance")
+  @Permissions("platform.settings.manage")
+  appearance() { return this.service.appearance(); }
+  @Patch("settings/appearance")
+  @Permissions("platform.settings.manage")
+  updateAppearance(@CurrentUser() user: AuthUser, @Body() dto: UpdatePlatformThemeDto) { return this.service.updateAppearance(user, dto.theme, dto); }
+
   @Get("settings/visitor-pricing")
   @Permissions("platform.settings.manage")
   visitorPricingSettings() {
@@ -347,6 +357,26 @@ export class AdminController {
     },
   ) {
     return this.service.updateActivityContentSettings(user, dto as any);
+  }
+  @Get("registration-offer-types")
+  @Permissions("registration.offer-types.manage")
+  registrationOfferTypes() {
+    return this.service.registrationOfferTypes();
+  }
+  @Post("registration-offer-types")
+  @Permissions("registration.offer-types.manage")
+  createRegistrationOfferType(@CurrentUser() user: AuthUser, @Body() dto: CreateRegistrationOfferTypeDto) {
+    return this.service.createRegistrationOfferType(user, dto);
+  }
+  @Patch("registration-offer-types/:id")
+  @Permissions("registration.offer-types.manage")
+  updateRegistrationOfferType(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateRegistrationOfferTypeDto) {
+    return this.service.updateRegistrationOfferType(user, id, dto);
+  }
+  @Delete("registration-offer-types/:id")
+  @Permissions("registration.offer-types.manage")
+  deleteRegistrationOfferType(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.service.deleteRegistrationOfferType(user, id);
   }
   @Get("settings/overview")
   @Permissions("platform.settings.manage")

@@ -51,7 +51,10 @@ describe('CommercialService transaction client seam', () => {
     const service = Object.create(CommercialService.prototype) as any;
     const promotion = { id: 'promo-1', name: 'Early sale', promotionType: 'EARLY_BIRD', discountPercent: 15, conditionValue: 2, startsAt: new Date('2026-11-10T00:00:00Z'), endsAt: new Date('2026-11-10T23:59:59Z'), validWeekdays: [], stackWithPlatform: false, maxDiscountedBookings: null };
     const rules: any[] = [];
-    await service.appendVendorPromotion(rules, 'p1', { serviceDate: new Date('2026-11-10T00:00:00Z'), travellers: [{ travellerType: 'ADULT', quantity: 2 }] }, { promotion: { findFirst: jest.fn().mockResolvedValue(promotion) } });
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-01T00:00:00Z'));
+    try {
+      await service.appendVendorPromotion(rules, 'p1', { serviceDate: new Date('2026-11-10T00:00:00Z'), travellers: [{ travellerType: 'ADULT', quantity: 2 }] }, { promotion: { findFirst: jest.fn().mockResolvedValue(promotion) } });
+    } finally { jest.useRealTimers(); }
     expect(rules).toHaveLength(1);
     expect(rules[0].config).toMatchObject({ discountType: 'PERCENT', value: '15', funder: 'SUPPLIER', vendorPromotionId: 'promo-1' });
   });

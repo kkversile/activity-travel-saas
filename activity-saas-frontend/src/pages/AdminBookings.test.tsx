@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api';
 import AdminBookings, { adminBookingsCsv } from './AdminBookings';
@@ -15,6 +15,22 @@ const booking = {
 };
 
 describe('Admin bookings search and channels', () => {
+  it('filters cancellations and shows a no-refund outcome without a pending voucher or current margin', async () => {
+    const cancelled = { ...booking, status: 'CANCELLED', economicsSnapshot: { voyaRevenue: '120' }, cancellation: { initiator: 'AGENT', reasonCategory: 'CUSTOMER_REQUEST', reason: 'Guest request', cancellationCharge: '1000', refundEntitlement: '0', financialState: 'CANCELLED_NO_REFUND', refund: null } };
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => (path.includes('?') ? { items: [cancelled], pagination: { page: 1, total: 1, totalPages: 1, limit: 25 } } : cancelled) as never);
+    render(<AdminBookings />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancelled' }));
+    await waitFor(() => expect(request.mock.calls.some(([path]) => path.includes('status=CANCELLED'))).toBe(true));
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('Voucher voided')).toBeInTheDocument();
+    expect(within(table).queryByText(/120.00/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(dialog.getByRole('status')).toHaveTextContent('CANCELLED NO REFUND');
+    expect(dialog.getByText('No refund is due under the booked cancellation policy.')).toBeInTheDocument();
+    expect(dialog.queryByText(/Voucher pending/)).not.toBeInTheDocument();
+  });
+
   it('exports the prototype booking columns including persisted Voya margin', () => {
     const csv = adminBookingsCsv([{
       ...booking,
@@ -87,5 +103,31 @@ describe('Admin bookings search and channels', () => {
     render(<AdminBookings />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manual confirm' }));
     await waitFor(() => expect(request).toHaveBeenCalledWith('/admin/bookings/booking-1/manual-confirm', expect.objectContaining({ method: 'POST' })));
+  });
+
+  it('previews and records an administrator cancellation, then refreshes the booking as pending finance review', async () => {
+    const cancelled = {
+      ...booking,
+      status: 'CANCELLED',
+      voucherCode: null,
+      cancellation: { id: 'cancel-1', initiator: 'ADMIN', reasonCategory: 'OTHER', reason: 'Local flow verification', cancellationCharge: '0', refundEntitlement: '0', financialState: 'CANCELLED_PENDING_FINANCIAL', refund: null },
+    };
+    let current: any = { ...booking, status: 'CONFIRMED' };
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
+      if (path.startsWith('/admin/bookings?')) return { items: [current], pagination: { page: 1, limit: 25, total: 1, totalPages: 1 } } as never;
+      if (path.endsWith('/cancellation/preview')) return { eligible: true, financialState: 'CANCELLED_PENDING_FINANCIAL' } as never;
+      if (path.endsWith('/cancellation')) { current = cancelled; return {} as never; }
+      return current as never;
+    });
+    render(<AdminBookings />);
+    fireEvent.click(await screen.findByRole('button', { name: 'View' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    fireEvent.click(dialog.getByRole('button', { name: 'Preview cancellation' }));
+    expect(await dialog.findByText(/Eligible · CANCELLED PENDING FINANCIAL/)).toBeInTheDocument();
+    fireEvent.change(dialog.getByLabelText('Reason'), { target: { value: 'Local flow verification' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Confirm admin cancellation' }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/admin/bookings/booking-1/cancellation', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reasonCategory: 'OTHER', reason: 'Local flow verification' }) })));
+    expect(await dialog.findByText(/Finance must resolve the customer charge and refund/)).toBeInTheDocument();
+    expect(dialog.getByText(/Financial status: CANCELLED PENDING FINANCIAL/)).toBeInTheDocument();
   });
 });

@@ -114,6 +114,7 @@ describe('vendor registration phone verification', () => {
     const user = { id: 'vendor-2', email: 'owner@example.com', fullName: 'Owner Name', role: 'VENDOR', tenantId: 'tenant-2', organizationRole: 'OWNER', active: true } as never;
     const register = vi.spyOn(api, 'register').mockResolvedValue({ accessToken: 'vendor-token', user });
     const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/auth/vendor-registration-offer-types') return { items: [{ id: 'day-tours', label: 'Day tours & sightseeing', sortOrder: 10 }] } as never;
       if (path === '/vendor/onboarding') return { emailVerificationEnabled: false, mobileVerificationEnabled: true } as never;
       if (path === '/vendor/onboarding/otp/request') return { demoOtp: '123456' } as never;
       if (path === '/vendor/onboarding/otp/verify') return { verified: true } as never;
@@ -128,6 +129,8 @@ describe('vendor registration phone verification', () => {
     fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '+91 98765 43210' } });
     fireEvent.change(screen.getByLabelText('Main city'), { target: { value: 'Panaji' } });
     fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), { target: { value: 'safePass123' } });
+    await screen.findByRole('option', { name: 'Day tours & sightseeing' });
+    fireEvent.change(screen.getByLabelText('What do you offer?'), { target: { value: 'Day tours & sightseeing' } });
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByRole('button', { name: 'Create account & continue' }));
 
@@ -145,6 +148,7 @@ describe('vendor registration phone verification', () => {
     const user = { id: 'vendor-3', email: 'owner@example.com', fullName: 'Owner Name', role: 'VENDOR', tenantId: 'tenant-3', organizationRole: 'OWNER', active: true } as never;
     vi.spyOn(api, 'register').mockResolvedValue({ accessToken: 'vendor-token', user });
     const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/auth/vendor-registration-offer-types') return { items: [{ id: 'day-tours', label: 'Day tours & sightseeing', sortOrder: 10 }] } as never;
       if (path === '/vendor/onboarding') return { emailVerificationEnabled: false, mobileVerificationEnabled: true } as never;
       throw new Error('Mobile verification delivery is not configured');
     });
@@ -156,6 +160,8 @@ describe('vendor registration phone verification', () => {
     fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '+919876543210' } });
     fireEvent.change(screen.getByLabelText('Main city'), { target: { value: 'Panaji' } });
     fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), { target: { value: 'safePass123' } });
+    await screen.findByRole('option', { name: 'Day tours & sightseeing' });
+    fireEvent.change(screen.getByLabelText('What do you offer?'), { target: { value: 'Day tours & sightseeing' } });
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByRole('button', { name: 'Create account & continue' }));
 
@@ -170,7 +176,7 @@ describe('vendor registration phone verification', () => {
     vi.spyOn(window.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
     const user = { id: 'vendor-4', email: 'owner@example.com', fullName: 'Owner Name', role: 'VENDOR', tenantId: 'tenant-4', organizationRole: 'OWNER', active: true } as never;
     vi.spyOn(api, 'register').mockResolvedValue({ accessToken: 'vendor-token', user });
-    vi.spyOn(api, 'request').mockResolvedValue({ mobileVerificationEnabled: false } as never);
+    vi.spyOn(api, 'request').mockImplementation(async (path) => path === '/auth/vendor-registration-offer-types' ? { items: [{ id: 'day-tours', label: 'Day tours & sightseeing', sortOrder: 10 }] } as never : { mobileVerificationEnabled: false } as never);
     const requestCode = vi.spyOn(api, 'requestVendorLoginCode').mockResolvedValue({ challengeId: 'email-challenge', message: 'sent', demoOtp: '123456' });
     const verifyCode = vi.spyOn(api, 'verifyVendorLoginCode').mockResolvedValue({ accessToken: 'verified-token', user });
     const onRegistered = vi.fn();
@@ -182,6 +188,8 @@ describe('vendor registration phone verification', () => {
     fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '+91 98765 43210' } });
     fireEvent.change(screen.getByLabelText('Main city'), { target: { value: 'Panaji' } });
     fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), { target: { value: 'safePass123' } });
+    await screen.findByRole('option', { name: 'Day tours & sightseeing' });
+    fireEvent.change(screen.getByLabelText('What do you offer?'), { target: { value: 'Day tours & sightseeing' } });
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByRole('button', { name: 'Create account & continue' }));
 
@@ -201,6 +209,7 @@ describe('vendor registration phone verification', () => {
     const user = { id: 'vendor-5', email: 'owner@example.com', fullName: 'Owner Name', role: 'VENDOR', tenantId: 'tenant-5', organizationRole: 'OWNER', active: true } as never;
     vi.spyOn(api, 'register').mockResolvedValue({ accessToken: 'vendor-token', user });
     const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/auth/vendor-registration-offer-types') return { items: [{ id: 'day-tours', label: 'Day tours & sightseeing', sortOrder: 10 }] } as never;
       if (path === '/vendor/onboarding') return { emailVerificationEnabled: true, mobileVerificationEnabled: true } as never;
       if (path === '/vendor/onboarding/otp/request') return { demoOtp: '654321' } as never;
       if (path === '/vendor/onboarding/otp/verify') return { verified: true } as never;
@@ -217,6 +226,8 @@ describe('vendor registration phone verification', () => {
     fireEvent.change(screen.getByLabelText('Mobile number'), { target: { value: '+91 98765 43210' } });
     fireEvent.change(screen.getByLabelText('Main city'), { target: { value: 'Panaji' } });
     fireEvent.change(screen.getByPlaceholderText('At least 8 characters'), { target: { value: 'safePass123' } });
+    await screen.findByRole('option', { name: 'Day tours & sightseeing' });
+    fireEvent.change(screen.getByLabelText('What do you offer?'), { target: { value: 'Day tours & sightseeing' } });
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(screen.getByRole('button', { name: 'Create account & continue' }));
 

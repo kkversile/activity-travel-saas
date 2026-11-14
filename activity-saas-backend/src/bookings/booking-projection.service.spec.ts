@@ -6,3 +6,8 @@ describe('BookingProjectionService', () => {
     expect(result).toEqual(expect.objectContaining({ id: 'b1', bookingCode: 'VY-1', snapshot: { productSnapshot: { productName: 'Activity' } }, timeline: [], economics: null }));
   });
 });
+
+it('includes the saved amount and currency in admin lists and detail projections',()=>{
+ const result=new BookingProjectionService().forAdmin({id:'booking-1',amount:'2520.00',currency:'INR',events:[],travellers:[]});
+ expect(result).toMatchObject({amount:2520,currency:'INR'});
+});

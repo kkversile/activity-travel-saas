@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type AdminBooking, type AdminBookingPage } from '../api';
 import { Badge, ErrorBox, Loading, Panel, shortDate, money } from '../components/Ui';
 
-const queues = [['ALL', 'All'], ['PENDING_MANUAL_REVIEW', 'Manual Review'], ['PENDING_VENDOR_CONFIRMATION', 'Vendor Pending'], ['CONFIRMED', 'Confirmed'], ['REJECTED', 'Rejected'], ['CONFIRMATION_EXPIRED', 'Expired'], ['LEGACY', 'Legacy']] as const;
+const queues = [['ALL', 'All'], ['PENDING_MANUAL_REVIEW', 'Manual Review'], ['PENDING_VENDOR_CONFIRMATION', 'Vendor Pending'], ['CONFIRMED', 'Confirmed'], ['CANCELLED', 'Cancelled'], ['REJECTED', 'Rejected'], ['CONFIRMATION_EXPIRED', 'Expired'], ['LEGACY', 'Legacy']] as const;
 const channels = [['ALL', 'All channels'], ['WEBSITE', 'Website & app'], ['AGENT', 'Agents'], ['API', 'API']] as const;
 
 function channelLabel(row: AdminBooking) {
@@ -53,6 +53,12 @@ export default function AdminBookings() {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, limit: 25, total: 0, totalPages: 0 });
   const [selected, setSelected] = useState<AdminBooking | null>(null);
+  const [cancelPreview, setCancelPreview] = useState<any | null>(null);
+  const [cancelCategory, setCancelCategory] = useState('OTHER');
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState('');
+  const [cancelNotice, setCancelNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -105,11 +111,50 @@ export default function AdminBookings() {
     }
   }
 
+  async function previewCancellation() {
+    if (!selected) return;
+    setCancelBusy(true);
+    setCancelError('');
+    setCancelNotice('');
+    try {
+      const result = await api.request<any>(`/admin/bookings/${selected.id}/cancellation/preview`, { method: 'POST' });
+      setCancelPreview(result);
+      if (!result.eligible) setCancelError(`Cancellation unavailable: ${(result.reasonCodes || []).join(', ') || 'booking is not cancellable'}.`);
+    } catch (e) {
+      setCancelError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
+  async function cancelAsAdmin() {
+    if (!selected || !cancelPreview?.eligible || !cancelReason.trim()) return;
+    setCancelBusy(true);
+    setCancelError('');
+    setCancelNotice('');
+    try {
+      await api.request(`/admin/bookings/${selected.id}/cancellation`, {
+        method: 'POST',
+        body: JSON.stringify({ reasonCategory: cancelCategory, reason: cancelReason.trim() }),
+      });
+      const updated = await api.request<AdminBooking>(`/admin/bookings/${selected.id}`);
+      setSelected(updated);
+      setCancelPreview(null);
+      setCancelReason('');
+      setCancelNotice('Booking cancelled. Finance must resolve the customer charge and refund before recording refund completion.');
+      await load();
+    } catch (e) {
+      setCancelError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
   if (loading) return <Loading />;
   const pages = Math.max(1, pagination.totalPages);
   return <>{error && <ErrorBox error={error} />}
     <div className="toolbar booking-toolbar">
-      <input className="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Booking ID, voucher code, guest, phone" />
+      <input className="search" aria-label="Search bookings" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Booking ID, voucher code, guest, phone" />
       <div className="chips">{channels.map(([value, label]) => <button key={value} className={`chip ${channel === value ? 'active' : ''}`} onClick={() => { setChannel(value); setPage(1); }}>{label}</button>)}</div>
       <button className="btn small" disabled={exporting || pagination.total === 0} onClick={() => void exportAll()}>{exporting ? 'Exporting…' : 'Export'}</button>
     </div>
@@ -117,18 +162,18 @@ export default function AdminBookings() {
     <Panel title={`${pagination.total} bookings`}>
       <div className="table-wrap"><table><thead><tr><th>Booking</th><th>Channel</th><th>Activity · vendor</th><th>Date</th><th>Customer paid</th><th>Our margin</th><th>Status</th><th /></tr></thead><tbody>
         {rows.map((row) => <tr key={row.id}>
-          <td className="mono">{row.publicCode || row.bookingCode}<small>{row.voucherCode || 'Voucher pending'}</small></td>
+          <td className="mono">{row.publicCode || row.bookingCode}<small>{row.status === 'CANCELLED' ? 'Voucher voided' : row.voucherCode || 'Voucher pending'}</small></td>
           <td>{channelLabel(row)}{row.snapshot?.channelSnapshot?.publicCode && <small>{row.snapshot.channelSnapshot.publicCode}{row.snapshot.channelSnapshot.name ? ` · ${row.snapshot.channelSnapshot.name}` : ''}</small>}</td>
           <td><b>{row.snapshot?.productSnapshot?.productName || row.product?.publicCode || row.product?.productCode || 'Legacy'}</b><small>{row.vendorTenant?.name || '—'}</small></td>
           <td>{shortDate(row.serviceDate)}</td>
           <td>{money(row.amount || 0)} {row.currency || ''}</td>
-          <td>{row.economicsSnapshot?.voyaRevenue == null ? '—' : money(Number(row.economicsSnapshot.voyaRevenue))}</td>
+          <td>{row.status === 'CANCELLED' || row.economicsSnapshot?.voyaRevenue == null ? '—' : money(Number(row.economicsSnapshot.voyaRevenue))}</td>
           <td><Badge value={row.status} /></td>
           <td><button className="btn small" onClick={() => api.request<AdminBooking>(`/admin/bookings/${row.id}`).then(setSelected).catch((e) => setError(e.message))}>View</button>{row.status === 'PENDING_MANUAL_REVIEW' && <><button className="btn accent small" onClick={() => void decide(row.id, 'confirm')}>Manual confirm</button><button className="btn small" onClick={() => void decide(row.id, 'reject')}>Manual reject</button></>}</td>
         </tr>)}
       </tbody></table>{!rows.length && <div className="empty">No bookings match these filters.</div>}</div>
       <div className="experience-footer-actions"><small>Page {page} of {pages} · {pagination.total} results</small><button className="btn" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>Previous</button><button className="btn" disabled={page >= pagination.totalPages} onClick={() => setPage((current) => current + 1)}>Next</button></div>
     </Panel>
-    {selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="voucher-modal booking-detail" onClick={(e) => e.stopPropagation()}><div className="modal-head"><h3>{selected.publicCode || selected.bookingCode}</h3><button className="btn small" onClick={() => setSelected(null)}>Close</button></div><p className="muted">Legacy booking code: {selected.bookingCode}</p><p><Badge value={selected.status} /> · {selected.channel || selected.bookingMode}</p><p>{selected.snapshot?.productSnapshot?.productName} · {selected.snapshot?.variantSnapshot?.name}</p><p>{selected.customerPhone || 'Phone not provided'} · {selected.voucherCode || 'Voucher pending'}</p><p>{shortDate(selected.serviceDate)} · {money(selected.amount || 0)} {selected.currency}</p><h4>Timeline</h4>{selected.timeline.map((event, i) => <div className="timeline-row" key={i}><b>{event.eventType}</b><span>{new Date(event.createdAt).toLocaleString()}</span></div>)}</div></div>}
+    {selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="voucher-modal booking-detail" role="dialog" aria-modal="true" aria-label={selected.publicCode || selected.bookingCode} onClick={(e) => e.stopPropagation()}><div className="modal-head"><h3>{selected.publicCode || selected.bookingCode}</h3><button className="btn small" onClick={() => setSelected(null)}>Close</button></div>{cancelNotice && <div className="alert success" role="status">{cancelNotice}</div>}<p className="muted">Booking reference: {selected.bookingCode}</p><p><Badge value={selected.status} /> · {selected.channel || selected.bookingMode}</p><p>{selected.snapshot?.productSnapshot?.productName} · {selected.snapshot?.variantSnapshot?.name}</p><p>{selected.customerPhone || 'Phone not provided'} · {selected.status === 'CANCELLED' ? 'Voucher voided' : selected.voucherCode || 'Voucher pending'}</p><p>{shortDate(selected.serviceDate)} · {money(selected.amount || 0)} {selected.currency}</p>{cancelError && <ErrorBox error={cancelError} />}{selected.cancellation && <section><h4>Cancellation</h4><p>{selected.cancellation.initiator} · {selected.cancellation.reasonCategory.replaceAll('_', ' ')}</p><p>{selected.cancellation.reason}</p>{selected.cancellation.financialState === 'CANCELLED_PENDING_FINANCIAL' ? <p>Finance review is pending. Cancellation charge and refund entitlement have not been decided.</p> : <p>Cancellation charge: {money(selected.cancellation.cancellationCharge, selected.currency)} · Refund entitlement: {money(selected.cancellation.refundEntitlement, selected.currency)}</p>}<p role="status">Financial status: {selected.cancellation.financialState.replaceAll('_', ' ')}{selected.cancellation.refund && <> · Refund: {selected.cancellation.refund.status}</>}</p>{selected.cancellation.financialState === 'CANCELLED_NO_REFUND' && <p>No refund is due under the booked cancellation policy.</p>}<p className="muted">Booking amount and original margin are retained for reference. Cancellation settlement is handled separately in Finance.</p>{selected.economicsSnapshot?.voyaRevenue != null && <p>Original booking margin: {money(Number(selected.economicsSnapshot.voyaRevenue), selected.currency)}</p>}</section>}{!selected.cancellation && selected.recordType === 'CANONICAL' && ['CONFIRMED', 'PENDING_VENDOR_CONFIRMATION', 'PENDING_MANUAL_REVIEW'].includes(selected.status) && <section aria-label="Administrator cancellation"><h4>Cancel booking</h4><p className="muted">Admin cancellation releases the booking and voids its voucher. Finance reviews the refund separately; this step does not choose or issue a refund.</p>{cancelPreview ? <><p role="status">{cancelPreview.eligible ? `Eligible · ${cancelPreview.financialState?.replaceAll('_', ' ') || 'financial review required'}` : `Not eligible · ${(cancelPreview.reasonCodes || []).join(', ')}`}</p>{cancelPreview.eligible && <><label className="field"><span>Reason category</span><select value={cancelCategory} onChange={(e) => setCancelCategory(e.target.value)}><option value="CUSTOMER_REQUEST">Customer request</option><option value="VENDOR_OPERATIONAL">Vendor operational</option><option value="WEATHER">Weather</option><option value="SAFETY">Safety</option><option value="FORCE_MAJEURE">Force majeure</option><option value="DUPLICATE">Duplicate booking</option><option value="OTHER">Other</option></select></label><label className="field"><span>Reason</span><textarea required value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} /></label><button className="btn danger" disabled={cancelBusy || !cancelReason.trim()} onClick={() => void cancelAsAdmin()}>{cancelBusy ? 'Cancelling…' : 'Confirm admin cancellation'}</button></>}</> : <button className="btn" disabled={cancelBusy} onClick={() => void previewCancellation()}>{cancelBusy ? 'Checking…' : 'Preview cancellation'}</button>}</section>}<h4>Timeline</h4>{selected.timeline.map((event, i) => <div className="timeline-row" key={i}><b>{event.eventType}</b><span>{new Date(event.createdAt).toLocaleString()}</span></div>)}</div></div>}
   </>;
 }

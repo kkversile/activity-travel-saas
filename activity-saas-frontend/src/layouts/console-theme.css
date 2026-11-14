@@ -1,0 +1,274 @@
+/* Shared dark-theme semantics for admin and agent workspaces. These scopes
+   deliberately exclude vendor pages and printable document/image contents. */
+.admin-shell, .agent-shell, .console-theme-scope {
+  --console-bg:var(--voya-page, #0e131d);
+  --console-surface:var(--voya-surface, #161d2a);
+  --console-raised:var(--voya-raised, #1c2535);
+  --console-border:var(--voya-border, #354159);
+  --console-control:var(--voya-control, #60718d);
+  --console-page-text:var(--voya-page-text, var(--voya-text, #e6e9f1));
+  --console-surface-text:var(--voya-surface-text, var(--voya-text, #e6e9f1));
+  --console-raised-text:var(--voya-raised-text, var(--console-surface-text));
+  --console-primary-text:var(--voya-primary-text, var(--voya-on-primary, #10151f));
+  --console-accent-text:var(--voya-accent-text, var(--voya-on-primary, #10151f));
+  --console-page-muted:var(--voya-page-muted, var(--voya-muted, #aab6cc));
+  --console-surface-muted:var(--voya-surface-muted, var(--voya-muted, #aab6cc));
+  --console-raised-muted:var(--voya-raised-muted, var(--voya-muted, #aab6cc));
+  --console-text:var(--console-surface-text);
+  --console-muted:var(--console-surface-muted);
+  --console-primary:var(--voya-primary, #8d9df5);
+  --console-primary-hover:var(--voya-primary, #a4b1ff);
+  --console-info-bg:var(--voya-raised, #232c48);
+  --console-info:var(--voya-primary, #b6c0ff);
+  --console-success-bg:var(--voya-success-soft, #17372f);
+  --console-success:var(--voya-success, #87dcb1);
+  --console-warning-bg:var(--voya-warning-soft, #3a2a14);
+  --console-warning:var(--voya-warning, #ffc16b);
+  --console-error-bg:var(--voya-error-soft, #3a2028);
+  --console-error:var(--voya-error, #ffb4ad);
+  --ink:var(--console-text);
+  --ink2:var(--console-muted);
+  --ink-soft:var(--console-muted);
+  --grey:var(--console-muted);
+  --grey-soft:var(--console-raised);
+  --bg:var(--console-bg);
+  --panel:var(--console-surface);
+  --line:var(--console-border);
+  --accent:var(--console-primary);
+  --accent-soft:var(--console-info-bg);
+  --good:var(--console-success);
+  --good-soft:var(--console-success-bg);
+  --warn:var(--console-warning);
+  --warn-soft:var(--console-warning-bg);
+  --warning:var(--console-warning);
+  --warning-soft:var(--console-warning-bg);
+  --bad:var(--console-error);
+  --bad-soft:var(--console-error-bg);
+  color:var(--console-page-text);
+  color-scheme:var(--voya-color-scheme, dark);
+}
+.agent-shell { --agent-accent:var(--console-primary); --agent-muted:var(--console-muted); }
+.boot.console-theme-scope { background:var(--console-bg); color:var(--console-page-muted); }
+
+/* Legacy components use the same tokens as the newer console panels. */
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.modal-card, .voucher-modal, .change-password-modal, .modal, .doc-preview, .listing-card, .rate-card, .readiness-card, .metric-grid > div) {
+  background:var(--console-surface);
+  color:var(--console-surface-text);
+  border-color:var(--console-border);
+}
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.modal-head, .modal-header, .modal-actions, .experience-step-footer) {
+  background:var(--console-surface);
+  border-color:var(--console-border);
+}
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.muted, .mono, .field > small, .listing-info small, .listing-card p, .kpi-card > span, .kpi-card > small) { color:var(--console-muted); }
+.admin-shell:is(.admin-nav-label, .brand small) { color:var(--console-muted); }
+.admin-shell:is(table td small, table td .mono) { color:var(--console-muted); }
+.admin-shell .products-pagination { color:var(--console-muted); border-color:var(--console-border); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.field > span, .modal-head h3, .modal-header h2, .modal-card h4, .listing-info b, .listing-price, .check-row, .wizard-check) { color:var(--console-text); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.link-button, .password-link) { color:var(--console-info); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.modal-backdrop, .change-password-backdrop) { background:#080c14dc; }
+.console-theme-scope.change-password-backdrop { background:#080c14dc; }
+.console-theme-scope .change-password-modal { border:1px solid var(--console-border); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.modal-close, .icon-button) { background:var(--console-raised); color:var(--console-text); }
+:is(.admin-shell, .agent-shell) .promo-summary { background:var(--console-raised); color:var(--console-text); }
+
+/* Clear boundaries, readable placeholders and visible keyboard focus. */
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(input:not([type=checkbox]):not([type=radio]), select, textarea) {
+  background:var(--console-bg);
+  color:var(--console-text);
+  border-color:var(--console-control);
+  color-scheme:var(--voya-color-scheme, dark);
+}
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(input, textarea)::placeholder { color:var(--console-raised-muted, var(--voya-muted, #9aa8bf)); opacity:1; }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(input, select, textarea):disabled {
+  background:var(--console-raised);
+  color:var(--console-muted);
+  border-color:var(--console-border);
+}
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(input, select, textarea)[aria-invalid=true] { border-color:var(--console-error); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .field-error { color:var(--console-error); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(button, input, select, textarea, a, summary):focus-visible { outline:3px solid var(--voya-primary, #a9b5ff); outline-offset:3px; }
+:is(.admin-shell, .agent-shell, .console-theme-scope) input:is([type=checkbox], [type=radio]) { background-color:var(--console-bg); accent-color:var(--console-primary); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) input[type=file]::file-selector-button {
+  background:var(--console-info-bg); color:var(--console-text); border:1px solid var(--console-control); border-radius:6px; padding:8px 12px; margin-right:12px;
+}
+
+/* Primary, secondary and destructive controls retain distinct roles. */
+:is(.admin-shell, .agent-shell, .console-theme-scope) .btn { background:var(--console-surface); color:var(--console-text); border-color:var(--console-control); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .btn:is(.primary, .accent) { background:var(--console-primary); color:var(--console-bg); border-color:var(--console-primary); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .btn:is(.primary, .accent):hover:not(:disabled) { background:var(--console-primary-hover); border-color:var(--console-primary-hover); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .btn:is(.primary, .accent):disabled { background:var(--voya-raised, #232c3d); color:var(--console-muted); border-color:var(--voya-control, #46536b); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .btn.danger:not(:disabled) { background:var(--console-error-bg); color:var(--console-error); border-color:var(--voya-error, #8a3f4a); }
+:is(.admin-shell, .agent-shell) .chip { background:var(--console-surface); color:var(--console-muted); border-color:var(--console-border); }
+:is(.admin-shell, .agent-shell) .chip:is(.active, .selected) { background:var(--console-primary); color:var(--console-primary-text); border-color:var(--console-primary); }
+:is(.admin-shell, .agent-shell) .toggle i { background:var(--console-muted); }
+:is(.admin-shell, .agent-shell) .toggle.on i { background:var(--console-primary); }
+.admin-shell:is(.matching-suggestion, .matching-pair-card, .matching-product-option, .matching-master, .matching-score-card, .matching-offers span) { background:var(--console-surface); color:var(--console-text); border-color:var(--console-border); }
+.admin-shell .matching-product-option:is(:hover, .selected) { background:var(--console-info-bg); border-color:var(--console-primary); box-shadow:0 0 0 1px var(--console-primary); }
+.admin-shell .matching-selected-product { background:var(--console-info-bg); color:var(--console-info); }
+.admin-shell .matching-score-card.strong { background:var(--console-success-bg); border-color:var(--voya-success, #2d6d54); }
+.admin-shell .matching-score-card.possible { background:var(--console-warning-bg); border-color:var(--voya-warning, #765a21); }
+.admin-shell .matching-score-card.weak { background:var(--console-error-bg); border-color:var(--voya-error, #8a3f4a); }
+.admin-shell .matching-score-fields .unmatched { background:var(--console-raised); color:var(--console-muted); }
+
+/* Explicit status colours cover old data grids as well as current dialogs. */
+:is(.admin-shell, .agent-shell, .console-theme-scope) .badge { background:var(--console-raised); color:var(--console-muted); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .badge:is(.draft, .inactive, .archived, .not-applicable) { background:var(--console-raised); color:var(--console-muted); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .badge:is(.live, .active, .approved, .verified, .confirmed, .paid, .ready, .pass, .redeemed, .succeeded, .completed) { background:var(--console-success-bg); color:var(--console-success); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .badge:is(.pending, .under-review, .submitted, .scheduled, .in-transit, .processing, .requested) { background:var(--console-warning-bg); color:var(--console-warning); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .badge:is(.missing, .expired, .attention, .warning, .warn, .changes-requested) { background:var(--console-warning-bg); color:var(--console-warning); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .badge:is(.cancelled, .rejected, .failed, .fail) { background:var(--console-error-bg); color:var(--console-error); }
+:is(.admin-shell, .agent-shell) .badge.under.review { background:var(--console-info-bg); color:var(--console-info); }
+:is(.admin-shell, .agent-shell) .badge.changes.requested { background:var(--console-warning-bg); color:var(--console-warning); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .alert.info { background:var(--console-info-bg); color:var(--console-info); border-color:var(--voya-control, #53628a); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .alert.success { background:var(--console-success-bg); color:var(--console-success); border-color:var(--voya-success, #2d6d54); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .alert.warning { background:var(--console-warning-bg); color:var(--console-warning); border-color:var(--voya-warning, #765a21); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .alert.error { background:var(--console-error-bg); color:var(--console-error); border-color:var(--voya-error, #8a3f4a); }
+
+/* Shared calendars are nested popups and need a complete surface theme. */
+:is(.admin-shell, .agent-shell) .shared-date-picker-trigger { background:var(--console-bg); color:var(--console-text); border-color:var(--console-control); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-trigger.is-empty { color:var(--voya-muted, #9aa8bf); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-trigger:disabled { background:var(--console-raised); color:var(--console-muted); border-color:var(--console-border); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-trigger.is-invalid { border-color:var(--console-error); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-popover { background:var(--console-surface); color:var(--console-text); border-color:var(--console-border); }
+:is(.admin-shell, .agent-shell) :is(.shared-date-picker-toolbar, .shared-date-picker-heading) { color:var(--console-text); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-heading button { background:var(--console-raised); color:var(--console-muted); border-color:var(--console-control); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-weekdays { color:var(--console-muted); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-grid button { background:var(--console-surface); color:var(--console-text); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-grid button:hover:not(:disabled) { background:var(--console-info-bg); color:var(--console-info); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-grid button.is-selected { background:var(--console-primary); color:var(--console-bg); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-grid button.is-outside { color:var(--console-muted); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-grid button.is-disabled { color:var(--voya-muted, #77849b); }
+
+/* Booking details use the same spacing in both consoles. */
+.admin-shell .experience-modal-backdrop { inset:0; padding:24px; background:#080c14dc; grid-template-columns:minmax(0, 1fr); }
+.admin-shell .experience-modal { width:100%; max-width:1440px; min-width:0; min-height:0; max-height:calc(100dvh - 48px); margin:0 auto; }
+.admin-shell .experience-modal.partner-editor-card > .experience-modal-header { display:flex; }
+.admin-shell .experience-modal.partner-editor-card .experience-modal-close { display:block; flex-shrink:0; }
+.admin-shell .experience-modal.partner-editor-card > .experience-modal-body { overflow:auto; }
+.admin-shell .experience-modal:is(.experience-readonly-banner, .activity-visitor-toggle, .activity-price-head) { background:var(--console-raised); color:var(--console-text); border-color:var(--console-border); }
+.admin-shell .experience-modal .experience-readonly-banner:is(b, span) { color:var(--console-info); }
+.admin-shell .experience-modal summary { color:var(--console-text); }
+.admin-shell .experience-modal .experience-score-card { color:var(--console-muted); border-color:var(--console-border); }
+.admin-shell .experience-modal .experience-score-card strong { color:var(--console-text); }
+.admin-shell .experience-modal .experience-score-track { background:var(--console-raised); }
+.admin-shell .experience-modal:is(.media-preview-card img, .leaflet-container) { background:var(--console-bg); }
+.admin-shell .experience-modal .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.85); }
+.admin-shell .experience-modal .leaflet-control-zoom a { background:var(--console-raised); color:var(--console-text); border-color:var(--console-control); }
+.admin-shell .experience-modal .leaflet-control-attribution { background:var(--console-surface); color:var(--console-muted); }
+.admin-shell .experience-modal .leaflet-control-attribution a { color:var(--console-info); }
+.admin-shell .experience-modal .activity-editor-section-pricing .activity-prices-card { display:flex; flex-direction:column; gap:20px; }
+.admin-shell .experience-modal:is(.prototype-commercial-terms, .prototype-rate-periods) { padding:16px; border:1px solid var(--console-border); border-radius:8px; background:var(--console-raised); }
+.admin-shell .experience-modal .prototype-commercial-heading { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; }
+.admin-shell .experience-modal .prototype-commercial-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:16px; margin-top:16px; }
+.admin-shell .experience-modal .prototype-commercial-grid > div { display:grid; gap:4px; }
+.admin-shell .experience-modal .prototype-commercial-grid:is(small, em) { color:var(--console-muted); font-size:13px; font-style:normal; }
+.admin-shell .experience-modal .prototype-commercial-terms p { margin:14px 0 0; }
+.admin-shell .experience-modal .prototype-rate-controls { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:20px; }
+.admin-shell .experience-modal .prototype-rate-control { display:grid; align-content:start; gap:10px; }
+.admin-shell .experience-modal .experience-segmented { display:flex; flex-wrap:wrap; gap:8px; }
+.admin-shell .experience-modal .experience-segmented button { min-height:44px; padding:8px 16px; border:1px solid var(--console-control); border-radius:7px; background:var(--console-surface); color:var(--console-text); }
+.admin-shell .experience-modal .experience-segmented button.active { background:var(--console-info-bg); color:var(--console-info); border-color:var(--console-primary); }
+.admin-shell .experience-modal .activity-prices-card > .activity-date-toolbar { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
+.admin-shell .experience-modal .activity-prices-card > .activity-date-toolbar > :is(.field, .wizard-check, div:last-child) { grid-column:auto; grid-row:auto; min-width:0; }
+.admin-shell .experience-modal .activity-prices-card > .activity-option-selection-toolbar { display:flex; flex-wrap:wrap; gap:12px; }
+.admin-shell .experience-modal .prototype-rate-period { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; margin-top:16px; }
+.admin-shell .experience-modal .prototype-rate-breakdown { overflow:auto; border:1px solid var(--console-border); border-radius:8px; }
+.admin-shell .experience-modal:is(.prototype-rate-breakdown-head, .prototype-rate-breakdown-row) { display:grid; grid-template-columns:minmax(160px, 1.5fr) repeat(5, minmax(110px, 1fr)); gap:12px; min-width:800px; padding:12px; }
+.admin-shell .experience-modal .prototype-rate-breakdown-head { background:var(--console-raised); color:var(--console-muted); }
+.admin-shell .booking-detail { height:auto; max-height:calc(100dvh - 40px); display:block; padding:0 20px 20px; overflow:auto; }
+.admin-shell .booking-detail > .modal-head { margin:0 -20px 20px; padding:16px 20px; }
+:is(.admin-shell, .agent-shell) .timeline-row { display:flex; flex-wrap:wrap; gap:8px 16px; padding:8px 0; border-bottom:1px solid var(--console-border); }
+:is(.admin-shell, .agent-shell) .timeline-row span { color:var(--console-muted); }
+
+@media (max-width:650px) {
+  .admin-shell .experience-modal-backdrop { padding:0; }
+  .admin-shell .experience-modal { width:100%; max-width:100%; height:100dvh; max-height:100dvh; border-radius:0; }
+  .admin-shell .experience-modal .product-type-cards { grid-template-columns:minmax(0, 1fr); }
+  .admin-shell .experience-modal:is(.prototype-commercial-grid, .prototype-rate-controls, .prototype-rate-period, .activity-prices-card > .activity-date-toolbar) { grid-template-columns:minmax(0, 1fr); }
+  .admin-shell .modal-backdrop { padding:8px; }
+  .admin-shell .modal-backdrop > :is(.modal-card, .admin-onboarding-modal, .admin-detail, .panel.modal, .modal, .doc-preview) {
+    width:100%; min-width:0; max-width:100%; max-height:calc(100dvh - 16px);
+  }
+  .admin-shell .admin-onboarding-head { position:relative; display:block; padding:14px 16px; }
+  .admin-shell .admin-onboarding-head > div:first-child { min-width:0; padding-right:34px; }
+  .admin-shell .admin-onboarding-head .label { display:block; color:var(--console-muted); font-size:12px; }
+  .admin-shell .admin-onboarding-head h2 { font-size:22px; line-height:1.2; margin:6px 0; }
+  .admin-shell .admin-onboarding-head p { font-size:13px; line-height:1.45; margin:4px 0; }
+  .admin-shell .admin-onboarding-head-actions { display:block; margin-top:8px; }
+  .admin-shell .admin-onboarding-head-actions .modal-close { position:absolute; right:12px; top:12px; }
+  :is(.admin-shell, .agent-shell) .modal-backdrop:has(> :is(.import-modal, .rate-plan-modal, .booking-detail)) { padding:0; }
+  :is(.admin-shell, .agent-shell) .modal-backdrop > :is(.import-modal, .rate-plan-modal, .booking-detail) { width:100%; min-width:0; max-width:100vw; height:100dvh; max-height:100dvh; border-radius:0; }
+  :is(.admin-shell, .agent-shell) .modal-card:is(.modal-head, .modal-header) > div { min-width:0; }
+  :is(.admin-shell, .agent-shell) :is(.modal-close, .icon-button) { flex-shrink:0; }
+  :is(.admin-shell, .agent-shell) :is(.modal-actions, .timeline-row) { flex-wrap:wrap; }
+}
+
+/* Role-aware foregrounds make custom palettes readable on every console page
+   and in nested dialogs, even when a selected swatch changes luminance. */
+.admin-shell, .agent-shell, .console-theme-scope {
+  --console-text:var(--voya-surface-text, var(--voya-text, #e6e9f1));
+  --console-muted:var(--voya-surface-muted, var(--voya-muted, #aab6cc));
+  --console-page-text:var(--voya-page-text, var(--console-text));
+  --console-page-muted:var(--voya-page-muted, var(--console-muted));
+  --console-raised-text:var(--voya-raised-text, var(--console-text));
+  --console-raised-muted:var(--voya-raised-muted, var(--console-muted));
+  --console-primary-text:var(--voya-primary-text, var(--voya-on-primary, #fffaf6));
+  --console-accent-text:var(--voya-accent-text, var(--voya-on-primary, #fffaf6));
+}
+.agent-shell { --agent-ink:var(--console-page-text); --agent-muted:var(--console-page-muted); }
+.agent-shell :is(.agent-topbar, .agent-sidebar, .agent-content .panel, .agent-content article, .agent-content .card, .agent-content .modal, .agent-content .voucher-modal) { color:var(--console-surface-text); }
+.agent-shell :is(.agent-topbar, .agent-sidebar) { color:var(--console-raised-text); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.panel, .card, .agent-kpis article, .agent-content .panel) { color:var(--console-surface-text); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.panel-head, .card-head, .agent-topbar, .agent-sidebar) { color:var(--console-raised-text); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) { color:var(--console-page-text); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.modal-card, .voucher-modal, .change-password-modal, .modal, .doc-preview, .listing-card, .rate-card, .readiness-card, .metric-grid > div, .panel, .card) { color:var(--console-surface-text); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.modal-head, .modal-header, .panel-head, .card-head, .modal-actions, .experience-step-footer) { color:var(--console-raised-text); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(.muted, .mono, .field > small, .listing-info small, .listing-card p, .kpi-card > span, .kpi-card > small, .products-pagination) { color:var(--console-surface-muted); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(input:not([type=checkbox]):not([type=radio]), select, textarea) { background:var(--console-raised); color:var(--console-raised-text); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) :is(input, textarea)::placeholder { color:var(--console-raised-muted); }
+:is(.admin-shell, .agent-shell, .console-theme-scope) .btn:is(.primary, .accent) { color:var(--console-primary-text); }
+:is(.admin-shell, .agent-shell) .shared-date-picker-grid button.is-selected { color:var(--console-primary-text); }
+.admin-shell :is(h1, h2, h3, .page-title) { color:var(--console-page-text); }
+.admin-shell .page-subtitle, .admin-shell .admin-hero p { color:var(--console-page-muted); }
+.admin-shell .brand small, .admin-shell .admin-nav-label { color:var(--console-page-muted); }
+.admin-shell .admin-mobile-menu-toggle { background:var(--console-surface); color:var(--console-surface-text); border-color:var(--console-control); }
+.admin-shell .sidebar-foot { color:var(--console-page-text); }
+.admin-shell .sidebar-foot b { color:var(--console-page-text); }
+.admin-shell .sidebar-foot small { color:var(--console-page-muted); }
+.admin-shell .admin-signout { background:var(--console-raised); color:var(--console-raised-text); }
+.admin-shell .admin-dashboard-tools .field > span { color:var(--console-page-muted); }
+.admin-shell .kpi-card .warn { color:var(--console-surface-text); }
+.admin-shell .admin-onboarding-steps { background:var(--console-surface); color:var(--console-surface-text); }
+.admin-shell .admin-onboarding-steps button { color:var(--console-surface-muted); }
+.admin-shell .admin-onboarding-steps button.active { background:var(--console-primary); color:var(--console-primary-text); }
+.agent-shell .agent-topbar { background:var(--console-raised); border-color:var(--console-border); color:var(--console-raised-text); }
+.agent-shell .agent-topbar :is(h1, h2, h3) { color:var(--console-raised-text); }
+.agent-shell .agent-topbar-title p { color:var(--console-raised-muted); }
+.agent-shell .agent-topbar .agent-text-button { color:var(--console-raised-text); }
+.agent-shell .agent-sidebar nav button.active { background:var(--console-primary); border-color:var(--console-primary); color:var(--console-primary-text); }
+.agent-shell .agent-sidebar nav button:hover:not(.active) { background:var(--console-raised); color:var(--console-raised-text); }
+.agent-shell .agent-mark { background:var(--console-primary); color:var(--console-primary-text); }
+.agent-shell .qa-fixture-tag { color:var(--console-warning); }
+:is(.admin-shell, .agent-shell, .partner-app-shell, .partner-onboarding-shell, .partner-product-builder-shell, .vendor-theme-scope, .login-page, .register-page) :is(input, select, textarea):focus { box-shadow:none; }
+:is(.admin-shell, .agent-shell, .partner-app-shell, .partner-onboarding-shell, .partner-product-builder-shell, .vendor-theme-scope, .login-page, .register-page) :is(input, select, textarea):focus-visible { outline:2px solid var(--voya-primary, #8d9df5); outline-offset:2px; }
+.partner-product-builder-shell .partner-editor-card .activity-availability-card :is(input, select):focus { box-shadow:none; }
+.agent-shell .agent-topbar-actions .agent-text-button { color:var(--console-surface-text); }
+.admin-shell .panel :is(h1, h2, h3, h4), .agent-shell .panel :is(h1, h2, h3, h4) { color:var(--console-surface-text); }
+.admin-shell table th, .agent-shell table th { color:var(--console-raised-text); }
+.agent-shell .products-pagination, .admin-shell .products-pagination { color:var(--console-surface-text); }
+.agent-shell .agent-pagination, .agent-shell .agent-pagination span { color:var(--console-surface-text); }
+.agent-shell .qa-fixture-tag { color:var(--console-raised-text); }
+.agent-shell .agent-sidebar :is(small, p, .muted) { color:var(--console-surface-muted); }
+:is(.admin-shell, .agent-shell) :is(.modal, .booking-detail, .voucher-modal, .admin-detail) :is(h1, h2, h3, h4) { color:var(--console-surface-text); }
+:is(.admin-shell, .agent-shell) :is(.modal, .booking-detail, .voucher-modal, .admin-detail) :is(p, small, .muted, .mono) { color:var(--console-surface-muted); }
+.agent-shell .agent-avatar { color:var(--console-surface-text); }
+ :is(.admin-shell, .agent-shell, .partner-app-shell) * { scrollbar-color:var(--voya-raised, #20283a) var(--voya-surface, #161d2a); }
+:is(.admin-shell, .agent-shell, .partner-app-shell) *::-webkit-scrollbar-track { background:var(--voya-surface, #161d2a); }
+:is(.admin-shell, .agent-shell, .partner-app-shell) *::-webkit-scrollbar-thumb { background:var(--voya-raised, #20283a); border:2px solid var(--voya-surface, #161d2a); border-radius:999px; }
+.agent-shell .agent-content > :is(.agent-page-stack, .agent-welcome, .agent-section-heading) .muted,
+.agent-shell .agent-content > .agent-page-stack > :is(p, .agent-section-heading) { color:var(--console-page-muted); }
+.agent-shell .agent-content .admin-hero p { color:var(--console-page-muted); }
+.agent-shell .agent-content .panel .muted, .agent-shell .agent-content article .muted { color:var(--console-surface-muted); }
+.agent-shell .agent-content .shared-date-picker-trigger { background:var(--console-raised); color:var(--console-raised-text); }
+.agent-shell .agent-topbar .muted, .agent-shell .agent-topbar-title p { color:var(--console-surface-muted); }

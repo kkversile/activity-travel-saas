@@ -97,7 +97,7 @@ describe('Admin vendor list', () => {
     const request = vi.spyOn(api, 'request').mockImplementation(async (path: string, options?: RequestInit) => {
       if (path === '/admin/vendors') return [{ id: 'vendor-1', name: 'Coastal Adventures', vendorProfile: { legalBusinessName: 'Coastal Adventures', verificationStatus: 'VERIFIED' } }] as never;
       if (path === '/admin/vendors/vendor-1') return vendor() as never;
-      if (path.endsWith('/onboarding')) return { vendorOnboarding: { status: 'APPROVED', gstStatus: 'NOT_REGISTERED' } } as never;
+      if (path.endsWith('/onboarding')) return { vendorOnboarding: { status: 'APPROVED', gstStatus: 'NOT_REGISTERED', documents: vendor().vendorDocuments.map(({ versions, ...document }) => ({ ...document, latestVersion: versions[0] })) } } as never;
       if (path.endsWith('/documents/versions/pan-version') && options?.method === 'PATCH') {
         panStatus = 'VERIFIED';
         return vendor() as never;
@@ -107,13 +107,15 @@ describe('Admin vendor list', () => {
 
     render(<AdminVendors />);
     fireEvent.click(await screen.findByRole('button', { name: 'Open' }));
-    await screen.findByText('PAN card');
+    fireEvent.click(await screen.findByRole('button', { name: 'Review full onboarding' }));
+    fireEvent.click(screen.getByRole('button', { name: /KYC documents/ }));
+    await screen.findByText('PAN document');
 
-    const signatoryRow = screen.getByText('Authorised signatory ID').closest('.admin-doc');
+    const signatoryRow = screen.getByText('Authorised signatory ID').closest('.admin-onboarding-document');
     expect(signatoryRow).not.toBeNull();
     expect(within(signatoryRow as HTMLElement).getByRole('button', { name: 'Verified' })).toBeDisabled();
 
-    const panRow = screen.getByText('PAN card').closest('.admin-doc');
+    const panRow = screen.getByText('PAN document').closest('.admin-onboarding-document');
     expect(panRow).not.toBeNull();
     fireEvent.click(within(panRow as HTMLElement).getByRole('button', { name: 'Verify' }));
 
@@ -121,7 +123,7 @@ describe('Admin vendor list', () => {
       method: 'PATCH',
       body: JSON.stringify({ status: 'VERIFIED' }),
     }));
-    await waitFor(() => expect(within(screen.getByText('PAN card').closest('.admin-doc') as HTMLElement).getByRole('button', { name: 'Verified' })).toBeDisabled());
+    await waitFor(() => expect(within(screen.getByText('PAN document').closest('.admin-onboarding-document') as HTMLElement).getByRole('button', { name: 'Verified' })).toBeDisabled());
     expect(request).not.toHaveBeenCalledWith('/admin/vendors/vendor-1/documents/versions/signatory-version', expect.anything());
   });
 });

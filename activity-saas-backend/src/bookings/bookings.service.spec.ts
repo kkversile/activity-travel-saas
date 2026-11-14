@@ -239,7 +239,7 @@ describe('BookingsService admin booking search parity', () => {
       where: expect.objectContaining({
         channel: 'VOYA_AGENT',
         OR: expect.arrayContaining([
-          { customerPhone: { contains: 'Munnar Tea Walk', mode: 'insensitive' } },
+          { travellers: { some: { phone: { contains: 'Munnar Tea Walk', mode: 'insensitive' } } } },
           { vendorTenant: { name: { contains: 'Munnar Tea Walk', mode: 'insensitive' } } },
           { product: { productCode: { contains: 'Munnar Tea Walk', mode: 'insensitive' } } },
           { product: { currentRevision: { productName: { contains: 'Munnar Tea Walk', mode: 'insensitive' } } } },

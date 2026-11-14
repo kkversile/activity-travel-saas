@@ -45,6 +45,7 @@ export class ChannelMappingService {
       if (product.status !== 'LIVE' || product.currentRevision?.status !== 'PUBLISHED') {
         throw new ConflictException({ code: 'PRODUCT_NOT_PUBLISHED', message: 'Publish the product before enabling it for Agents' });
       }
+      product.variants = product.variants.filter((variant: any) => !product.currentRevisionId || !variant.revisionId || variant.revisionId === product.currentRevisionId);
       if (!product.variants.length) throw new ConflictException({ code: 'CHANNEL_VARIANT_NOT_MAPPED', message: 'Product has no active variants to distribute' });
       if (!product.variants.some((variant: any) => variant.ratePlans.length)) throw new ConflictException({ code: 'CHANNEL_RATE_PLAN_NOT_MAPPED', message: 'Product has no active rate plans to distribute' });
 
@@ -68,10 +69,11 @@ export class ChannelMappingService {
 
       for (const variant of product.variants) {
         const currentVariantMapping = await tx.variantChannelMapping.findUnique({ where: { channelId_variantId: { channelId: channel.id, variantId: variant.id } } });
-        if (currentVariantMapping?.activatedAt && currentVariantMapping.externalVariantCode !== variant.variantCode) throw new ConflictException({ code: 'CHANNEL_EXTERNAL_IDENTIFIER_IMMUTABLE', message: 'External variant identifier is permanently immutable after activation' });
+        // Keep existing immutable identities; human option codes repeat across revisions.
+        const externalVariantCode = currentVariantMapping?.externalVariantCode || variant.id;
         const mapping = await ensureActive(
           currentVariantMapping,
-          () => tx.variantChannelMapping.create({ data: { channelId: channel.id, variantId: variant.id, externalVariantCode: variant.variantCode, status: ChannelMappingStatus.ACTIVE, activatedAt: now, createdById: user.sub } }),
+          () => tx.variantChannelMapping.create({ data: { channelId: channel.id, variantId: variant.id, externalVariantCode, status: ChannelMappingStatus.ACTIVE, activatedAt: now, createdById: user.sub } }),
           () => tx.variantChannelMapping.update({ where: { id: currentVariantMapping.id }, data: { status: ChannelMappingStatus.ACTIVE, activatedAt: currentVariantMapping.activatedAt ?? now } }),
           'Variant',
         );
@@ -79,10 +81,10 @@ export class ChannelMappingService {
 
         for (const plan of variant.ratePlans) {
           const currentRateMapping = await tx.ratePlanChannelMapping.findUnique({ where: { ratePlanId_channelId: { ratePlanId: plan.id, channelId: channel.id } } });
-          if (currentRateMapping?.activatedAt && currentRateMapping.externalRatePlanCode !== plan.ratePlanCode) throw new ConflictException({ code: 'CHANNEL_EXTERNAL_IDENTIFIER_IMMUTABLE', message: 'External rate-plan identifier is permanently immutable after activation' });
+          const externalRatePlanCode = currentRateMapping?.externalRatePlanCode || plan.id;
           const rateMapping = await ensureActive(
             currentRateMapping,
-            () => tx.ratePlanChannelMapping.create({ data: { channelId: channel.id, ratePlanId: plan.id, externalRatePlanCode: plan.ratePlanCode, status: ChannelMappingStatus.ACTIVE, enabled: true, activatedAt: now, createdById: user.sub } }),
+            () => tx.ratePlanChannelMapping.create({ data: { channelId: channel.id, ratePlanId: plan.id, externalRatePlanCode, status: ChannelMappingStatus.ACTIVE, enabled: true, activatedAt: now, createdById: user.sub } }),
             () => tx.ratePlanChannelMapping.update({ where: { id: currentRateMapping.id }, data: { status: ChannelMappingStatus.ACTIVE, enabled: true, activatedAt: currentRateMapping.activatedAt ?? now, disabledAt: null } }),
             'Rate plan',
           );

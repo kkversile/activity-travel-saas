@@ -23,9 +23,9 @@ function EditorHarness({ onError }: { onError: ReturnType<typeof vi.fn> }) {
   return <ActivityPricesAvailability snapshot={{ product: { id: 'p1' } as any, revision: null, variants, schedules: [] }} locked={false} revisionForm={revisionForm} fulfilment={{ ...emptyFulfilmentForm }} onSaveDraft={async () => true} onRevisionChange={(key, value) => setRevisionForm((current) => ({ ...current, [key]: value }))} onFulfilmentChange={vi.fn()} onRefresh={async () => undefined} onError={onError as unknown as (message: string) => void} />;
 }
 
-function renderEditor(onError = vi.fn()) {
+function renderEditor(onError = vi.fn(), response = saved) {
   const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
-    if (path.endsWith('/prices-availability')) return saved as never;
+    if (path.endsWith('/prices-availability')) return response as never;
     if (path.endsWith('/prices-availability/preview')) return { valid: true, errors: [], conflicts: [{ type: 'EFFECTIVE_HISTORY_OVERLAP', message: 'This update overlaps existing editor pricing; the save will split the surrounding history.' }], summary: { optionCount: 3, affectedDates: 30, availabilityCount: 0, existingRateCount: 3 }, previousRates: [{ variantId: 'v1', ratePlanName: 'Activity price · Entry Only', effectiveFrom: '2026-11-01', effectiveTo: '2026-12-01', pricingUnit: 'PER_PERSON' }], unchangedFields: ['special and contract rate plans'] } as never;
     return {} as never;
   });
@@ -36,6 +36,23 @@ function renderEditor(onError = vi.fn()) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('ActivityPricesAvailability unified create/edit editor', () => {
+  it('shows imported active prices ahead of an older empty draft version', async () => {
+    const response = structuredClone(saved);
+    const plan = response.options[0].ratePlans[0];
+    const original = plan.versions[0];
+    plan.versions = [{ ...original, status: 'DRAFT', versionNumber: 1, travellerPrices: [] }, { ...original, status: 'ACTIVE', versionNumber: 2, travellerPrices: [{ travellerType: 'ADULT', amount: '1800' }] }];
+    renderEditor(vi.fn(), response);
+    await waitFor(() => expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(1800));
+  });
+  it('continues to show a newer unsaved draft ahead of an older active version', async () => {
+    const response = structuredClone(saved);
+    const plan = response.options[0].ratePlans[0];
+    const original = plan.versions[0];
+    plan.versions = [{ ...original, status: 'ACTIVE', versionNumber: 2 }, { ...original, status: 'DRAFT', versionNumber: 3, travellerPrices: [{ travellerType: 'ADULT', amount: '2100' }] }];
+    renderEditor(vi.fn(), response);
+    await waitFor(() => expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(2100));
+  });
+
   it('loads all options and exposes existing rates from the same editor', async () => {
     renderEditor();
     await waitFor(() => expect(screen.getByDisplayValue('900')).toBeInTheDocument());

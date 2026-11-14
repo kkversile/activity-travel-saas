@@ -14,3 +14,11 @@ describe('CancellationPolicyService', () => {
     expect(client.cancellationRule.findMany).not.toHaveBeenCalled();
   });
 });
+
+it('accepts valid version policies written in descending day order', async () => {
+  const client = { ratePlanCommercialVersion: { findUnique: jest.fn().mockResolvedValue({ ratePlanId: 'plan-1', sourcePayload: { bookingRules: { cancellationRules: [
+    { minDaysBefore: 1, chargeType: 'PERCENTAGE', chargeValue: '0' },
+    { minDaysBefore: 0, maxDaysBefore: 0, chargeType: 'PERCENTAGE', chargeValue: '100' },
+  ] } } }) } };
+  await expect(new CancellationPolicyService().load(client, 'plan-1', 'version-1')).resolves.toMatchObject({policy:[{minDaysBefore:0,maxDaysBefore:0},{minDaysBefore:1}]});
+});
