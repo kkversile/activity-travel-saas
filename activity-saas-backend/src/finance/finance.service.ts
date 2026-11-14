@@ -198,7 +198,24 @@ export class FinanceService {
   }
 
   async preview(user: AuthUser, dto: SettlementPreviewDto) {
-    return this.buildPreview(this.prisma, user, dto);
+    const result = await this.buildPreview(this.prisma, user, dto);
+    // Display aliases stay outside the authoritative fingerprint and allocation data.
+    const groups = [result.eligibleLines, result.blocked, result.alreadyAllocated];
+    const codes = await publicIdentifierMap(
+      this.prisma,
+      PublicEntity.BOOKING,
+      groups.flat().map((line: any) => line.bookingId).filter(Boolean),
+    );
+    const withCode = (line: any) => ({
+      ...line,
+      bookingPublicCode: codes.get(line.bookingId) ?? null,
+    });
+    return {
+      ...result,
+      eligibleLines: result.eligibleLines.map(withCode),
+      blocked: result.blocked.map(withCode),
+      alreadyAllocated: result.alreadyAllocated.map(withCode),
+    };
   }
 
   private async buildPreview(
@@ -967,6 +984,12 @@ export class FinanceService {
           config.paymentCollectionMode !== PaymentCollectionMode.VOYA_COLLECTS
         )
           throw new ConflictException("PAYOUT_BLOCKED_COLLECTION_MODEL");
+        const payoutCreatedAt = new Date();
+        const vendorPublicCode = await publicIdentifier(tx, PublicEntity.VENDOR, batch.vendorTenantId);
+        const payoutPublicCode = vendorPublicCode ? vendorPayoutPublicCode(vendorPublicCode, payoutCreatedAt) : null;
+        if (!payoutPublicCode)
+          throw new ConflictException("VENDOR_PUBLIC_IDENTIFIER_REQUIRED_FOR_PAYOUT");
+        await this.assertNoWeeklyVendorPayout(tx, batch.vendorTenantId, isoWeekInfo(payoutCreatedAt));
         const updated: any = await tx.settlementBatch.update({
           where: { id },
           data: {
@@ -974,17 +997,19 @@ export class FinanceService {
             version: { increment: 1 },
           },
         });
-        await tx.payout.create({
+        const payout = await tx.payout.create({
           data: {
             tenantId: batch.vendorTenantId,
             recordType: PayoutRecordType.CANONICAL,
             settlementBatchId: id,
             amount: batch.netPayable,
             status: PayoutStatus.READY_TO_RELEASE,
-            dueDate: new Date(),
+            dueDate: payoutCreatedAt,
             currency: batch.currency,
+            createdAt: payoutCreatedAt,
           },
         });
+        await ensurePublicIdentifier(tx, PublicEntity.PAYOUT, payout.id, payoutPublicCode);
         await this.audit.write(tx, {
           actor: user,
           tenantId: batch.vendorTenantId,
@@ -1761,11 +1786,12 @@ export class FinanceService {
   async vendorSettlementStatement(user: AuthUser, id: string) {
     const batch = await this.prisma.settlementBatch.findFirst({ where: { id, vendorTenantId: requireTenant(user) }, include: { lines: true } });
     if (!batch) throw new NotFoundException("Settlement batch not found");
+    const bookingCodes = await publicIdentifierMap(this.prisma, PublicEntity.BOOKING, batch.lines.map((line) => line.bookingId).filter((id): id is string => Boolean(id)));
     const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
     const rows: unknown[][] = [['Batch', 'Created at', 'Line type', 'Booking ID', 'Currency', 'Gross booking value', 'Vendor payable base', 'Adjustment', 'GST on commission', 'TDS 194-O', 'GST TCS', 'Tax informational', 'Net vendor payable']];
     for (const line of batch.lines as any[]) {
       const components = line.components && typeof line.components === 'object' ? line.components as Record<string, unknown> : {};
-      rows.push([batch.batchCode, batch.createdAt.toISOString(), line.lineType, line.bookingId || '', line.currency, line.grossBookingValue, line.vendorPayableBase, line.adjustmentAmount, components.gstOnCommissionAmount ?? '', components.tds194OAmount ?? '', components.gstTcsAmount ?? '', line.taxInformational, line.netVendorPayable]);
+      rows.push([batch.batchCode, batch.createdAt.toISOString(), line.lineType, bookingCodes.get(line.bookingId) || line.bookingId || '', line.currency, line.grossBookingValue, line.vendorPayableBase, line.adjustmentAmount, components.gstOnCommissionAmount ?? '', components.tds194OAmount ?? '', components.gstTcsAmount ?? '', line.taxInformational, line.netVendorPayable]);
     }
     return rows.map((row) => row.map(escape).join(',')).join('\r\n');
   }

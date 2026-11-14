@@ -79,7 +79,7 @@ export default function Payouts() {
 
   return <>
     <header className="partner-page-header">
-      <div><span className="partner-eyebrow">Partner Hub</span><h1>Payments</h1><p>Weekly payouts for activities completed 7 days earlier. Commission and tax are deducted before transfer.</p></div>
+      <div><span className="partner-eyebrow">Partner Hub</span><h1>Payments</h1><p>Track settlement statements, payout approvals and recorded payment evidence.</p></div>
       <a className="btn" href={`${VENDOR_BASE}/vendor/reports`}>All statements</a>
     </header>
     <div className="kpi-row four">
