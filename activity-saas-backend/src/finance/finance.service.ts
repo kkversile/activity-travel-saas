@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { createHash, randomUUID } from "crypto";
+import { settlementHeldAmount } from "./settlement-hold-amount";
 import {
   FinancialEventStatus,
   FinancialEventType,
@@ -1498,30 +1499,7 @@ export class FinanceService {
     });
   }
   private heldAmountForBatch(batch: any, holds: any[]) {
-    return (batch.lines || []).reduce((total: Prisma.Decimal, line: any) => {
-      const payable = this.decimal(line.netVendorPayable ?? this.decimal(line.vendorPayableBase).plus(line.adjustmentAmount));
-      if (!payable.gt(0)) return total;
-      const vendorHoldsLine = holds.some((hold) =>
-        hold.vendorTenantId === batch.vendorTenantId && (
-          hold.scope === SettlementHoldScope.VENDOR ||
-          (hold.scope === SettlementHoldScope.BOOKING && hold.bookingId && hold.bookingId === line.bookingId)
-        ),
-      );
-      if (vendorHoldsLine) return total.plus(payable);
-
-      const heldEventIds = new Set(holds
-        .filter((hold) => hold.vendorTenantId === batch.vendorTenantId && hold.scope === SettlementHoldScope.FINANCIAL_EVENT)
-        .map((hold) => hold.financialEventId));
-      const heldEvents = new Set<string>();
-      const eventHold = (line.allocations || []).reduce((sum: Prisma.Decimal, allocation: any) => {
-        if (!heldEventIds.has(allocation.financialEventId) || heldEvents.has(allocation.financialEventId)) return sum;
-        heldEvents.add(allocation.financialEventId);
-        const event = allocation.financialEvent;
-        const eventPayable = this.decimal(event?.vendorAmount ?? event?.amount ?? 0);
-        return eventPayable.gt(0) ? sum.plus(eventPayable) : sum;
-      }, this.zero());
-      return total.plus(Prisma.Decimal.min(payable, eventHold));
-    }, this.zero());
+    return settlementHeldAmount(batch, holds);
   }
   private async payoutReleaseAmounts(tx: any, payout: any) {
     if (!payout.settlementBatchId) return { amount: this.decimal(payout.amount), heldAmount: this.zero(), holdIds: [] as string[] };
@@ -1752,10 +1730,10 @@ export class FinanceService {
   async vendorSettlements(user: AuthUser) {
     const vendorTenantId = requireTenant(user);
     const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
-    const [batches, payouts, legacyPayouts, profile] = await Promise.all([
+    const [batches, storedPayouts, legacyPayouts, profile] = await Promise.all([
       this.prisma.settlementBatch.findMany({
         where: { vendorTenantId },
-        include: { lines: true, payout: true },
+        include: { lines: { include: { allocations: { select: { financialEventId: true, financialEvent: { select: { amount: true, vendorAmount: true } } } } } }, payout: true },
         orderBy: { createdAt: "desc" },
       }),
       this.prisma.payout.findMany({
@@ -1775,17 +1753,26 @@ export class FinanceService {
       }),
       this.prisma.vendorProfile.findUnique({ where: { tenantId: vendorTenantId }, select: { payoutAccountMasked: true, payoutAccountHolder: true, payoutBankName: true, payoutCurrency: true, verificationStatus: true } }),
     ]);
+    const holds = batches.length ? await this.prisma.settlementHold.findMany({ where: { vendorTenantId, status: SettlementHoldStatus.ACTIVE }, select: { scope: true, vendorTenantId: true, bookingId: true, financialEventId: true } }) : [];
+    const releasedStatuses: string[] = [PayoutStatus.PAID, PayoutStatus.RELEASED, PayoutStatus.RECONCILED, PayoutStatus.RECONCILIATION_REQUIRED];
+    const batchesById = new Map(batches.map((batch) => [batch.id, batch]));
+    const payouts = storedPayouts.map((payout) => {
+      const batch = batchesById.get(payout.settlementBatchId!);
+      if (!batch || releasedStatuses.includes(payout.status)) return payout;
+      const heldAmount = this.heldAmountForBatch(batch, holds);
+      return { ...payout, heldAmount, amount: Prisma.Decimal.max(this.decimal(batch.netPayable).minus(heldAmount), 0) };
+    });
     const paidInSelectedMonth = payouts.filter((p) => p.createdAt >= monthStart && ['PAID', 'RELEASED', 'RECONCILED'].includes(p.status)).reduce((total, p) => total + Number(p.amount), 0);
-    const onHold = batches.filter((b) => b.status === 'PAYOUT_BLOCKED').reduce((total, b) => total + Number(b.netPayable), 0);
+    const onHold = batches.reduce((total, batch) => total + Number(batch.payout && releasedStatuses.includes(batch.payout.status) ? batch.payout.heldAmount : batch.status === 'PAYOUT_BLOCKED' ? batch.netPayable : this.heldAmountForBatch(batch, holds)), 0);
     const nextPayout = payouts.filter((p) => !['PAID', 'RELEASED', 'RECONCILED'].includes(p.status)).sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())[0];
     return {
       batches: batches.map((b: any) => ({
         ...b,
-        lines: b.lines.map(this.publicLine),
+        lines: b.lines.map(({ allocations, ...line }: any) => this.publicLine(line)),
       })),
       payouts,
       legacyPayouts,
-      summary: { paidInSelectedMonth, onHold, nextPayout: nextPayout ? { amount: Number(nextPayout.amount), dueDate: nextPayout.dueDate, currency: nextPayout.currency, periodFrom: nextPayout.settlementBatch?.periodFrom ?? null, periodTo: nextPayout.settlementBatch?.periodTo ?? null } : null, payoutAccount: { masked: profile?.payoutAccountMasked || null, holder: profile?.payoutAccountHolder || null, bankName: profile?.payoutBankName || null, currency: profile?.payoutCurrency || null, verificationStatus: profile?.verificationStatus || 'PENDING' } },
+      summary: { paidInSelectedMonth, onHold, nextPayout: nextPayout ? { amount: Number(nextPayout.amount), heldAmount: Number(nextPayout.heldAmount ?? 0), dueDate: nextPayout.dueDate, currency: nextPayout.currency, periodFrom: nextPayout.settlementBatch?.periodFrom ?? null, periodTo: nextPayout.settlementBatch?.periodTo ?? null } : null, payoutAccount: { masked: profile?.payoutAccountMasked || null, holder: profile?.payoutAccountHolder || null, bankName: profile?.payoutBankName || null, currency: profile?.payoutCurrency || null, verificationStatus: profile?.verificationStatus || 'PENDING' } },
     };
   }
 

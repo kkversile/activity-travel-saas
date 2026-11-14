@@ -3,10 +3,10 @@ import { api } from '../api';
 import PayoutAttemptHistory, { type PayoutAttempt } from '../components/PayoutAttemptHistory';
 import { Badge, ErrorBox, Loading, Panel, money, shortDate } from '../components/Ui';
 
-type Payout = { failureReason?: string | null; attempts?: PayoutAttempt[]; id: string; amount: number | string; status: string; dueDate: string; reference?: string | null; currency?: string; settlementBatch?: { batchCode?: string; periodFrom?: string | null; periodTo?: string | null } | null };
+type Payout = { heldAmount?: number | string; failureReason?: string | null; attempts?: PayoutAttempt[]; id: string; amount: number | string; status: string; dueDate: string; reference?: string | null; currency?: string; settlementBatch?: { batchCode?: string; periodFrom?: string | null; periodTo?: string | null } | null };
 type SettlementLine = { bookingId?: string | null; grossBookingValue: string; vendorPayableBase: string; adjustmentAmount: string; netVendorPayable: string; taxInformational: string; components?: { supplierCommission?: string | number | null }; gstOnCommissionAmount?: string | null; tds194OAmount?: string | null; gstTcsAmount?: string | null };
 type Batch = { id: string; batchCode: string; netPayable: string; currency: string; status: string; createdAt: string; periodFrom?: string | null; periodTo?: string | null; lines?: SettlementLine[] };
-type SettlementSummary = { paidInSelectedMonth: number; onHold: number; nextPayout: { amount: number; dueDate: string; currency: string; periodFrom?: string | null; periodTo?: string | null } | null; payoutAccount: { masked: string | null; holder: string | null; bankName: string | null; currency: string | null; verificationStatus: string } };
+type SettlementSummary = { paidInSelectedMonth: number; onHold: number; nextPayout: { amount: number; heldAmount?: number; dueDate: string; currency: string; periodFrom?: string | null; periodTo?: string | null } | null; payoutAccount: { masked: string | null; holder: string | null; bankName: string | null; currency: string | null; verificationStatus: string } };
 type Tab = 'settlements' | 'releases' | 'legacy';
 const VENDOR_BASE = import.meta.env.BASE_URL === '/' ? '' : import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -75,7 +75,7 @@ export default function Payouts() {
     ? [summary.payoutAccount.bankName, 'change needs re-verification'].filter(Boolean).join(' · ')
     : 'Add payout details in Business profile & KYC';
   const nextPayoutDetail = summary?.nextPayout
-    ? [`Due ${shortDate(summary.nextPayout.dueDate)}`, summary.nextPayout.periodFrom && summary.nextPayout.periodTo ? `activities ${shortDate(summary.nextPayout.periodFrom)}–${shortDate(summary.nextPayout.periodTo)}` : null].filter(Boolean).join(' · ')
+    ? [summary.nextPayout.heldAmount ? `${money(summary.nextPayout.heldAmount, summary.nextPayout.currency)} on hold` : null, `Due ${shortDate(summary.nextPayout.dueDate)}`, summary.nextPayout.periodFrom && summary.nextPayout.periodTo ? `activities ${shortDate(summary.nextPayout.periodFrom)}–${shortDate(summary.nextPayout.periodTo)}` : null].filter(Boolean).join(' · ')
     : 'No pending release';
 
   return <>
@@ -86,8 +86,8 @@ export default function Payouts() {
     <div className="kpi-row four">
       <div className="kpi-card"><span>Next payout</span><strong>{summary?.nextPayout ? money(summary.nextPayout.amount, summary.nextPayout.currency) : '—'}</strong><small>{nextPayoutDetail}</small></div>
       <div className="kpi-card"><span>Paid this month</span><strong>{money(summary?.paidInSelectedMonth || 0, 'INR')}</strong><small>Released, reconciled or paid evidence</small></div>
-      <div className="kpi-card"><span>On hold</span><strong>{money(summary?.onHold || 0, 'INR')}</strong><small>Blocked settlement batches</small></div>
-      <div className="kpi-card"><span>Payout account</span><strong>{summary?.payoutAccount.masked || 'Not configured'}</strong><small>{summary?.payoutAccount.verificationStatus || 'PENDING'} · {payoutAccountDetail}</small></div>
+      <div className="kpi-card"><span>On hold</span><strong>{money(summary?.onHold || 0, 'INR')}</strong><small>Active holds and blocked settlements</small></div>
+      <div className="kpi-card"><span>Payout account</span><strong>{summary?.payoutAccount.masked || 'Not configured'}</strong><small>{summary?.payoutAccount.masked ? summary.payoutAccount.verificationStatus || 'PENDING' : 'Not configured'} · {payoutAccountDetail}</small></div>
     </div>
     <div className="toolbar"><div className="chips">
       <button className={`chip ${tab === 'settlements' ? 'active' : ''}`} onClick={() => setTab('settlements')}>Settlement history</button>
@@ -106,7 +106,7 @@ export default function Payouts() {
     {tab === 'releases' && <Panel title="Payout release history">
       <p className="muted">These rows record payout state and evidence in Voya. They do not represent a connected bank transfer.</p>
       <div className="table-wrap"><table><thead><tr><th>Batch</th><th>Due date</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead>
-        <tbody>{payouts.map((payout) => <tr className="payout-release-row" key={payout.id}><td className="mono">{payout.settlementBatch?.batchCode || '—'}</td><td>{shortDate(payout.dueDate)}</td><td>{money(payout.amount, payout.currency)}</td><td className="mono">{payout.reference || '—'}</td><td><Badge value={payout.status} />{payout.status === 'RELEASE_FAILED' && <p className="payout-failure-note">{payout.failureReason || 'Release failed. Our finance team will review the payout.'}</p>}<PayoutAttemptHistory attempts={payout.attempts} /></td></tr>)}</tbody>
+        <tbody>{payouts.map((payout) => <tr className="payout-release-row" key={payout.id}><td className="mono">{payout.settlementBatch?.batchCode || '—'}</td><td>{shortDate(payout.dueDate)}</td><td>{money(payout.amount, payout.currency)}{Number(payout.heldAmount || 0) > 0 && <small>Held {money(payout.heldAmount!, payout.currency)}</small>}</td><td className="mono">{payout.reference || '—'}</td><td><Badge value={payout.status === 'READY_TO_RELEASE' && Number(payout.amount) <= 0 && Number(payout.heldAmount || 0) > 0 ? 'ON HOLD' : payout.status} />{payout.status === 'RELEASE_FAILED' && <p className="payout-failure-note">{payout.failureReason || 'Release failed. Our finance team will review the payout.'}</p>}<PayoutAttemptHistory attempts={payout.attempts} /></td></tr>)}</tbody>
       </table></div>
       {!payouts.length && <div className="empty">No canonical payout release records yet.</div>}
     </Panel>}

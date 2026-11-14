@@ -20,7 +20,8 @@ describe('DashboardService', () => {
         .mockResolvedValueOnce({ _sum: { vendorPayable: '300' } })
         .mockResolvedValueOnce({ _sum: { netVendorPayable: '800' } })
         .mockResolvedValueOnce({ _sum: { vendorPayable: '200' } }) },
-      payout: { findFirst: jest.fn().mockResolvedValue(null) },
+      payout: { findFirst: jest.fn().mockResolvedValue({ amount: '150', status: 'READY_TO_RELEASE', dueDate: new Date(), currency: 'INR', settlementBatch: { vendorTenantId: 'tenant-1', lines: [{ netVendorPayable: '150' }] } }) },
+      settlementHold: { findMany: jest.fn().mockResolvedValue([{ scope: 'VENDOR', vendorTenantId: 'tenant-1' }]) },
       product: { count: jest.fn().mockResolvedValue(0) },
       productRevision: { count: jest.fn().mockResolvedValue(0) },
       vendorDocument: { findMany: jest.fn().mockResolvedValue([
@@ -35,6 +36,7 @@ describe('DashboardService', () => {
     const result = await new DashboardService(prisma, performance as any).summary(user);
 
     expect(prisma.vendorDocument.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 'tenant-1', currentStatus: 'VERIFIED' } }));
+    expect(result.nextPayout).toMatchObject({ amount: 0, heldAmount: 150 });
     expect(result.documentsExpiring).toBe(1);
     expect(result.expiredDocuments).toBe(1);
     expect(result.nearestExpiringDocument).toEqual({ type: 'PUBLIC_LIABILITY_INSURANCE', expiresAt });

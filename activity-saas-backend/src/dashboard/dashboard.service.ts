@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { BookingStatus, PayoutRecordType, PayoutStatus, ProductStatus } from '@prisma/client';
+import { BookingStatus, PayoutRecordType, PayoutStatus, ProductStatus, Prisma, SettlementHoldStatus } from '@prisma/client';
 import { AuthUser } from '../common/auth.types';
+import { settlementHeldAmount } from '../finance/settlement-hold-amount';
 import { requireTenant } from '../common/tenant';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupplierPerformanceService } from '../quality/supplier-performance.service';
@@ -57,7 +58,7 @@ export class DashboardService {
           status: { notIn: [PayoutStatus.PAID, PayoutStatus.RELEASED, PayoutStatus.RECONCILED] },
         },
         orderBy: { dueDate: 'asc' },
-        select: { amount: true, dueDate: true, currency: true },
+        select: { amount: true, dueDate: true, currency: true, status: true, settlementBatch: { include: { lines: { include: { allocations: { select: { financialEventId: true, financialEvent: { select: { amount: true, vendorAmount: true } } } } } } } } },
       }),
       this.prisma.booking.count({ where: { vendorTenantId: tenantId, recordType: 'CANONICAL', status: BookingStatus.PENDING_VENDOR_CONFIRMATION } }),
       this.prisma.booking.count({ where: { vendorTenantId: tenantId, recordType: 'CANONICAL', status: BookingStatus.PENDING_MANUAL_REVIEW } }),
@@ -104,6 +105,9 @@ export class DashboardService {
     const vendorNetEarningsMtd = Number(netVendorRevenue._sum.netVendorPayable ?? 0) + Number(baseVendorRevenue._sum.vendorPayable ?? 0);
     const previousPeriodVendorEarnings = Number(previousNetVendorRevenue._sum.netVendorPayable ?? 0) + Number(previousBaseVendorRevenue._sum.vendorPayable ?? 0);
     const vendorNetEarningsMtdChangePercent = previousPeriodVendorEarnings > 0 ? Number(((vendorNetEarningsMtd - previousPeriodVendorEarnings) / previousPeriodVendorEarnings * 100).toFixed(1)) : null;
+    const payoutHolds = nextPayout?.settlementBatch && [PayoutStatus.READY_TO_RELEASE, PayoutStatus.RELEASE_FAILED].includes(nextPayout.status as any) ? await this.prisma.settlementHold.findMany({ where: { vendorTenantId: tenantId, status: SettlementHoldStatus.ACTIVE }, select: { scope: true, vendorTenantId: true, bookingId: true, financialEventId: true } }) : [];
+    const payoutHeldAmount = nextPayout?.settlementBatch ? settlementHeldAmount(nextPayout.settlementBatch, payoutHolds) : new Prisma.Decimal(0);
+    const availablePayoutAmount = nextPayout ? Prisma.Decimal.max(new Prisma.Decimal(nextPayout.amount).minus(payoutHeldAmount), 0) : null;
     return {
       bookingsToday: todayBookings,
       guestsToday: todayGuestRows.reduce((sum, row) => sum + row.pax, 0),
@@ -111,7 +115,7 @@ export class DashboardService {
       guestsNextSevenDays: nextSevenDayRows.reduce((sum, row) => sum + row.pax, 0),
       vendorNetEarningsMtd,
       vendorNetEarningsMtdChangePercent,
-      nextPayout: nextPayout ? { amount: Number(nextPayout.amount), dueDate: nextPayout.dueDate, currency: nextPayout.currency } : null,
+      nextPayout: nextPayout ? { amount: Number(availablePayoutAmount), heldAmount: Number(payoutHeldAmount), dueDate: nextPayout.dueDate, currency: nextPayout.currency } : null,
       payoutAccount: { masked: profile?.payoutAccountMasked || null, bankName: profile?.payoutBankName || null, currency: profile?.payoutCurrency || null, verificationStatus: profile?.verificationStatus || 'PENDING' },
       pendingBookings: vendorActionRequiredBookings + manualReviewPendingBookings + legacyPendingBookings,
       vendorActionRequiredBookings,

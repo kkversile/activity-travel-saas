@@ -180,3 +180,34 @@ describe('Payout failure recovery', () => {
     expect(screen.getByText('Attempt 1 · FAILED')).toBeInTheDocument();
   });
 });
+
+
+describe('Settlement hold controls', () => {
+  it('clears the old target on scope change and sends exactly the selected event target', async () => {
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path: string, _options?: any) => {
+      if (path === '/admin/vendors') return [{ id: 'vendor-1', name: 'Coastal Adventures' }] as never;
+      return [] as never;
+    });
+    render(<AdminSettlements />);
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Vendor' }), { target: { value: 'vendor-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Holds' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Vendor' }), { target: { value: 'vendor-1' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Scope' }), { target: { value: 'FINANCIAL_EVENT' } });
+    expect(screen.getByRole('textbox', { name: 'Financial event ID' })).toHaveValue('');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Financial event ID' }), { target: { value: 'event-1' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Reason' }), { target: { value: 'Disputed source event' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create hold' }));
+    await waitFor(() => expect(request.mock.calls.some(([path, options]) => path === '/admin/settlement-holds' && options?.method === 'POST')).toBe(true));
+    const call = request.mock.calls.find(([path, options]) => path === '/admin/settlement-holds' && options?.method === 'POST')!;
+    expect(JSON.parse(call[1]!.body as string)).toEqual({ scope: 'FINANCIAL_EVENT', financialEventId: 'event-1', reason: 'Disputed source event' });
+  });
+
+  it('blocks release evidence entry while a payout is fully held', async () => {
+    vi.spyOn(api, 'request').mockImplementation(async (path: string) => path === '/admin/payouts' ? [{ id: 'p1', amount: '0', heldAmount: '150', currency: 'INR', status: 'READY_TO_RELEASE' }] as never : [] as never);
+    render(<AdminSettlements />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Payouts' }));
+    expect(screen.getByRole('button', { name: 'Request release approval' })).toBeDisabled();
+    expect(screen.getByText('ON HOLD')).toBeInTheDocument();
+    expect(screen.getByText('Fully held. Release the hold before submitting evidence.')).toBeInTheDocument();
+  });
+});

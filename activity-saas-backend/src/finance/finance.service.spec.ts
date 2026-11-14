@@ -20,7 +20,7 @@ describe('FinanceService settlement reconciliation', () => {
 
     const result = await finance.vendorSettlements({ role: UserRole.VENDOR, tenantId: 'vendor-1' } as any);
 
-    expect(result.summary.nextPayout).toEqual({ amount: 4500, dueDate: nextPayout.dueDate, currency: 'INR', periodFrom: nextPayout.settlementBatch.periodFrom, periodTo: nextPayout.settlementBatch.periodTo });
+    expect(result.summary.nextPayout).toEqual({ amount: 4500, heldAmount: 0, dueDate: nextPayout.dueDate, currency: 'INR', periodFrom: nextPayout.settlementBatch.periodFrom, periodTo: nextPayout.settlementBatch.periodTo });
   });
 
   it('snapshots explicit commission GST and statutory withholding components without deriving rates', () => {

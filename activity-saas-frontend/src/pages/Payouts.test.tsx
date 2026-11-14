@@ -58,3 +58,16 @@ describe('Vendor payout failure history', () => {
     expect(screen.getByText('Attempt 2 · RELEASE RECORDED')).toBeInTheDocument();
   });
 });
+
+
+describe('Vendor held payout visibility', () => {
+  it('separates the available payout from held funds and does not label an absent bank account verified', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ batches: [], legacyPayouts: [], payouts: [{ id: 'p1', amount: '0', heldAmount: '150', status: 'READY_TO_RELEASE', currency: 'INR', dueDate: '2026-11-15' }], summary: { paidInSelectedMonth: 0, onHold: 150, nextPayout: { amount: 0, heldAmount: 150, dueDate: '2026-11-15', currency: 'INR' }, payoutAccount: { masked: null, verificationStatus: 'VERIFIED' } } } as never);
+    render(<Payouts />);
+    await screen.findByText('₹150.00 on hold · Due 15 Nov 2026');
+    expect(screen.queryByText('VERIFIED')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Payout release history' }));
+    expect(screen.getByText('ON HOLD')).toBeInTheDocument();
+    expect(screen.getByText('Held ₹150.00')).toBeInTheDocument();
+  });
+});
