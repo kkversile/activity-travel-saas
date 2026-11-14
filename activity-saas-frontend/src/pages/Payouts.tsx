@@ -106,7 +106,7 @@ export default function Payouts() {
     {tab === 'releases' && <Panel title="Payout release history">
       <p className="muted">These rows record payout state and evidence in Voya. They do not represent a connected bank transfer.</p>
       <div className="table-wrap"><table><thead><tr><th>Batch</th><th>Due date</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead>
-        <tbody>{payouts.map((payout) => <tr key={payout.id}><td className="mono">{payout.settlementBatch?.batchCode || '—'}</td><td>{shortDate(payout.dueDate)}</td><td>{money(payout.amount, payout.currency)}</td><td className="mono">{payout.reference || '—'}</td><td><Badge value={payout.status} />{payout.status === 'RELEASE_FAILED' && <p className="payout-failure-note">{payout.failureReason || 'Release failed. Our finance team will review the payout.'}</p>}<PayoutAttemptHistory attempts={payout.attempts} /></td></tr>)}</tbody>
+        <tbody>{payouts.map((payout) => <tr className="payout-release-row" key={payout.id}><td className="mono">{payout.settlementBatch?.batchCode || '—'}</td><td>{shortDate(payout.dueDate)}</td><td>{money(payout.amount, payout.currency)}</td><td className="mono">{payout.reference || '—'}</td><td><Badge value={payout.status} />{payout.status === 'RELEASE_FAILED' && <p className="payout-failure-note">{payout.failureReason || 'Release failed. Our finance team will review the payout.'}</p>}<PayoutAttemptHistory attempts={payout.attempts} /></td></tr>)}</tbody>
       </table></div>
       {!payouts.length && <div className="empty">No canonical payout release records yet.</div>}
     </Panel>}
