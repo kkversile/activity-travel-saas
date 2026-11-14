@@ -307,5 +307,5 @@
 .payout-attempt-history li p{margin:6px 0}
 
 .payout-release-row>td{vertical-align:top}
-.impersonation-banner~.partner-app-shell .partner-topbar{top:var(--impersonation-banner-height,44px)}
-@media(min-width:901px){.impersonation-banner~.partner-app-shell .partner-sidebar{top:var(--impersonation-banner-height,44px);height:calc(100dvh - var(--impersonation-banner-height,44px))}}
+.impersonation-banner-slot~.partner-app-shell .partner-topbar{top:var(--impersonation-banner-height,44px)}
+@media(min-width:901px){.impersonation-banner-slot~.partner-app-shell .partner-sidebar{top:var(--impersonation-banner-height,44px);height:calc(100dvh - var(--impersonation-banner-height,44px))}}
