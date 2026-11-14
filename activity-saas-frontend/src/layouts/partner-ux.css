@@ -68,7 +68,9 @@
   .partner-app-shell .partner-nav button { width:100%; text-align:left; min-height:44px; }
   .partner-app-shell .partner-user-card { display:flex; width:100%; margin-top:0; }
   .voya-experience-ux .experience-wizard { grid-template-columns:1fr; }
-  .voya-experience-ux .experience-wizard-nav { display:none; }
+  .voya-experience-ux .experience-wizard-nav,
+  .partner-product-builder-shell .partner-editor-card.voya-experience-ux .experience-wizard-nav,
+  .experience-modal.admin-product-editor.voya-experience-ux .experience-wizard-nav { display:none; }
   .voya-experience-ux .experience-wizard-mobile-step { display:block; margin-bottom:16px; font-size:14px; color:var(--ux-muted); }
   .voya-experience-ux .experience-wizard-mobile-step select { display:block; width:100%; margin-top:8px; }
 }
