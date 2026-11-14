@@ -4,6 +4,7 @@ import { Badge, ErrorBox, Loading, Panel } from "../components/Ui";
 import { SharedDatePicker } from "../components/SharedDatePicker";
 import { indiaStates, citiesForState } from "../components/onboardingRegions";
 import ApprovedOnboardingDashboard from "../components/ApprovedOnboardingDashboard";
+import FilePreviewDialog from "../components/FilePreviewDialog";
 
 const steps = [
   "Business profile",
@@ -592,6 +593,7 @@ export default function Onboarding({
   const [lastSaved, setLastSaved] = useState("");
   const [showValidation, setShowValidation] = useState(false);
   const [selectedUpload, setSelectedUpload] = useState("");
+  const [previewFile, setPreviewFile] = useState<{ id: string; originalName: string; mimeType?: string } | null>(null);
   const errorSummaryRef = useRef<HTMLDivElement>(null);
   const stepHeadingRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setShowValidation(false); setError(""); stepHeadingRef.current?.focus(); }, [step]);
@@ -1032,21 +1034,11 @@ export default function Onboarding({
       setBusy(false);
     }
   }
-  async function viewDocument(
+  function viewDocument(
     document?: VendorOnboardingApplication["documents"][number],
   ) {
-    const fileAssetId = document?.latestVersion?.fileAsset.id;
-    if (!fileAssetId) return;
-    const preview = window.open("about:blank", "_blank");
-    try {
-      const blob = await api.blob(`/files/${fileAssetId}/content`);
-      const url = URL.createObjectURL(blob);
-      if (preview) preview.location.href = url;
-      else window.open(url, "_blank");
-    } catch (e) {
-      preview?.close();
-      setError((e as Error).message);
-    }
+    const file = document?.latestVersion?.fileAsset;
+    if (file?.id) setPreviewFile({ id: file.id, originalName: file.originalName || 'Vendor document', mimeType: file.mimeType });
   }
   async function downloadDocument(
     document?: VendorOnboardingApplication["documents"][number],
@@ -2770,6 +2762,7 @@ export default function Onboarding({
           </footer>
         </main>
       </div>
+      {previewFile && <FilePreviewDialog file={previewFile} onClose={() => setPreviewFile(null)} />}
     </div>
   );
 }

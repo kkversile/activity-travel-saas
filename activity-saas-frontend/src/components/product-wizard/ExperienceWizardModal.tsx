@@ -100,7 +100,7 @@ export default function ExperienceWizardModal({ product, initialStep = 1, prefer
         if ((loaded.variants || []).length) existing.add(4);
         if ((loaded.variants || []).some((variant) => (variant.ratePlans || []).length)) existing.add(5);
         if (prototype.voucherCodeSource || prototype.voucherAcceptedAs || prototype.voucherInstructions) existing.add(8);
-        try { const readiness = await api.request<ProductReadiness>(`/products/${id}/readiness`); const keys = ['basicInfo', 'experience', 'mediaFulfilment', 'options', 'rates', 'availability', 'policies', 'voucher'] as const; keys.forEach((key, index) => { if (readiness.sections[key].ready) existing.add(index + 1); else existing.delete(index + 1); }); } catch { /* Retain saved-content indicators if readiness is unavailable. */ }
+        try { const readiness = await api.request<ProductReadiness>(`/products/${id}/readiness`); const keys = ['basicInfo', 'experience', 'mediaFulfilment', 'options', 'rates', 'availability', 'policies', 'voucher'] as const; keys.forEach((key, index) => { const section = readiness.sections[key]; const ready = key === 'mediaFulfilment' ? Boolean(revisionWithQuestions?.media?.some(media => media.kind === 'IMAGE')) && !section.reasonCodes.some(code => !code.startsWith('FULFILMENT_')) : section.ready; if (ready) existing.add(index + 1); else existing.delete(index + 1); }); } catch { /* Retain saved-content indicators if readiness is unavailable. */ }
         setCompletedSteps(existing);
         setForm(toRevisionForm(revisionWithQuestions, loaded));
         setFulfilment(toFulfilmentForm(revisionWithQuestions?.fulfilmentPolicy));

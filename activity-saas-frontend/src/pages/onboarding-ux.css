@@ -132,3 +132,9 @@
   .partner-onboarding-shell .review-item { flex-wrap:wrap; }
   .partner-onboarding-shell .review-item-copy { min-width:0; flex:1; }
 }
+.onboarding-document-dialog { padding:0; border:1px solid var(--voya-border); border-radius:12px; background:var(--voya-surface); color:var(--voya-text); width:min(1040px,calc(100vw - 32px)); max-width:calc(100vw - 32px); max-height:calc(100dvh - 32px); }
+.onboarding-document-dialog::backdrop { background:rgb(0 0 0 / 65%); }
+.onboarding-document-dialog[open] { display:flex; flex-direction:column; }
+.onboarding-document-dialog .panel-head { flex:0 0 auto; flex-wrap:wrap; gap:12px; }
+.onboarding-document-dialog .panel-head h3 { overflow-wrap:anywhere; }
+.onboarding-document-dialog :is(iframe,img) { width:100%; min-height:0; border:0; flex:1 1 auto; height:70dvh; object-fit:contain; }

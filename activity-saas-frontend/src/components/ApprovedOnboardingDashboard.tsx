@@ -112,7 +112,7 @@ export default function ApprovedOnboardingDashboard({ application, onNavigate }:
   if (loading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
 
-  const profileComplete = Boolean(application.firstName && application.lastName && application.phoneVerifiedAt && application.businessDisplayName && application.legalBusinessName && application.addressLine && application.city && application.state && application.pinCode);
+  const profileComplete = Boolean(application.firstName && application.lastName && (application.mobileVerificationEnabled !== true || application.phoneVerifiedAt) && application.businessDisplayName && application.legalBusinessName && application.addressLine && application.city && application.state && application.pinCode);
   const agreementComplete = Boolean(application.agreementAcceptedAt && application.hasSignature);
   const panStatus = checklistStatus(documentStatus(application, 'PAN'));
   const bankStatus = checklistStatus(documentStatus(application, 'BANK_PROOF'));
@@ -154,7 +154,7 @@ export default function ApprovedOnboardingDashboard({ application, onNavigate }:
       <section className="approved-panel"><div className="approved-panel-head"><h3>Verification checklist</h3><span>{application.legalBusinessName || application.businessDisplayName || data.profile?.legalBusinessName || 'Vendor account'}</span></div><div className="approved-checklist">
         <div className="approved-check-row"><b>Business profile</b><span className={`approved-check-status ${profileComplete ? 'success' : 'warning'}`}>{profileComplete ? 'Verified' : 'Incomplete'}</span><span>—</span></div>
         <div className="approved-check-row"><b>GST / PAN</b><span className={`approved-check-status ${panStatus.tone}`}>{panStatus.label}</span><span>{application.gstStatus === 'NOT_REGISTERED' ? 'GST not applicable' : `${documentLabels.GSTIN}: ${gstStatus.label}`}</span></div>
-        <div className="approved-check-row"><b>Bank proof</b><span className={`approved-check-status ${bankStatus.tone}`}>{bankStatus.label}</span><span>{application.bankVerificationStatus?.replaceAll('_', ' ') || 'Pending verification'}</span></div>
+        <div className="approved-check-row"><b>Bank proof</b><span className={`approved-check-status ${bankStatus.tone}`}>{bankStatus.label}</span><span>Account verification: {humanStatus(application.bankVerificationStatus || 'PENDING')}</span></div>
         <div className="approved-check-row"><b>Partner agreement</b><span className={`approved-check-status ${agreementStatus.tone}`}>{agreementStatus.label}</span><span>{application.authorizedRepresentative || 'Authorized representative'}</span></div>
       </div></section>
       <section className="approved-panel"><div className="approved-panel-head"><h3>What blocks go-live?</h3><span>{actionsRemaining ? `${actionsRemaining} action${actionsRemaining === 1 ? '' : 's'}` : 'Ready'}</span></div><div className="approved-blockers">

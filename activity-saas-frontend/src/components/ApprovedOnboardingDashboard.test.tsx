@@ -6,6 +6,26 @@ import ApprovedOnboardingDashboard from './ApprovedOnboardingDashboard';
 afterEach(() => vi.restoreAllMocks());
 
 describe('ApprovedOnboardingDashboard document renewal', () => {
+  it.each([
+    [false, null, 'Verified'],
+    [true, null, 'Incomplete'],
+    [true, '2026-11-14T00:00:00Z', 'Verified'],
+  ] as const)('respects mobile verification setting %s with phone timestamp %s', async (mobileVerificationEnabled, phoneVerifiedAt, expected) => {
+    vi.spyOn(api, 'request').mockImplementation(async path => path === '/products/listing?page=1&limit=100'
+      ? { items: [], summary: { live: 0, review: 0, draft: 0 } } as never
+      : { readinessScore: 0 } as never);
+    const application: any = {
+      id: 'application-1', status: 'APPROVED', gstStatus: 'NOT_REGISTERED', documents: [],
+      firstName: 'Binu', lastName: 'Mathew', businessDisplayName: 'Blue Mountain', legalBusinessName: 'Blue Mountain',
+      addressLine: 'Demo address', city: 'Munnar', state: 'Kerala', pinCode: '685612',
+      mobileVerificationEnabled, phoneVerifiedAt, bankVerificationStatus: 'PENDING',
+    };
+    render(<ApprovedOnboardingDashboard application={application} onNavigate={vi.fn()} />);
+    const profile = await screen.findByText('Business profile');
+    expect(within(profile.closest('.approved-check-row')!).getByText(expected)).toBeInTheDocument();
+    expect(screen.getByText('Account verification: Pending')).toBeInTheDocument();
+  });
+
   it('uploads a replacement document with its expiry and reloads the persisted status', async () => {
     const initialApplication: any = {
       id: 'application-1', status: 'APPROVED', currentStep: 8, gstStatus: 'NOT_REGISTERED', hasSignature: true,

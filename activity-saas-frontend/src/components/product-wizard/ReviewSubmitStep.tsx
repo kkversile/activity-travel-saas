@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, type ProductReadiness } from '../../api';
 import { Badge } from '../Ui';
 import { readinessReasonLabel } from '../readinessLabels';
@@ -26,6 +26,7 @@ export default function ReviewSubmitStep({ snapshot, locked, onNavigate, fulfilm
   const [data, setData] = useState<ProductReadiness | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const fulfilmentDetails = useRef<HTMLDetailsElement>(null);
   const revisionStatus = snapshot.revision?.status;
   const reviewDescription = revisionStatus === 'PUBLISHED'
     ? 'This is the published product version. Create a working revision to prepare changes for review.'
@@ -83,7 +84,7 @@ export default function ReviewSubmitStep({ snapshot, locked, onNavigate, fulfilm
                         <b>{displayLabel}</b>
                         {item.ready ? <p>Configured and available to submit.</p> : <ul>{item.reasonCodes.map((code) => <li key={code}>{reasonLabels[code] || code.replaceAll('_', ' ').toLowerCase()}</li>)}</ul>}
                       </div>
-                      {key === 'distribution' && !item.ready ? <span className="experience-help">Configured by admin after QC</span> : <button type="button" className="link-button" onClick={() => onNavigate(fixStep as WizardStep)}>{item.ready ? 'Review' : 'Fix'}</button>}
+                      {key === 'distribution' && !item.ready ? <span className="experience-help">Configured by admin after QC</span> : <button type="button" className="link-button" onClick={() => { if (key === 'mediaFulfilment' && fixStep === 9 && fulfilmentDetails.current) { fulfilmentDetails.current.open = true; fulfilmentDetails.current.scrollIntoView({ block: 'center' }); fulfilmentDetails.current.querySelector('select')?.focus(); } else onNavigate(fixStep as WizardStep); }}>{item.ready ? 'Review' : 'Fix'}</button>}
                     </div>;
                   })}
                 </div>
@@ -95,9 +96,9 @@ export default function ReviewSubmitStep({ snapshot, locked, onNavigate, fulfilm
           </>
         )}
       </div>
-      <details className="experience-step-card advanced-details review-fulfilment-details">
-        <summary>Advanced fulfilment settings</summary>
-        <p className="experience-help">Supplier operations and fulfilment evidence rules are kept here without changing the reference Review &amp; submit flow.</p>
+      <details ref={fulfilmentDetails} className="experience-step-card advanced-details review-fulfilment-details" open={!fulfilment.mode || data?.sections.mediaFulfilment.reasonCodes.some(code => code.startsWith('FULFILMENT_'))}>
+        <summary>Fulfilment settings{!fulfilment.mode ? ' · Required before submission' : ''}</summary>
+        <p className="experience-help">Choose when the booking voucher is issued and provide the supplier contacts guests can reach.</p>
         <FulfilmentSection value={fulfilment} locked={locked} onChange={onFulfilmentChange} onSave={onSaveDraft} />
       </details>
     </div>
