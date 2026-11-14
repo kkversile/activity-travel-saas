@@ -16,6 +16,25 @@ function make(plans: any[] = [plan()]) {
 
 describe('MarketplaceService Phase 5.1', () => {
   const dto: any = { serviceDate: '2026-10-10', destination: 'Munnar', travellers: [{ travellerType: 'ADULT', quantity: 2 }] };
+  it('shows the published Vendor inclusions and exclusions even when option lists are empty', async () => {
+    const offer = plan();
+    offer.variant.inclusions = [];
+    offer.variant.exclusions = [];
+    Object.assign(offer.variant.product.currentRevision, { included: ['Local guide', 'Estate entry'], notIncluded: ['Transport', 'Meals'] });
+    const f = make([offer]);
+    const result = await f.service.productView(user, 'p1', dto);
+    expect(result.inclusions).toEqual(['Local guide', 'Estate entry']);
+    expect(result.exclusions).toEqual(['Transport', 'Meals']);
+    expect(result).not.toHaveProperty('sourcePayload');
+  });
+  it('retains option content for older published products without product-level lists', async () => {
+    const offer = plan();
+    Object.assign(offer.variant.product.currentRevision, { included: [], notIncluded: [] });
+    const f = make([offer]);
+    const result = await f.service.productView(user, 'p1', dto);
+    expect(result.inclusions).toEqual(['Guide']);
+    expect(result.exclusions).toEqual(['Insurance']);
+  });
   it('uses the authenticated agent tenant and never accepts a browser tenant id', async () => { const f = make(); await f.service.search({ ...user, tenantId: 'agent1' }, dto); expect(f.prisma.tenant.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'agent1' } })); expect(f.eligibility.evaluate).toHaveBeenCalledWith(expect.objectContaining({ agentTenantId: 'agent1' })); });
   it('filters unrelated query text before ranking', async () => { const f = make(); const result = await f.service.search(user, { ...dto, query: 'no-such-marketplace-term-xyz' }); expect(result.count).toBe(0); expect(result.products).toHaveLength(0); expect(f.eligibility.evaluate).not.toHaveBeenCalled(); });
   it('keeps only eligible offers and applies agent-facing filters', async () => { const f = make([plan(['ss1', 'ss2'], [{ type: 'ADULT', minCount: 1, maxCount: 10 }, { type: 'CHILD', minCount: 0, maxCount: 4 }])]); f.eligibility.evaluate.mockResolvedValueOnce({ eligible: true, bookingMode: 'INSTANT', commercial: { currency: 'INR', finalAmount: '100.00', tax: null, promotion: null }, inventory: {}, evaluatedAt: '' }).mockResolvedValueOnce({ eligible: false }); const result = await f.service.search(user, { ...dto, priceMin: 50, priceMax: 150, currency: 'INR', bookingMode: 'INSTANT', minRating: 4, durationMin: 60, durationMax: 180, privateShared: 'SHARED', pickupIncluded: true, childSuitable: true }); expect(result.count).toBe(1); expect(result.products[0].variants[0].offers).toHaveLength(1); expect(result.products[0].variants[0].offers[0].price.finalAmount).toBe('100.00'); });

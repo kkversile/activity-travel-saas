@@ -79,9 +79,54 @@ export class VoucherGenerationService {
   }
 
   private async pdf(payload: any) {
-    const document = await PDFDocument.create(); const page = document.addPage([595, 842]); const font = await document.embedFont(StandardFonts.Helvetica); const bold = await document.embedFont(StandardFonts.HelveticaBold); let y = 790;
-    const line = (value: string, size = 10, strong = false) => { page.drawText(value.slice(0, 100), { x: 48, y, size, font: strong ? bold : font, color: rgb(0.08, 0.14, 0.2) }); y -= size + 9; };
-    line('VOYA TRAVELLER VOUCHER', 20, true); line(`Voucher ${payload.voucherCode}`, 11, true); line(`Booking ${payload.bookingCode}`); y -= 8; line(payload.productName, 15, true); line(payload.variantName); line(`Service date: ${String(payload.serviceDate).slice(0, 10)} ${payload.localStartTime ?? ''} ${payload.timezone}`); line(`Travellers: ${payload.pax} (${JSON.stringify(payload.travellerSummary)})`); if (payload.leadTravellerName) line(`Lead traveller: ${payload.leadTravellerName}`); if (payload.voucherCodeSource) line(`Code source: ${payload.voucherCodeSource}`); if (payload.voucherAcceptedAs) line(`Accepted as: ${payload.voucherAcceptedAs}`); y -= 8; line('Traveller-safe ticket / evidence', 12, true); for (const item of payload.evidence) if (item.referenceValue) line(`${item.kind}: ${item.referenceValue}`); y -= 8; if (payload.howToRedeem.length) { line('How to redeem', 12, true); for (const item of payload.howToRedeem) line(`• ${item}`); } if (payload.emergencyContact?.name || payload.operationsContact?.name) { line('Operational contacts', 12, true); line(`${payload.operationsContact?.name ?? ''} ${payload.operationsContact?.phone ?? ''}`); line(`${payload.emergencyContact?.name ?? ''} ${payload.emergencyContact?.phone ?? ''}`); } line(`Version ${payload.voucherVersion} · Generated ${payload.generatedAt}`); return Buffer.from(await document.save());
+    const document = await PDFDocument.create();
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    const bold = await document.embedFont(StandardFonts.HelveticaBold);
+    let page = document.addPage([595, 842]);
+    let y = 790;
+    const width = 595 - 96;
+    const line = (value: string, size = 10, strong = false) => {
+      const face = strong ? bold : font;
+      const draw = (text: string) => {
+        if (y < 48 + size) { page = document.addPage([595, 842]); y = 790; }
+        page.drawText(text, { x: 48, y, size, font: face, color: rgb(0.08, 0.14, 0.2) });
+        y -= size + 9;
+      };
+      for (const paragraph of String(value).split(/\r?\n/)) {
+        let current = '';
+        for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+          if (current && face.widthOfTextAtSize(`${current} ${word}`, size) > width) { draw(current); current = ''; }
+          let remainder = word;
+          while (face.widthOfTextAtSize(remainder, size) > width) {
+            let length = remainder.length;
+            while (length > 1 && face.widthOfTextAtSize(remainder.slice(0, length), size) > width) length -= 1;
+            draw(remainder.slice(0, length));
+            remainder = remainder.slice(length);
+          }
+          current = current ? `${current} ${remainder}` : remainder;
+        }
+        if (current) draw(current);
+        else if (!paragraph.trim()) y -= size + 9;
+      }
+    };
+    line('VOYA TRAVELLER VOUCHER', 20, true);
+    line(`Voucher ${payload.voucherCode}`, 11, true);
+    line(`Booking ${payload.bookingCode}`); y -= 8;
+    line(payload.productName, 15, true);
+    line(payload.variantName);
+    line(`Service date: ${new Date(payload.serviceDate).toISOString().slice(0, 10)} ${payload.localStartTime ?? ''} ${payload.timezone}`);
+    const travellers = Object.entries(payload.travellerSummary || {}).map(([kind, quantity]) => `${quantity} ${kind.toLowerCase()}`).join(', ');
+    line(`Travellers: ${payload.pax}${travellers ? ` (${travellers})` : ''}`);
+    if (payload.leadTravellerName) line(`Lead traveller: ${payload.leadTravellerName}`);
+    if (payload.voucherCodeSource) line(`Code source: ${payload.voucherCodeSource}`);
+    if (payload.voucherAcceptedAs) line(`Accepted as: ${payload.voucherAcceptedAs}`);
+    const references = payload.evidence.filter((item: any) => item.referenceValue);
+    if (references.length) { y -= 8; line('Ticket / evidence', 12, true); for (const item of references) line(`${item.kind}: ${item.referenceValue}`); }
+    if (payload.howToRedeem.length) { y -= 8; line('How to redeem', 12, true); for (const item of payload.howToRedeem) line(`- ${item}`); }
+    const contacts = [...new Set([payload.operationsContact, payload.emergencyContact].filter((contact) => contact?.name || contact?.phone).map((contact) => `${contact.name ?? ''} ${contact.phone ?? ''}`.trim()))];
+    if (contacts.length) { line('Operational contacts', 12, true); for (const contact of contacts) line(contact); }
+    line(`Version ${payload.voucherVersion} - Generated ${payload.generatedAt}`);
+    return Buffer.from(await document.save());
   }
 
   private async finalize(fulfilmentId: string, claimToken: string, claimVersion: number, payload: any, stored: { storageKey: string; sizeBytes: number }) {
