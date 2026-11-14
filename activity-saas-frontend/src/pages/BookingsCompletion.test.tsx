@@ -12,11 +12,13 @@ describe('Vendor completion workflow', () => {
     const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
       if (path.endsWith('/complete')) { if (!ended) throw new Error('SERVICE_NOT_ENDED'); completed = true; return {} as never; }
       const row = { ...booking, status: completed ? 'COMPLETED' : 'REDEEMED' };
-      return (path.includes('/page?') ? { items: [row], pagination: { page: 1, totalPages: 1, total: 1, limit: 25 } } : row) as never;
+      return (path.includes('/page?') ? { items: [row], pagination: { page: 1, totalPages: 1, total: 1, limit: 25 } } : { ...row, publicCode: undefined }) as never;
     });
     render(<Bookings />);
     fireEvent.click(await screen.findByRole('button', { name: 'Complete service' }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Complete service' }));
+    expect(dialog.getByText('AG-1')).toBeInTheDocument();
+    expect(dialog.getByText(/AG-1/).parentElement).not.toHaveTextContent('\uFFFD');
     fireEvent.change(dialog.getByLabelText('Completion note (optional)'), { target: { value: 'Walk delivered' } });
     fireEvent.click(dialog.getByRole('button', { name: 'Confirm completion' }));
     expect(await dialog.findByRole('alert')).toHaveTextContent('The service has not ended yet.');

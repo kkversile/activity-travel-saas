@@ -29,7 +29,7 @@ export default function Bookings() {
   async function redeemVoucher() { if (!voucherResult) return; setVoucherBusy(true); setError(''); try { await api.request(`/vendor/manifest/bookings/${voucherResult.bookingId}/check-in`, { method: 'POST' }); setVoucherResult((current) => current ? { ...current, redeemed: true, status: 'REDEEMED' } : current); await load(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setVoucherBusy(false); } }
   async function openCompletion(row: VendorBooking) {
     setCompletionError(''); setCompletionReason(''); setNotice('');
-    try { setCompletion(await api.request<VendorBooking>(`/vendor/bookings/${row.id}`)); }
+    try { const detail = await api.request<VendorBooking>(`/vendor/bookings/${row.id}`); setCompletion({ ...detail, publicCode: detail.publicCode || row.publicCode }); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   }
   async function completeBooking() {
@@ -114,12 +114,12 @@ export default function Bookings() {
     </div></div>}
     {completion && <div className="modal-backdrop"><div className="voucher-modal booking-detail" role="dialog" aria-modal="true" aria-labelledby="booking-completion-title">
       <div className="modal-head"><h3 id="booking-completion-title">Complete service</h3><button className="btn small" disabled={completionBusy} onClick={() => setCompletion(null)}>Close</button></div>
-      <p><b>{completion.publicCode || completion.bookingCode}</b> · {completion.snapshot?.productSnapshot?.productName}</p>
+      <p><b>{completion.publicCode || completion.bookingCode}</b> Â· {completion.snapshot?.productSnapshot?.productName}</p>
       <p>Confirm that the redeemed booking's service has finished. This records completion; it does not release a payout.</p>
       {completion.snapshot?.sessionSnapshot?.endsAt && <p><b>Scheduled end:</b> {new Date(completion.snapshot.sessionSnapshot.endsAt).toLocaleString()}</p>}
       {completionError && <div className="alert error" role="alert">{completionError}</div>}
       <label className="field"><span>{completion.snapshot?.sessionSnapshot?.endsAt ? 'Completion note (optional)' : 'Completion reason (required)'}</span><textarea rows={3} value={completionReason} onChange={(e) => setCompletionReason(e.target.value)} /></label>
-      <div className="actions"><button className="btn" disabled={completionBusy} onClick={() => setCompletion(null)}>Keep redeemed</button><button className="btn accent" disabled={completionBusy || (!completion.snapshot?.sessionSnapshot?.endsAt && !completionReason.trim())} onClick={() => void completeBooking()}>{completionBusy ? 'Completing…' : 'Confirm completion'}</button></div>
+      <div className="actions"><button className="btn" disabled={completionBusy} onClick={() => setCompletion(null)}>Keep redeemed</button><button className="btn accent" disabled={completionBusy || (!completion.snapshot?.sessionSnapshot?.endsAt && !completionReason.trim())} onClick={() => void completeBooking()}>{completionBusy ? 'Completingâ€¦' : 'Confirm completion'}</button></div>
     </div></div>}
     {voucherPreview && <FilePreviewDialog file={voucherPreview} onClose={() => setVoucherPreview(null)} />}
   </>;
