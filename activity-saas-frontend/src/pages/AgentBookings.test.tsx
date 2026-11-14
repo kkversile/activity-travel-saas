@@ -4,7 +4,7 @@ import { api, type AgentBooking } from '../api';
 import AgentBookings from './AgentBookings';
 
 const booking: AgentBooking = {
-  id: 'booking-1', bookingCode: 'VY-BOOKING', recordType: 'CANONICAL', status: 'CONFIRMED',
+  id: 'booking-1', bookingCode: 'VY-BOOKING', publicCode: 'AG-26110012', recordType: 'CANONICAL', status: 'CONFIRMED',
   bookingMode: 'INSTANT', serviceDate: '2026-11-20', customerName: 'Arjun Menon',
   amount: 2520, currency: 'INR', travellers: [{ fullName: 'Arjun Menon', travellerType: 'ADULT' }],
   snapshot: { productSnapshot: { productName: 'Madurai Heritage Walk' }, variantSnapshot: { name: 'Shared walk' }, ratePlanSnapshot: {}, sessionSnapshot: {}, travellerSummary: {}, cancellationPolicySnapshot: [], questionsSnapshot: [], agentSnapshot: { tenantId: 'agent-1', tenantName: 'Travel Agency', userId: 'user-1' } },
@@ -29,6 +29,8 @@ describe('Agent cancellation and refund details', () => {
       return (path.includes('?') ? [detail] : detail) as never;
     });
     render(<AgentBookings canBook />);
+    expect(await screen.findByText('AG-26110012')).toBeInTheDocument();
+    expect(screen.queryByText('VY-BOOKING')).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: /^Cancel$/ }));
     const dialog = within(await screen.findByRole('dialog'));
     await dialog.findByText(/Expected refund/);

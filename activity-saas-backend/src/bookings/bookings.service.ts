@@ -213,11 +213,12 @@ export class BookingsService {
         await this.audit.write(tx, { actor: user, tenantId: agentTenantId, action: 'BOOKING_CREATED', entityType: 'Booking', entityId: booking.id, metadata: { bookingMode: updated.bookingMode, status: updated.status, qaOnlyTestFixture: !!qaOverride } }); await this.outbox.enqueue(tx, { tenantId: agentTenantId, eventType: 'BOOKING_CREATED', aggregateType: 'Booking', aggregateId: booking.id, payload: { bookingCode: booking.bookingCode, status: updated.status, bookingMode: updated.bookingMode, ...(qaOverride ? { qaOnlyTestFixture: true } : {}) } }); if (updated.status === BookingStatus.CONFIRMED) await this.outbox.enqueue(tx, { tenantId: agentTenantId, eventType: 'BOOKING_CONFIRMED', aggregateType: 'Booking', aggregateId: booking.id, payload: { bookingCode: booking.bookingCode, ...(qaOverride ? { qaOnlyTestFixture: true } : {}) } });
         return tx.booking.findUniqueOrThrow({ where: { id: booking.id }, include: bookingInclude });
       }, { timeout: 30000, maxWait: 30000 });
-      return this.projection.forAgent(saved);
+      return this.projectAgentBooking(saved);
     } catch (error: any) { if (error?.code === 'P2002') { const duplicate = await this.prisma.booking.findFirst({ where: { agentTenantId, idempotencyKey: key }, include: bookingInclude }); if (duplicate) return this.resolveIdempotency(duplicate, requestFingerprint); } throw error; }
   }
 
-  private resolveIdempotency(booking: any, requestFingerprint: string) { if (booking.requestFingerprint !== requestFingerprint) throw new ConflictException({ code: 'IDEMPOTENCY_KEY_REUSED', message: 'Idempotency-Key was already used for a different request' }); return this.projection.forAgent(booking); }
+  private resolveIdempotency(booking: any, requestFingerprint: string) { if (booking.requestFingerprint !== requestFingerprint) throw new ConflictException({ code: 'IDEMPOTENCY_KEY_REUSED', message: 'Idempotency-Key was already used for a different request' }); return this.projectAgentBooking(booking); }
+  private async projectAgentBooking(booking: any) { const codes = await publicIdentifierMap(this.prisma, PublicEntity.BOOKING, [booking.id]); return this.projection.forAgent({ ...booking, publicCode: codes.get(booking.id) || null }); }
   private validateTravellerDetails(details: BookingTravellerDetailDto[], normalized: any) { if (!details?.length) throw new ConflictException('Traveller details are required'); const leadCount = details.filter((detail) => detail.isLead === true).length; if (!leadCount) throw new ConflictException('LEAD_TRAVELLER_REQUIRED'); if (leadCount > 1) throw new ConflictException('MULTIPLE_LEAD_TRAVELLERS'); const quantities = details.reduce((map: Record<string, number>, detail: any) => { map[detail.travellerType] = (map[detail.travellerType] ?? 0) + detail.quantity; return map; }, {}); const expected = normalized.quantitiesByType as Record<string, number>; const types = new Set([...Object.keys(quantities), ...Object.keys(expected)]); for (const type of types) if ((quantities[type] ?? 0) !== (expected[type] ?? 0)) throw new ConflictException('TRAVELLER_DETAILS_MISMATCH'); return details; }
   private validateAnswers(questions: any[], details: BookingTravellerDetailDto[], answers: Record<string, unknown>) { const known = new Set(questions.map((question) => question.code)); for (const key of Object.keys(answers)) if (!known.has(key)) throw new ConflictException(`Unknown booking answer: ${key}`); const check = (question: any, value: unknown, required: boolean) => { if (value === undefined || value === null || (question.type === 'TEXT' && typeof value === 'string' && !value.trim())) { if (required) throw new ConflictException(`BOOKING_ANSWER_REQUIRED:${question.code}`); return; } if (question.type === 'TEXT' && typeof value !== 'string') throw new ConflictException(`BOOKING_ANSWER_INVALID:${question.code}`); if (question.type === 'NUMBER' && (typeof value !== 'number' || !Number.isFinite(value))) throw new ConflictException(`BOOKING_ANSWER_INVALID:${question.code}`); if (question.type === 'BOOLEAN' && typeof value !== 'boolean') throw new ConflictException(`BOOKING_ANSWER_INVALID:${question.code}`); if (question.type === 'SELECT' && !((Array.isArray(question.options) ? question.options : Object.values(question.options ?? {})).map(String).includes(String(value)))) throw new ConflictException(`BOOKING_ANSWER_INVALID:${question.code}`); }; for (const question of questions) if (question.appliesPerTraveller) for (const detail of details) check(question, detail.answers?.[question.code], question.required); else check(question, answers[question.code], question.required); }
   private async addEvent(tx: Prisma.TransactionClient, booking: any, eventType: string, fromStatus: BookingStatus | null, toStatus: BookingStatus | null, actor: AuthUser | null, reason?: string, metadata?: Record<string, unknown>) { return tx.bookingEvent.create({ data: { bookingId: booking.id, eventType, fromStatus, toStatus, actorUserId: actor?.sub ?? null, actorRole: actor?.role ?? null, reason: reason ?? null, metadata: metadata as Prisma.InputJsonValue | undefined } }); }
@@ -247,20 +248,23 @@ export class BookingsService {
   async agentList(user: AuthUser, query: BookingListQueryDto) {
     const agentTenantId = this.assertAgent(user);
     const statusFilter = query.statusGroup === 'REJECTED' ? { in: [BookingStatus.VENDOR_REJECTED, BookingStatus.MANUAL_REJECTED] } : query.status;
+    const search = query.q?.trim();
+    const publicMatches = search ? await this.prisma.publicIdentifier.findMany({ where: { entityType: PublicEntity.BOOKING, publicCode: { contains: search, mode: 'insensitive' } }, select: { entityId: true } }) : [];
     const where: Prisma.BookingWhereInput = {
       recordType: BookingRecordType.CANONICAL,
       agentTenantId,
       ...(statusFilter ? { status: statusFilter } : {}),
       ...(query.bookingMode ? { bookingMode: query.bookingMode } : {}),
       ...(query.from || query.to ? { serviceDate: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lte: new Date(query.to) } : {}) } } : {}),
-      ...(query.q ? { OR: [{ bookingCode: { contains: query.q.trim(), mode: 'insensitive' } }, { customerName: { contains: query.q.trim(), mode: 'insensitive' } }] } : {}),
+      ...(search ? { OR: [{ bookingCode: { contains: search, mode: 'insensitive' } }, { customerName: { contains: search, mode: 'insensitive' } }, ...(publicMatches.length ? [{ id: { in: publicMatches.map((row) => row.entityId) } }] : [])] } : {}),
     };
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 100);
     const page = Math.max(query.page ?? 1, 1);
     const rows = await this.prisma.booking.findMany({ where, include: bookingInclude, orderBy: [{ serviceDate: 'asc' }, { createdAt: 'desc' }], take: limit, skip: (page - 1) * limit });
-    return rows.map((row) => this.projection.forAgent(row));
+    const codes = await publicIdentifierMap(this.prisma, PublicEntity.BOOKING, rows.map((row) => row.id));
+    return rows.map((row) => this.projection.forAgent({ ...row, publicCode: codes.get(row.id) || null }));
   }
-  async agentDetail(user: AuthUser, id: string) { const agentTenantId = this.assertAgent(user); const row = await this.prisma.booking.findFirst({ where: { id, recordType: BookingRecordType.CANONICAL, agentTenantId }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); return this.projection.forAgent(row); }
+  async agentDetail(user: AuthUser, id: string) { const agentTenantId = this.assertAgent(user); const row = await this.prisma.booking.findFirst({ where: { id, recordType: BookingRecordType.CANONICAL, agentTenantId }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); return this.projectAgentBooking(row); }
   async vendorList(user: AuthUser, query: BookingListQueryDto) {
     const vendorTenantId = requireTenant(user);
     const search = query.q?.trim();
