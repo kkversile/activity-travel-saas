@@ -695,8 +695,11 @@ export default function ActivityPricesAvailability({
       .request<SavedPriceResponse>(`/products/${productId}/prices-availability`)
       .then((data) => {
         if (!active) return;
+        // The product response also contains options from historical revisions.
+        // Populate this editor only from the revision it is currently editing.
+        const currentOptions = (data.options || []).filter((item) => variants.some((variant) => variant.id === item.variantId));
         const savedByVariant = new Map(
-          (data.options || []).map((item) => [item.variantId, item]),
+          currentOptions.map((item) => [item.variantId, item]),
         );
         setRows(
           variants.map((variant) => {
@@ -752,7 +755,7 @@ export default function ActivityPricesAvailability({
             };
           }),
         );
-        const editablePlans = (data.options || [])
+        const editablePlans = currentOptions
           .flatMap((item) => item.ratePlans || [])
           .filter((plan) => plan.editable);
         const hasExistingRateData = editablePlans.some((plan) =>
@@ -762,7 +765,7 @@ export default function ActivityPricesAvailability({
           ),
         );
         setProtectedRateCount(
-          (data.options || []).reduce(
+          currentOptions.reduce(
             (count, item) =>
               count +
               (item.ratePlans || []).filter((plan) => plan.protected).length,
@@ -770,7 +773,7 @@ export default function ActivityPricesAvailability({
           ),
         );
         setAdvancedRateCount(
-          (data.options || []).reduce(
+          currentOptions.reduce(
             (count, item) =>
               count +
               (item.ratePlans || []).filter(
@@ -848,7 +851,7 @@ export default function ActivityPricesAvailability({
             setPricingSlotCodes(payload.pricingSlotCodes);
           }
         }
-        const schedule = data.options?.flatMap(
+        const schedule = currentOptions.flatMap(
           (item) =>
             item.ratePlans?.flatMap((plan) => plan.schedules || []) || [],
         )[0];
@@ -868,7 +871,9 @@ export default function ActivityPricesAvailability({
             schedule.operatingDays?.length ? schedule.operatingDays : days,
           );
           setOperatingDayPreset(
-            schedule.operatingDays?.join(",") === weekdays.join(",")
+            schedule.operatingDays?.length === 7
+              ? "ALL_DAYS"
+              : schedule.operatingDays?.join(",") === weekdays.join(",")
               ? "WEEKDAYS"
               : schedule.operatingDays?.join(",") === weekends.join(",")
                 ? "WEEKENDS"

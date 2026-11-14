@@ -18,9 +18,9 @@ const saved = {
   })),
 };
 
-function EditorHarness({ onError, editorVariants = variants }: { onError: ReturnType<typeof vi.fn>; editorVariants?: typeof variants }) {
+function EditorHarness({ onError, editorVariants = variants, section = 'pricing' }: { onError: ReturnType<typeof vi.fn>; editorVariants?: typeof variants; section?: 'pricing' | 'availability' | 'policies' }) {
   const [revisionForm, setRevisionForm] = useState({ ...emptyRevisionForm });
-  return <ActivityPricesAvailability snapshot={{ product: { id: 'p1' } as any, revision: null, variants: editorVariants, schedules: [] }} locked={false} revisionForm={revisionForm} fulfilment={{ ...emptyFulfilmentForm }} onSaveDraft={async () => true} onRevisionChange={(key, value) => setRevisionForm((current) => ({ ...current, [key]: value }))} onFulfilmentChange={vi.fn()} onRefresh={async () => undefined} onError={onError as unknown as (message: string) => void} />;
+  return <ActivityPricesAvailability section={section} snapshot={{ product: { id: 'p1' } as any, revision: null, variants: editorVariants, schedules: [] }} locked={false} revisionForm={revisionForm} fulfilment={{ ...emptyFulfilmentForm }} onSaveDraft={async () => true} onRevisionChange={(key, value) => setRevisionForm((current) => ({ ...current, [key]: value }))} onFulfilmentChange={vi.fn()} onRefresh={async () => undefined} onError={onError as unknown as (message: string) => void} />;
 }
 
 function renderEditor(onError = vi.fn(), response: { options: unknown[] } = saved, editorVariants = variants) {
@@ -36,6 +36,18 @@ function renderEditor(onError = vi.fn(), response: { options: unknown[] } = save
 afterEach(() => vi.restoreAllMocks());
 
 describe('ActivityPricesAvailability preserves canonical option booking limits', () => {
+  it('loads departure times and shared settings from the edited revision instead of a historical option', async () => {
+    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const historic = { ...saved.options[0], ratePlans: [{ ...saved.options[0].ratePlans[0], schedules: [{ operatingDays: days, defaultCapacity: 99, slotTemplates: [{ slotCode: 'OLD', startTime: '10:00', endTime: '12:00' }] }] }] };
+    const current = { ...saved.options[1], ratePlans: [{ ...saved.options[1].ratePlans[0], schedules: [{ operatingDays: days, defaultCapacity: 12, slotTemplates: [{ slotCode: 'SUNSET', startTime: '16:00', endTime: '18:00' }] }] }] };
+    vi.spyOn(api, 'request').mockImplementation(async (path) => path.endsWith('/prices-availability') ? { options: [historic, current] } as never : {} as never);
+    render(<EditorHarness onError={vi.fn()} editorVariants={[variants[1]]} section="availability" />);
+    await waitFor(() => expect(screen.getByLabelText('Slot 1 start')).toHaveValue('16:00'));
+    expect(screen.getByLabelText('End time')).toHaveValue('18:00');
+    expect(screen.getByLabelText('Default capacity')).toHaveValue(12);
+    expect(screen.getByRole('combobox', { name: 'Operating day preset' })).toHaveValue('ALL_DAYS');
+  });
+
   it.each([false, true])('refreshes its own saved version while preserving concurrent-edit detection (%s)', async (concurrentEdit) => {
     const onError = vi.fn();
     let appliedCount = 0;
