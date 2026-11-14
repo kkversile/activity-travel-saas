@@ -18,22 +18,103 @@ const saved = {
   })),
 };
 
-function EditorHarness({ onError }: { onError: ReturnType<typeof vi.fn> }) {
+function EditorHarness({ onError, editorVariants = variants }: { onError: ReturnType<typeof vi.fn>; editorVariants?: typeof variants }) {
   const [revisionForm, setRevisionForm] = useState({ ...emptyRevisionForm });
-  return <ActivityPricesAvailability snapshot={{ product: { id: 'p1' } as any, revision: null, variants, schedules: [] }} locked={false} revisionForm={revisionForm} fulfilment={{ ...emptyFulfilmentForm }} onSaveDraft={async () => true} onRevisionChange={(key, value) => setRevisionForm((current) => ({ ...current, [key]: value }))} onFulfilmentChange={vi.fn()} onRefresh={async () => undefined} onError={onError as unknown as (message: string) => void} />;
+  return <ActivityPricesAvailability snapshot={{ product: { id: 'p1' } as any, revision: null, variants: editorVariants, schedules: [] }} locked={false} revisionForm={revisionForm} fulfilment={{ ...emptyFulfilmentForm }} onSaveDraft={async () => true} onRevisionChange={(key, value) => setRevisionForm((current) => ({ ...current, [key]: value }))} onFulfilmentChange={vi.fn()} onRefresh={async () => undefined} onError={onError as unknown as (message: string) => void} />;
 }
 
-function renderEditor(onError = vi.fn(), response = saved) {
+function renderEditor(onError = vi.fn(), response: { options: unknown[] } = saved, editorVariants = variants) {
   const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
     if (path.endsWith('/prices-availability')) return response as never;
     if (path.endsWith('/prices-availability/preview')) return { valid: true, errors: [], conflicts: [{ type: 'EFFECTIVE_HISTORY_OVERLAP', message: 'This update overlaps existing editor pricing; the save will split the surrounding history.' }], summary: { optionCount: 3, affectedDates: 30, availabilityCount: 0, existingRateCount: 3 }, previousRates: [{ variantId: 'v1', ratePlanName: 'Activity price · Entry Only', effectiveFrom: '2026-11-01', effectiveTo: '2026-12-01', pricingUnit: 'PER_PERSON' }], unchangedFields: ['special and contract rate plans'] } as never;
     return {} as never;
   });
-  render(<EditorHarness onError={onError} />);
+  render(<EditorHarness onError={onError} editorVariants={editorVariants} />);
   return request;
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('ActivityPricesAvailability preserves canonical option booking limits', () => {
+  function legacyResponse(versionCutOffMinutes: number | null = 360) {
+    const response = structuredClone(saved);
+    const plan = response.options[0].ratePlans[0];
+    return {
+      options: [{
+        variantId: 'v1',
+        ratePlans: [{
+          ...plan, minPax: 4, maxPax: 40, cutOffMinutes: 480,
+          versions: [{ ...plan.versions[0], minPax: 3, maxPax: 30, cutOffMinutes: versionCutOffMinutes }],
+        }],
+      }],
+    };
+  }
+
+  async function expectPreviewAndApplyLimits(request: ReturnType<typeof renderEditor>, limits: { minPax: number; maxPax: number; cutOffMinutes: number }) {
+    fireEvent.click(screen.getByRole('button', { name: 'Preview changes' }));
+    await screen.findByText('Preview valid');
+    const previewCall = request.mock.calls.find(([path]) => path === '/products/p1/prices-availability/preview');
+    expect(previewCall).toBeDefined();
+    expect(JSON.parse(String(previewCall?.[1]?.body)).options).toEqual([expect.objectContaining({ variantId: 'v1', ...limits })]);
+
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/products/p1/prices-availability/apply', expect.objectContaining({ method: 'POST' })));
+
+    // Check both previews (manual and save-time) and the actual persistence payload.
+    const writes = request.mock.calls.filter(([path]) => path.endsWith('/prices-availability/preview') || path.endsWith('/prices-availability/apply'));
+    expect(writes).toHaveLength(3);
+    for (const [, init] of writes) {
+      expect(init?.method).toBe('POST');
+      expect(JSON.parse(String(init?.body)).options).toEqual([expect.objectContaining({ variantId: 'v1', ...limits })]);
+    }
+  }
+
+  it('preserves 2/12/120 on the first pricing save for an option with no existing rate plans', async () => {
+    const option = { ...variants[0], minPax: 2, maxPax: 12, cutOffMinutes: 120 };
+    const onError = vi.fn();
+    const request = renderEditor(onError, { options: [{ variantId: option.id, ratePlans: [] }] }, [option]);
+    const price = await screen.findByLabelText('Entry Only adult or base price');
+    expect(price).toHaveValue(null);
+    expect(screen.getByLabelText('Min travellers')).toHaveValue(2);
+    expect(screen.getByLabelText('Max travellers')).toHaveValue(12);
+    expect(screen.getByLabelText('Booking cut-off (hours)')).toHaveValue(2);
+
+    // Only enter a price; saving it must not rewrite the option's existing limits.
+    fireEvent.change(price, { target: { value: '900' } });
+    await expectPreviewAndApplyLimits(request, { minPax: 2, maxPax: 12, cutOffMinutes: 120 });
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('prefers canonical option limits over conflicting saved plan and version limits', async () => {
+    const option = { ...variants[0], minPax: 2, maxPax: 12, cutOffMinutes: 120 };
+    const onError = vi.fn();
+    const request = renderEditor(onError, legacyResponse(), [option]);
+    await waitFor(() => expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900));
+    expect(screen.getByLabelText('Min travellers')).toHaveValue(2);
+    expect(screen.getByLabelText('Max travellers')).toHaveValue(12);
+    expect(screen.getByLabelText('Booking cut-off (hours)')).toHaveValue(2);
+
+    await expectPreviewAndApplyLimits(request, { minPax: 2, maxPax: 12, cutOffMinutes: 120 });
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: 'keeps explicit canonical zero over a nonzero legacy cutoff', canonical: 0, version: 360, expected: 0 },
+    { name: 'falls back from null canonical cutoff to the saved version', canonical: null, version: 360, expected: 360 },
+    { name: 'falls back to the saved plan when canonical and version cutoffs are null', canonical: null, version: null, expected: 480 },
+  ])('$name', async ({ canonical, version, expected }) => {
+    const option = { ...variants[0], minPax: null, maxPax: null, cutOffMinutes: canonical };
+    const onError = vi.fn();
+    const request = renderEditor(onError, legacyResponse(version), [option]);
+    await waitFor(() => expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900));
+    expect(screen.getByLabelText('Booking cut-off (hours)')).toHaveValue(expected / 60);
+    expect(screen.getByLabelText('Min travellers')).toHaveValue(3);
+    expect(screen.getByLabelText('Max travellers')).toHaveValue(30);
+
+    await expectPreviewAndApplyLimits(request, { minPax: 3, maxPax: 30, cutOffMinutes: expected });
+    expect(onError).not.toHaveBeenCalled();
+  });
+});
 
 describe('ActivityPricesAvailability unified create/edit editor', () => {
   it('shows imported active prices ahead of an older empty draft version', async () => {

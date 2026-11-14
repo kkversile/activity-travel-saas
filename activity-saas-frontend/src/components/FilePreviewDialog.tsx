@@ -9,7 +9,13 @@ export default function FilePreviewDialog({ file, onClose }: { file: { id: strin
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    dialog.current?.showModal();
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const element = dialog.current;
+    element?.showModal();
+    return () => {
+      if (element?.open) element.close();
+      if (opener?.isConnected) opener.focus();
+    };
   }, []);
 
   useEffect(() => {

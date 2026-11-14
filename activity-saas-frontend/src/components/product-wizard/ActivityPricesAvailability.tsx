@@ -212,9 +212,9 @@ const emptyRow = (variant: ProductVariant): PriceRow => ({
   foreignChild: "",
   indianSenior: "",
   foreignSenior: "",
-  minPax: "1",
-  maxPax: "99",
-  cutOffMinutes: "0",
+  minPax: text(variant.minPax ?? 1),
+  maxPax: text(variant.maxPax ?? 99),
+  cutOffMinutes: text(Number(variant.cutOffMinutes ?? 0) / 60),
 });
 function unitFromSaved(value?: string): PricingUnit {
   const normalized = String(value || "").toLowerCase();
@@ -743,10 +743,10 @@ export default function ActivityPricesAvailability({
               foreignChild: visitorPrice("CHILD", "foreign"),
               indianSenior: visitorPrice("SENIOR", "indian"),
               foreignSenior: visitorPrice("SENIOR", "foreign"),
-              minPax: text(version?.minPax || plan?.minPax || 1),
-              maxPax: text(version?.maxPax || plan?.maxPax || 99),
+              minPax: text(variant.minPax ?? version?.minPax ?? plan?.minPax ?? 1),
+              maxPax: text(variant.maxPax ?? version?.maxPax ?? plan?.maxPax ?? 99),
               cutOffMinutes: text(
-                Number(version?.cutOffMinutes || plan?.cutOffMinutes || 0) / 60,
+                Number(variant.cutOffMinutes ?? version?.cutOffMinutes ?? plan?.cutOffMinutes ?? 0) / 60,
               ),
               expectedVersion: version?.versionNumber,
             };

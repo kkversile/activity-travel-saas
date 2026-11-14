@@ -156,6 +156,42 @@ describe('FilePreviewDialog', () => {
     expect(revokeObjectURL).toHaveBeenCalledTimes(1);
   });
 
+  it('restores opener focus and closes the native dialog when Escape unmounts the preview', async () => {
+    vi.mocked(api.blob).mockResolvedValueOnce(new Blob(['PDF'], { type: 'application/pdf' }));
+    function Parent() {
+      const [open, setOpen] = useState(false);
+      return <>
+        <button onClick={() => setOpen(true)}>Preview bank proof</button>
+        {open && <FilePreviewDialog file={file} onClose={() => setOpen(false)} />}
+      </>;
+    }
+    const { unmount } = render(<Parent />);
+    const opener = screen.getByRole('button', { name: 'Preview bank proof' });
+    opener.focus();
+    fireEvent.click(opener);
+    await screen.findByTitle(`Preview of ${file.originalName}`);
+    const dialog = screen.getByRole('dialog', { name: file.originalName }) as HTMLDialogElement;
+    const close = vi.spyOn(dialog, 'close');
+    screen.getByRole('button', { name: 'Close document preview' }).focus();
+    expect(dialog).toHaveAttribute('open');
+    expect(opener).not.toHaveFocus();
+
+    // Escape triggers native cancel; jsdom requires dispatching that event explicitly.
+    const cancel = new Event('cancel', { cancelable: true });
+    fireEvent(dialog, cancel);
+
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(dialog.isConnected).toBe(false);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(dialog.open).toBe(false);
+    expect(opener).toHaveFocus();
+    expect(revokeObjectURL).toHaveBeenCalledExactlyOnceWith(previewUrl);
+    unmount();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the dialog open when its content is clicked', async () => {
     vi.mocked(api.blob).mockResolvedValueOnce(new Blob(['image'], { type: 'image/png' }));
     const onClose = vi.fn();
