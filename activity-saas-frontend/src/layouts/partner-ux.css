@@ -27,6 +27,7 @@
 .voya-experience-ux .btn { min-height:44px; padding:10px 16px; font-size:14px; }
 .voya-experience-ux:is(button, input, select, textarea, summary, a):focus-visible { outline:3px solid var(--voya-primary, #a9b5ff); outline-offset:3px; scroll-margin-block:90px; }
 .voya-experience-ux .experience-wizard-nav { background:var(--ux-surface); border-color:var(--ux-border); }
+.experience-modal.voya-experience-ux .experience-wizard-nav { max-height:max(120px,calc(100dvh - 260px)); overflow-y:auto; overscroll-behavior:contain; scroll-padding-block:8px; }
 .voya-experience-ux .experience-wizard-step { min-height:48px; white-space:normal; font-size:14px; }
 .voya-experience-ux .experience-wizard-step.active { background:var(--voya-raised, #232c48); color:var(--ux-text); }
 .voya-experience-ux .experience-wizard-counter { padding:12px; border-bottom:1px solid var(--ux-border); color:var(--ux-brand); font-size:13px; }
