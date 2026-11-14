@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api';
 import Payouts from './Payouts';
@@ -39,5 +39,22 @@ describe('vendor payments prototype parity', () => {
     expect(screen.getByText('Due 04 Nov 2026 · activities 19 Oct 2026–25 Oct 2026')).toBeInTheDocument();
     expect(screen.getByText(/Commission is invoiced to you with GST; the invoice is in Reports\./i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'All statements' })).toHaveAttribute('href', '/vendor/reports');
+  });
+});
+
+
+describe('Vendor payout failure history', () => {
+  it('retains failed-attempt evidence after a successful retry', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ batches: [], legacyPayouts: [], payouts: [{ id: 'p1', amount: '100', currency: 'INR', status: 'RECONCILED', dueDate: '2026-11-15', reference: 'retry-success', settlementBatch: { batchCode: 'SET-RETRY' }, attempts: [
+      { id: 'a1', attemptNumber: 1, status: 'FAILED', amount: '100', currency: 'INR', failureReason: 'Provider declined', externalReference: 'failed-1' },
+      { id: 'a2', attemptNumber: 2, status: 'RELEASE_RECORDED', amount: '100', currency: 'INR', externalReference: 'retry-success' },
+    ] }] } as never);
+    render(<Payouts />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Payout release history' }));
+    expect(screen.getByText('RECONCILED')).toBeInTheDocument();
+    expect(screen.getByText('Attempt history (2)')).toBeInTheDocument();
+    expect(screen.getByText('Attempt 1 · FAILED')).toBeInTheDocument();
+    expect(screen.getByText('Provider declined')).toBeInTheDocument();
+    expect(screen.getByText('Attempt 2 · RELEASE RECORDED')).toBeInTheDocument();
   });
 });

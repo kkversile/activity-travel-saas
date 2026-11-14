@@ -23,6 +23,12 @@ function service(payoutReleaseApprovalRequest: any, payout: any = {}) {
 }
 
 describe('payout release maker-checker', () => {
+  it('cannot approve evidence superseded by a failed attempt after retry', async () => {
+    const s = service({ findUnique: jest.fn().mockResolvedValue({ id: 'request-1', payoutId: 'payout-1', requestedById: maker.sub, status: PayoutReleaseApprovalStatus.REJECTED }) });
+    await expect(s.service.approveRelease(checker, 'request-1')).rejects.toThrow('PAYOUT_RELEASE_REQUEST_NOT_PENDING');
+    expect(s.tx.payout.update).not.toHaveBeenCalled();
+    expect(s.tx.payoutAttempt.create).not.toHaveBeenCalled();
+  });
   it('records release evidence as a pending request without changing payout status', async () => {
     const create = jest.fn().mockResolvedValue({ id: 'request-1', status: PayoutReleaseApprovalStatus.PENDING });
     const s = service({ findFirst: jest.fn().mockResolvedValue(null), create });

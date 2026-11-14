@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import PayoutAttemptHistory, { type PayoutAttempt } from '../components/PayoutAttemptHistory';
 import { Badge, ErrorBox, Loading, Panel, money, shortDate } from '../components/Ui';
 
-type Payout = { id: string; amount: number | string; status: string; dueDate: string; reference?: string | null; currency?: string; settlementBatch?: { batchCode?: string; periodFrom?: string | null; periodTo?: string | null } | null };
+type Payout = { failureReason?: string | null; attempts?: PayoutAttempt[]; id: string; amount: number | string; status: string; dueDate: string; reference?: string | null; currency?: string; settlementBatch?: { batchCode?: string; periodFrom?: string | null; periodTo?: string | null } | null };
 type SettlementLine = { bookingId?: string | null; grossBookingValue: string; vendorPayableBase: string; adjustmentAmount: string; netVendorPayable: string; taxInformational: string; components?: { supplierCommission?: string | number | null }; gstOnCommissionAmount?: string | null; tds194OAmount?: string | null; gstTcsAmount?: string | null };
 type Batch = { id: string; batchCode: string; netPayable: string; currency: string; status: string; createdAt: string; periodFrom?: string | null; periodTo?: string | null; lines?: SettlementLine[] };
 type SettlementSummary = { paidInSelectedMonth: number; onHold: number; nextPayout: { amount: number; dueDate: string; currency: string; periodFrom?: string | null; periodTo?: string | null } | null; payoutAccount: { masked: string | null; holder: string | null; bankName: string | null; currency: string | null; verificationStatus: string } };
@@ -105,7 +106,7 @@ export default function Payouts() {
     {tab === 'releases' && <Panel title="Payout release history">
       <p className="muted">These rows record payout state and evidence in Voya. They do not represent a connected bank transfer.</p>
       <div className="table-wrap"><table><thead><tr><th>Batch</th><th>Due date</th><th>Amount</th><th>Reference</th><th>Status</th></tr></thead>
-        <tbody>{payouts.map((payout) => <tr key={payout.id}><td className="mono">{payout.settlementBatch?.batchCode || '—'}</td><td>{shortDate(payout.dueDate)}</td><td>{money(payout.amount, payout.currency)}</td><td className="mono">{payout.reference || '—'}</td><td><Badge value={payout.status} /></td></tr>)}</tbody>
+        <tbody>{payouts.map((payout) => <tr key={payout.id}><td className="mono">{payout.settlementBatch?.batchCode || '—'}</td><td>{shortDate(payout.dueDate)}</td><td>{money(payout.amount, payout.currency)}</td><td className="mono">{payout.reference || '—'}</td><td><Badge value={payout.status} />{payout.status === 'RELEASE_FAILED' && <p className="payout-failure-note">{payout.failureReason || 'Release failed. Our finance team will review the payout.'}</p>}<PayoutAttemptHistory attempts={payout.attempts} /></td></tr>)}</tbody>
       </table></div>
       {!payouts.length && <div className="empty">No canonical payout release records yet.</div>}
     </Panel>}

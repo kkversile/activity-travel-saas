@@ -1176,6 +1176,7 @@ export class FinanceService {
         payout.status !== PayoutStatus.READY_TO_RELEASE
       )
         throw new ConflictException("PAYOUT_NOT_READY_FOR_FAILURE_RECORD");
+      const supersededApprovalCount = await this.supersedePendingPayoutApprovals(tx, payout.id, user);
       const attempt = await this.nextAttempt(
         tx,
         payout,
@@ -1210,6 +1211,7 @@ export class FinanceService {
           attemptId: attempt.id,
           reference: reference ?? null,
           note: note ?? null,
+          supersededApprovalCount,
         },
       });
       await this.outbox.enqueue(tx, {
@@ -1233,6 +1235,8 @@ export class FinanceService {
         throw new ConflictException("CANONICAL_PAYOUT_REQUIRED");
       if (payout.status !== PayoutStatus.RELEASE_FAILED)
         throw new ConflictException("PAYOUT_NOT_FAILED");
+      // Also repair pending requests left by failures recorded before invalidation existed.
+      const supersededApprovalCount = await this.supersedePendingPayoutApprovals(tx, payout.id, user);
       const result = await tx.payout.update({
         where: { id },
         data: {
@@ -1254,6 +1258,7 @@ export class FinanceService {
         action: "PAYOUT_RETRY_READY",
         entityType: "Payout",
         entityId: id,
+        metadata: { supersededApprovalCount },
       });
       await this.outbox.enqueue(tx, {
         tenantId: payout.tenantId,
@@ -1736,6 +1741,7 @@ export class FinanceService {
       publicBatchCode: row.settlementBatchId ? batchCodes.get(row.settlementBatchId) || null : null,
       releaseApproval: row.releaseApprovalRequests?.[0] ?? null,
       canApproveRelease: Boolean(
+        row.status === PayoutStatus.READY_TO_RELEASE &&
         row.releaseApprovalRequests?.[0]?.status === PayoutReleaseApprovalStatus.PENDING &&
         row.releaseApprovalRequests?.[0]?.requestedById !== currentUserId,
       ),
@@ -1818,6 +1824,19 @@ export class FinanceService {
       },
     );
   }
+  private async supersedePendingPayoutApprovals(tx: any, payoutId: string, user: AuthUser) {
+    const result = await tx.payoutReleaseApprovalRequest.updateMany({
+      where: { payoutId, status: PayoutReleaseApprovalStatus.PENDING },
+      data: {
+        status: PayoutReleaseApprovalStatus.REJECTED,
+        reviewedById: user.sub,
+        reviewedAt: new Date(),
+        reviewReason: "Superseded by a failed payout attempt. Submit fresh evidence after retry.",
+      },
+    });
+    return result.count;
+  }
+
   private async nextAttempt(
     tx: any,
     payout: any,

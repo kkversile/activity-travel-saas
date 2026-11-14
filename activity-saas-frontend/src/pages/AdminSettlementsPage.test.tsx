@@ -158,3 +158,25 @@ describe('Payout reconciliation feedback', () => {
     expect(request.mock.calls.filter(([path]) => path.endsWith('/reconcile'))).toHaveLength(2);
   });
 });
+
+
+describe('Payout failure recovery', () => {
+  it('shows the failure evidence, suppresses stale approval actions and requests fresh evidence after retry', async () => {
+    let failed = true;
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
+      if (path === '/admin/payouts/payout-retry/retry') { failed = false; return {} as never; }
+      if (path === '/admin/payouts') return [{ id: 'payout-retry', publicCode: 'PO-0001-2646', amount: '100', currency: 'INR', status: failed ? 'RELEASE_FAILED' : 'READY_TO_RELEASE', canManagePayouts: true, canApproveRelease: failed, failureReason: failed ? 'Provider declined' : null, releaseApproval: { status: failed ? 'PENDING' : 'REJECTED', reviewReason: 'Superseded by failed attempt', requestedById: 'maker', requestedAmount: '100' }, attempts: [{ id: 'attempt-1', attemptNumber: 1, status: 'FAILED', amount: '100', currency: 'INR', failureReason: 'Provider declined', externalReference: 'failed-1' }] }] as never;
+      return [] as never;
+    });
+    render(<AdminSettlements canConfigure />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Payouts' }));
+    expect(screen.getAllByText('Provider declined')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Approve release' })).not.toBeInTheDocument();
+    expect(screen.getByText('Attempt history (1)')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('button', { name: 'Resubmit release' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Record failure' })).toBeEnabled();
+    expect(request).toHaveBeenCalledWith('/admin/payouts/payout-retry/retry', expect.objectContaining({ method: 'POST' }));
+    expect(screen.getByText('Attempt 1 · FAILED')).toBeInTheDocument();
+  });
+});

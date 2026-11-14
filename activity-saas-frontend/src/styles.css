@@ -296,3 +296,12 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Payout evidence remains readable in the configured light and dark themes. */
+.payout-failure-note{max-width:30rem;margin:8px 0;color:var(--voya-error);overflow-wrap:anywhere;white-space:normal}
+.payout-attempt-history{min-width:190px;max-width:30rem;margin-top:8px;color:inherit;white-space:normal;overflow-wrap:anywhere}
+.payout-attempt-history summary{cursor:pointer;min-height:44px;display:list-item;padding:10px 0;font-weight:600}
+.payout-attempt-history ol{margin:0;padding-left:22px}
+.payout-attempt-history li{padding:10px 0;border-top:1px solid var(--voya-border)}
+.payout-attempt-history li>strong,.payout-attempt-history li>span,.payout-attempt-history time{display:block;margin:3px 0}
+.payout-attempt-history li p{margin:6px 0}
