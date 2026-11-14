@@ -155,6 +155,7 @@ const reviewVariantInclude = {
 };
 const revisionCloneInclude = {
   media: { where: { archivedAt: null } },
+  itineraryStops: { orderBy: { sequence: "asc" as const } },
   bookingQuestions: { where: { archivedAt: null } },
   fulfilmentPolicy: true,
   variants: {
@@ -2812,6 +2813,7 @@ export class CatalogueService {
         productId: _productId,
         sourcePayload: _sourcePayload,
         media: sourceMedia,
+        itineraryStops: sourceStops,
         bookingQuestions: sourceQuestions,
         fulfilmentPolicy: sourcePolicy,
         variants: sourceVariants,
@@ -2842,6 +2844,19 @@ export class CatalogueService {
               ...media
             } = item;
             return { ...media, revisionId: revision.id };
+          }),
+        });
+      if ((sourceStops ?? []).length)
+        await tx.itineraryStop.createMany({
+          data: (sourceStops as any[]).map((item: any) => {
+            const {
+              id: _stopId,
+              productRevisionId: _sourceRevisionId,
+              createdAt: _stopCreatedAt,
+              updatedAt: _stopUpdatedAt,
+              ...stop
+            } = item;
+            return { ...stop, productRevisionId: revision.id };
           }),
         });
       if ((sourceQuestions ?? []).length)
