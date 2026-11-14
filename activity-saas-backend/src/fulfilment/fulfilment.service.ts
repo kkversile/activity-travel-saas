@@ -41,10 +41,10 @@ export class FulfilmentService {
     const voucher: any = await this.prisma.voucherVersion.findFirst({
       where: {
         voucherCode: code,
-        status: VoucherVersionStatus.CURRENT,
         booking: { vendorTenantId: this.vendor(user), recordType: 'CANONICAL' },
       },
       select: {
+        status: true,
         booking: {
           select: {
             id: true,
@@ -59,6 +59,9 @@ export class FulfilmentService {
       },
     });
     if (!voucher?.booking) throw new NotFoundException('Voucher not found for this supplier account');
+    if (voucher.booking.status === BookingStatus.CANCELLED) throw new ConflictException('This booking was cancelled. Its voucher is void and cannot be used for entry.');
+    if (voucher.status === VoucherVersionStatus.SUPERSEDED) throw new ConflictException('This voucher was replaced. Ask the guest for their latest voucher.');
+    if (voucher.status !== VoucherVersionStatus.CURRENT) throw new ConflictException('This voucher is void and cannot be used for entry.');
     return {
       bookingId: voucher.booking.id,
       bookingCode: voucher.booking.bookingCode,
