@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type AdminBooking, type AdminBookingPage } from '../api';
 import { Badge, ErrorBox, Loading, Panel, shortDate, money } from '../components/Ui';
 
-const queues = [['ALL', 'All'], ['PENDING_MANUAL_REVIEW', 'Manual Review'], ['PENDING_VENDOR_CONFIRMATION', 'Vendor Pending'], ['CONFIRMED', 'Confirmed'], ['CANCELLED', 'Cancelled'], ['REJECTED', 'Rejected'], ['CONFIRMATION_EXPIRED', 'Expired'], ['LEGACY', 'Legacy']] as const;
+const queues = [['ALL', 'All'], ['PENDING_MANUAL_REVIEW', 'Manual Review'], ['PENDING_VENDOR_CONFIRMATION', 'Vendor Pending'], ['CONFIRMED', 'Confirmed'], ['REDEEMED', 'Redeemed'], ['COMPLETED', 'Completed'], ['CANCELLED', 'Cancelled'], ['REJECTED', 'Rejected'], ['CONFIRMATION_EXPIRED', 'Expired'], ['LEGACY', 'Legacy']] as const;
 const channels = [['ALL', 'All channels'], ['WEBSITE', 'Website & app'], ['AGENT', 'Agents'], ['API', 'API']] as const;
 
 function channelLabel(row: AdminBooking) {

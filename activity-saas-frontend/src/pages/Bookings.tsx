@@ -4,7 +4,7 @@ import { Badge, ErrorBox, Loading, Panel, shortDate, money } from '../components
 import { SharedDatePicker } from '../components/SharedDatePicker';
 import FilePreviewDialog from '../components/FilePreviewDialog';
 
-const tabs = [['ALL', 'All'], ['NEEDS_ACTION', 'Needs acceptance'], ['CONFIRMED', 'Confirmed'], ['REDEEMED', 'Redeemed'], ['CANCELLED', 'Cancelled'], ['PENDING', 'Pending review'], ['REJECTED', 'Rejected / Expired'], ['LEGACY', 'Legacy']] as const;
+const tabs = [['ALL', 'All'], ['NEEDS_ACTION', 'Needs acceptance'], ['CONFIRMED', 'Confirmed'], ['REDEEMED', 'Redeemed'], ['COMPLETED', 'Completed'], ['CANCELLED', 'Cancelled'], ['PENDING', 'Pending review'], ['REJECTED', 'Rejected / Expired'], ['LEGACY', 'Legacy']] as const;
 type BookingActionDialog = { bookingId: string; action: 'reject' | 'cancel'; reason: string; reasonCategory: string; preview?: any };
 function guestCount(row: VendorBooking) {
   const count = row.travellers.reduce((total, traveller) => total + Number(traveller.quantity || 1), 0);
@@ -12,8 +12,13 @@ function guestCount(row: VendorBooking) {
 }
 export default function Bookings() {
   const [voucherPreview, setVoucherPreview] = useState<{ id: string; originalName: string; mimeType: string } | null>(null);
+  const [completion, setCompletion] = useState<VendorBooking | null>(null);
+  const [completionReason, setCompletionReason] = useState('');
+  const [completionError, setCompletionError] = useState('');
+  const [completionBusy, setCompletionBusy] = useState(false);
+  const [notice, setNotice] = useState('');
   const [rows, setRows] = useState<VendorBooking[]>([]); const [filter, setFilter] = useState('ALL'); const [page, setPage] = useState(1); const [pagination, setPagination] = useState({ page: 1, limit: 25, total: 0, totalPages: 0 }); const [selected, setSelected] = useState<VendorBooking | null>(null); const [actionDialog, setActionDialog] = useState<BookingActionDialog | null>(null); const [actionBusy, setActionBusy] = useState(false); const [error, setError] = useState(''); const [loading, setLoading] = useState(true); const [search, setSearch] = useState(''); const [from, setFrom] = useState(''); const [to, setTo] = useState(''); const [query, setQuery] = useState({ search: '', from: '', to: '' }); const [voucherCode, setVoucherCode] = useState(''); const [voucherResult, setVoucherResult] = useState<{ bookingId: string; bookingCode: string; status: string; serviceDate: string; guestName: string | null; productName: string; redeemed: boolean } | null>(null); const [voucherBusy, setVoucherBusy] = useState(false);
-  function appendFilters(params: URLSearchParams, activeFilter: string) { if (activeFilter === 'NEEDS_ACTION') params.set('status', 'PENDING_VENDOR_CONFIRMATION'); else if (activeFilter === 'CONFIRMED') params.set('status', 'CONFIRMED'); else if (activeFilter === 'REDEEMED') params.set('status', 'REDEEMED'); else if (activeFilter === 'CANCELLED') params.set('status', 'CANCELLED'); else if (activeFilter === 'PENDING') params.set('status', 'PENDING_MANUAL_REVIEW'); else if (activeFilter === 'REJECTED') params.set('statusGroup', 'REJECTED'); else if (activeFilter === 'LEGACY') params.set('recordType', 'LEGACY'); }
+  function appendFilters(params: URLSearchParams, activeFilter: string) { if (activeFilter === 'NEEDS_ACTION') params.set('status', 'PENDING_VENDOR_CONFIRMATION'); else if (activeFilter === 'CONFIRMED') params.set('status', 'CONFIRMED'); else if (activeFilter === 'REDEEMED') params.set('status', 'REDEEMED'); else if (activeFilter === 'COMPLETED') params.set('status', 'COMPLETED'); else if (activeFilter === 'CANCELLED') params.set('status', 'CANCELLED'); else if (activeFilter === 'PENDING') params.set('status', 'PENDING_MANUAL_REVIEW'); else if (activeFilter === 'REJECTED') params.set('statusGroup', 'REJECTED'); else if (activeFilter === 'LEGACY') params.set('recordType', 'LEGACY'); }
   async function load(next = query, activeFilter = filter, nextPage = page) { setLoading(true); setError(''); try { const params = new URLSearchParams({ page: String(nextPage), limit: '25' }); if (next.search) params.set('q', next.search); if (next.from) params.set('from', next.from); if (next.to) params.set('to', next.to); appendFilters(params, activeFilter); const result = await api.request<{ items: VendorBooking[]; pagination: typeof pagination }>(`/vendor/bookings/page?${params}`); setRows(result.items); setPagination(result.pagination); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setLoading(false); } }
   useEffect(() => { void load(); }, []);
   async function decide(id: string, action: 'confirm' | 'reject') { if (action === 'reject') { setActionDialog({ bookingId: id, action, reason: '', reasonCategory: 'OTHER' }); return; } try { await api.request(`/vendor/bookings/${id}/confirm`, { method: 'POST' }); await load(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }
@@ -22,12 +27,30 @@ export default function Bookings() {
   async function downloadExport() { try { const params = new URLSearchParams(); if (query.search) params.set('q', query.search); if (query.from) params.set('from', query.from); if (query.to) params.set('to', query.to); appendFilters(params, filter); const blob = await api.blob(`/vendor/bookings/export.csv${params.toString() ? `?${params.toString()}` : ''}`); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'vendor-bookings.csv'; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }
   async function checkVoucher() { const code = voucherCode.trim(); if (!code) return; setVoucherBusy(true); setError(''); setVoucherResult(null); try { setVoucherResult(await api.request(`/vendor/fulfilment/voucher-lookup/${encodeURIComponent(code)}`)); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setVoucherBusy(false); } }
   async function redeemVoucher() { if (!voucherResult) return; setVoucherBusy(true); setError(''); try { await api.request(`/vendor/manifest/bookings/${voucherResult.bookingId}/check-in`, { method: 'POST' }); setVoucherResult((current) => current ? { ...current, redeemed: true, status: 'REDEEMED' } : current); await load(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setVoucherBusy(false); } }
+  async function openCompletion(row: VendorBooking) {
+    setCompletionError(''); setCompletionReason(''); setNotice('');
+    try { setCompletion(await api.request<VendorBooking>(`/vendor/bookings/${row.id}`)); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  }
+  async function completeBooking() {
+    if (!completion || completionBusy || (!completion.snapshot?.sessionSnapshot?.endsAt && !completionReason.trim())) return;
+    setCompletionBusy(true); setCompletionError('');
+    try {
+      await api.request(`/vendor/manifest/bookings/${completion.id}/complete`, { method: 'POST', body: JSON.stringify(completionReason.trim() ? { reason: completionReason.trim() } : {}) });
+      setVoucherResult((current) => current?.bookingId === completion.id ? { ...current, status: 'COMPLETED', redeemed: true } : current);
+      setCompletion(null); await load(); setNotice('Booking completed.');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setCompletionError(message.includes('SERVICE_NOT_ENDED') ? 'The service has not ended yet. Complete this booking after the scheduled end time.' : message.includes('COMPLETION_REQUIRES_REDEEMED') ? 'Redeem the voucher before completing this booking.' : message);
+    } finally { setCompletionBusy(false); }
+  }
   const pageHeader = <header className="partner-page-header"><div><h1>Bookings</h1><p>Every booking for your products. Accept on-request bookings before the timer runs out.</p></div><button type="button" className="btn" title="Download the current booking results as CSV" onClick={() => void downloadExport()}>Export</button></header>;
   if (loading) return <>{pageHeader}<Loading /></>;
   const visible = rows;
   return <>
     {pageHeader}
     {error && <ErrorBox error={error} />}
+    {notice && <div className="alert success" role="status">{notice}</div>}
     <Panel title="Redeem a voucher">
       <p className="muted">Type or scan the code on the guest’s voucher, then confirm check-in.</p>
       <div className="booking-voucher-lookup">
@@ -36,7 +59,7 @@ export default function Bookings() {
       </div>
       {voucherResult && <div className="booking-voucher-result" role="status">
         <div><b>{voucherResult.productName}</b><span>{voucherResult.bookingCode} · {shortDate(voucherResult.serviceDate)} · {voucherResult.guestName || 'Guest'}</span></div>
-        {voucherResult.redeemed ? <Badge value="REDEEMED" /> : voucherResult.status === 'CONFIRMED' ? <button type="button" className="btn accent small" disabled={voucherBusy} onClick={() => void redeemVoucher()}>Redeem voucher</button> : <Badge value={voucherResult.status} />}
+        {voucherResult.status === 'COMPLETED' ? <Badge value="COMPLETED" /> : voucherResult.redeemed ? <Badge value="REDEEMED" /> : voucherResult.status === 'CONFIRMED' ? <button type="button" className="btn accent small" disabled={voucherBusy} onClick={() => void redeemVoucher()}>Redeem voucher</button> : <Badge value={voucherResult.status} />}
       </div>}
     </Panel>
     <div className="toolbar vendor-booking-toolbar">
@@ -62,6 +85,7 @@ export default function Bookings() {
           <td><div className="row-actions">
             <button className="btn small" onClick={() => api.request<VendorBooking>(`/vendor/bookings/${row.id}`).then(setSelected).catch((e) => setError(e.message))}>View</button>
             {row.recordType === 'CANONICAL' && row.status === 'PENDING_VENDOR_CONFIRMATION' && <><button className="btn accent small" onClick={() => void decide(row.id, 'confirm')}>Confirm</button><button className="btn small" onClick={() => void decide(row.id, 'reject')}>Reject</button></>}
+            {row.recordType === 'CANONICAL' && row.status === 'REDEEMED' && <button className="btn accent small" onClick={() => void openCompletion(row)}>Complete service</button>}
             {row.recordType === 'CANONICAL' && ['CONFIRMED', 'PENDING_VENDOR_CONFIRMATION'].includes(row.status) && <button className="btn small" onClick={() => void cancelService(row.id)}>Cancel service</button>}
             {row.recordType === 'CANONICAL' && ['CONFIRMED', 'REDEEMED', 'COMPLETED'].includes(row.status) && <button className="btn small" onClick={() => api.request<any>(`/vendor/fulfilment/${row.id}/voucher`).then((voucher) => voucher.currentVoucher ? setVoucherPreview({ id: voucher.currentVoucher.fileId, originalName: `${row.publicCode || row.bookingCode}-voucher.pdf`, mimeType: 'application/pdf' }) : setError(`Voucher unavailable: ${voucher.reason || 'not ready'}`)).catch((e) => setError(e.message))}>Voucher</button>}
             {row.status === 'PENDING_MANUAL_REVIEW' && <small className="muted">Platform manual review</small>}
@@ -87,6 +111,15 @@ export default function Bookings() {
       {selected.cancellation && <section><h4>Cancellation</h4><p>{selected.cancellation.reason}</p>{selected.cancellation.financialState === 'CANCELLED_PENDING_FINANCIAL' ? <p>Finance review is pending. Cancellation charge and refund entitlement have not been decided.</p> : <p>Refund entitlement: {money(selected.cancellation.refundEntitlement, selected.currency)} · Cancellation charge: {money(selected.cancellation.cancellationCharge, selected.currency)}</p>}<p role="status">Financial status: {selected.cancellation.financialState.replaceAll('_', ' ')}{selected.cancellation.refund && <> · Refund: {selected.cancellation.refund.status}</>}</p><p className="muted">The original vendor amount is retained for reference. Cancellation settlement is handled separately in Finance.</p></section>}
       <h4>Travellers</h4>{selected.travellers.map((t, i) => <div key={i}>{t.fullName || `Traveller ${i + 1}`} · {t.travellerType}</div>)}
       <h4>Timeline</h4>{selected.timeline.map((e, i) => <div key={i} className="timeline-row"><b>{e.eventType}</b><span>{new Date(e.createdAt).toLocaleString()}</span></div>)}
+    </div></div>}
+    {completion && <div className="modal-backdrop"><div className="voucher-modal booking-detail" role="dialog" aria-modal="true" aria-labelledby="booking-completion-title">
+      <div className="modal-head"><h3 id="booking-completion-title">Complete service</h3><button className="btn small" disabled={completionBusy} onClick={() => setCompletion(null)}>Close</button></div>
+      <p><b>{completion.publicCode || completion.bookingCode}</b> � {completion.snapshot?.productSnapshot?.productName}</p>
+      <p>Confirm that the redeemed booking's service has finished. This records completion; it does not release a payout.</p>
+      {completion.snapshot?.sessionSnapshot?.endsAt && <p><b>Scheduled end:</b> {new Date(completion.snapshot.sessionSnapshot.endsAt).toLocaleString()}</p>}
+      {completionError && <div className="alert error" role="alert">{completionError}</div>}
+      <label className="field"><span>{completion.snapshot?.sessionSnapshot?.endsAt ? 'Completion note (optional)' : 'Completion reason (required)'}</span><textarea rows={3} value={completionReason} onChange={(e) => setCompletionReason(e.target.value)} /></label>
+      <div className="actions"><button className="btn" disabled={completionBusy} onClick={() => setCompletion(null)}>Keep redeemed</button><button className="btn accent" disabled={completionBusy || (!completion.snapshot?.sessionSnapshot?.endsAt && !completionReason.trim())} onClick={() => void completeBooking()}>{completionBusy ? 'Completing�' : 'Confirm completion'}</button></div>
     </div></div>}
     {voucherPreview && <FilePreviewDialog file={voucherPreview} onClose={() => setVoucherPreview(null)} />}
   </>;

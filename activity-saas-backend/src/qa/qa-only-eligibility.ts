@@ -20,7 +20,8 @@ type SettingClient = Pick<PrismaService, 'globalSetting'> | any;
 
 export function qaOnlyOverridesEnabled() {
   return process.env.QA_ONLY_ELIGIBILITY_OVERRIDES_ENABLED === 'true'
-    && process.env.NODE_ENV !== 'production';
+    && (process.env.NODE_ENV !== 'production'
+      || process.env.QA_ONLY_PRODUCTION_DEMO_ORIGIN === 'https://demo.dhisoft.in/voya');
 }
 
 function validateOverride(value: unknown, productId: string, agentTenantId: string, now: Date): QaOnlyEligibilityOverride | null {
@@ -33,6 +34,9 @@ function validateOverride(value: unknown, productId: string, agentTenantId: stri
   if (record.documentStatus !== 'UNVERIFIED_TEST_FIXTURE' || typeof record.documentAssetId !== 'string' || !record.documentAssetId) return null;
   if (Number(record.voyaRevenuePercent) !== 5 || Number(record.agentMarkupAmount) !== 0) return null;
   if (!Number.isFinite(expiry.valueOf()) || expiry <= now) return null;
+  // Production-mode demo rehearsals require an explicit deployment opt-in and
+  // a short-lived, exact product/agent fixture. Normal production stays closed.
+  if (process.env.NODE_ENV === 'production' && expiry.valueOf() - now.valueOf() > 30 * 60 * 1000) return null;
   return record as QaOnlyEligibilityOverride;
 }
 
