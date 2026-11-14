@@ -183,6 +183,52 @@ describe('Payout failure recovery', () => {
 
 
 describe('Settlement hold controls', () => {
+  it('requires an audited reason and retains input if releasing a hold fails', async () => {
+    let active = true; let failOnce = true;
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
+      if (path === '/admin/settlement-holds/hold-1/release') {
+        if (failOnce) { failOnce = false; throw new Error('Temporary save error'); }
+        active = false; return {} as never;
+      }
+      if (path === '/admin/settlement-holds') return (active ? [{ id: 'hold-1', scope: 'VENDOR', vendorTenantId: 'vendor-1', reason: 'Under review' }] : []) as never;
+      return [] as never;
+    });
+    render(<AdminSettlements />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Holds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Release' }));
+    let dialog = within(screen.getByRole('dialog', { name: 'Release settlement hold' }));
+    expect(dialog.getByRole('button', { name: 'Release hold' })).toBeDisabled();
+    fireEvent.click(dialog.getByRole('button', { name: 'Cancel' }));
+    expect(request.mock.calls.filter(([path]) => path.endsWith('/release'))).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Release' }));
+    dialog = within(screen.getByRole('dialog', { name: 'Release settlement hold' }));
+    fireEvent.change(dialog.getByRole('textbox', { name: 'Reason' }), { target: { value: '  Review complete  ' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Release hold' }));
+    expect(await dialog.findByRole('alert')).toHaveFocus();
+    expect(dialog.getByRole('textbox', { name: 'Reason' })).toHaveValue('  Review complete  ');
+    fireEvent.click(dialog.getByRole('button', { name: 'Release hold' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(request).toHaveBeenCalledWith('/admin/settlement-holds/hold-1/release', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Review complete' }) }));
+    expect(screen.queryByRole('button', { name: 'Release' })).not.toBeInTheDocument();
+  });
+
+  it('rejects outdated payout evidence through an in-page reason dialog', async () => {
+    let pending = true;
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
+      if (path === '/admin/payout-release-requests/request-1/reject') { pending = false; return {} as never; }
+      if (path === '/admin/payouts') return [{ id: 'payout-1', publicCode: 'PO-0003-2646', amount: '150', currency: 'INR', status: 'READY_TO_RELEASE', canApproveRelease: pending, releaseApproval: { id: 'request-1', status: pending ? 'PENDING' : 'REJECTED', requestedById: 'maker', requestedAmount: '50' } }] as never;
+      return [] as never;
+    });
+    render(<AdminSettlements currentUserId="checker" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Payouts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Reject payout release request' }));
+    fireEvent.change(dialog.getByRole('textbox', { name: 'Reason' }), { target: { value: 'Payable changed after hold release' } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Reject request' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(request).toHaveBeenCalledWith('/admin/payout-release-requests/request-1/reject', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Payable changed after hold release' }) }));
+  });
+
   it('clears the old target on scope change and sends exactly the selected event target', async () => {
     const request = vi.spyOn(api, 'request').mockImplementation(async (path: string, _options?: any) => {
       if (path === '/admin/vendors') return [{ id: 'vendor-1', name: 'Coastal Adventures' }] as never;
