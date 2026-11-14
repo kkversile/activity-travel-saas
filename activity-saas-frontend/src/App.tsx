@@ -130,7 +130,7 @@ export default function App() {
     else if (page === 'add-product') content = <PartnerAddProductPage onDone={() => navigateVendor('products')} onChanged={() => undefined} />;
     else if (page === 'bulk-upload') content = <PartnerBulkUploadPage />;
     else if (page === 'promotions') content = <PartnerPromotionsPage />;
-    else if (page === 'reports') content = <PartnerReportsPage />;
+    else if (page === 'reports') content = <PartnerReportsPage readOnly={Boolean(user.isImpersonating)} />;
     else if (page === 'settings') content = <PartnerSettingsPage canManageTeam={user.organizationRole === 'OWNER'} />;
     else if (page === 'developer-notes') content = <DeveloperNotesPage />;
     else content = <div className="partner-legacy-page"><LegacyComponent /></div>;

@@ -42,6 +42,16 @@ const reconciledBatch = {
 };
 
 describe('commission invoice register', () => {
+  it('never issues an invoice for adjustment-only or zero commission settlements', async () => {
+    const adjustments = invoiceService({ ...reconciledBatch, lines: [reconciledBatch.lines[2]] });
+    await expect(adjustments.service.createCommissionInvoice(maker, 'batch-1')).rejects.toThrow('COMMISSION_INVOICE_HAS_NO_BOOKING_LINES');
+    expect(adjustments.tx.commissionInvoice.create).not.toHaveBeenCalled();
+    expect(adjustments.audit.write).not.toHaveBeenCalled();
+    const zero = invoiceService({ ...reconciledBatch, lines: [{ ...reconciledBatch.lines[0], components: { supplierCommission: '0', gstOnCommissionAmount: '0' } }] });
+    await expect(zero.service.createCommissionInvoice(maker, 'batch-1')).rejects.toThrow('COMMISSION_INVOICE_AMOUNT_MUST_BE_POSITIVE');
+    expect(zero.tx.commissionInvoice.create).not.toHaveBeenCalled();
+  });
+
   it('creates a unique FY invoice from immutable reconciled batch snapshots', async () => {
     const { service, tx, audit } = invoiceService(reconciledBatch);
 

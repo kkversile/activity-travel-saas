@@ -101,7 +101,7 @@ export default function Payouts() {
         <tbody>{settlementRows}</tbody>
       </table></div>
       {!batches.length && <div className="empty">No canonical settlements yet.</div>}
-      <p className="muted">Commission is invoiced to you with GST; the invoice is in Reports. TDS and TCS appear in your Form 26AS / GSTR-2A, and certificates are issued quarterly.</p>
+      <p className="muted">Commission invoices, when recorded, are available in Reports. Adjustment-only settlements do not generate commission invoices. Statements show tax amounts only when captured in the settlement evidence.</p>
     </Panel>}
     {tab === 'releases' && <Panel title="Payout release history">
       <p className="muted">These rows record payout state and evidence in Voya. They do not represent a connected bank transfer.</p>

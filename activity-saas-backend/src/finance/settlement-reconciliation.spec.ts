@@ -41,4 +41,23 @@ describe('settlement booking references', () => {
     expect(csv).toContain('"AG-26110011","INR","3147.9","2998"');
     expect(csv).not.toContain('booking-11');
   });
+
+  it('links adjustment statement lines to the public payout without inventing commission or tax', async () => {
+    const findFirst = jest.fn().mockResolvedValue({ id: 'batch-3', batchCode: 'SET-3', status: 'RECONCILED', createdAt: new Date('2026-11-15T00:00:00Z'), payout: { id: 'payout-3', status: 'RECONCILED', reference: 'DEMO-HOLD-RELEASE-150' }, lines: [100, 50].map((amount) => ({ lineType: 'ADJUSTMENT', bookingId: null, currency: 'INR', grossBookingValue: '0', vendorPayableBase: '0', adjustmentAmount: String(amount), taxInformational: '0', netVendorPayable: String(amount), components: {} })) });
+    const findMany = jest.fn().mockResolvedValue([{ entityId: 'batch-3', publicCode: 'PB-20261114-02' }, { entityId: 'payout-3', publicCode: 'PO-0003-2646' }]);
+    const service = new FinanceService({ settlementBatch: { findFirst }, publicIdentifier: { findMany } } as any, {} as any, {} as any);
+    const csv = await service.vendorSettlementStatement({ sub: 'vendor-user', tenantId: 'v', role: UserRole.VENDOR } as any, 'batch-3');
+    expect(csv.split('\r\n')).toHaveLength(3);
+    expect(csv).toContain('"Public batch ID","Settlement status","Payout ID","Payout status","Payout reference","Commission"');
+    expect(csv).toContain('"PB-20261114-02","RECONCILED","PO-0003-2646","RECONCILED","DEMO-HOLD-RELEASE-150",""');
+    expect(csv).toContain('"ADJUSTMENT","","INR","0","0","100","","",""');
+    expect(csv).not.toContain('payout-3');
+  });
+
+  it('does not return another Vendor settlement statement', async () => {
+    const findFirst = jest.fn().mockResolvedValue(null);
+    const service = new FinanceService({ settlementBatch: { findFirst } } as any, {} as any, {} as any);
+    await expect(service.vendorSettlementStatement({ sub: 'other-vendor', tenantId: 'other' } as any, 'batch-3')).rejects.toThrow('Settlement batch not found');
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'batch-3', vendorTenantId: 'other' } }));
+  });
 });

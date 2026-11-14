@@ -1777,14 +1777,16 @@ export class FinanceService {
   }
 
   async vendorSettlementStatement(user: AuthUser, id: string) {
-    const batch = await this.prisma.settlementBatch.findFirst({ where: { id, vendorTenantId: requireTenant(user) }, include: { lines: true } });
+    const batch = await this.prisma.settlementBatch.findFirst({ where: { id, vendorTenantId: requireTenant(user) }, include: { lines: true, payout: { select: { id: true, status: true, reference: true } } } });
     if (!batch) throw new NotFoundException("Settlement batch not found");
     const bookingCodes = await publicIdentifierMap(this.prisma, PublicEntity.BOOKING, batch.lines.map((line) => line.bookingId).filter((id): id is string => Boolean(id)));
+    const payoutCodes = await publicIdentifierMap(this.prisma, PublicEntity.PAYOUT, batch.payout ? [batch.payout.id] : []);
+    const batchCodes = await publicIdentifierMap(this.prisma, PublicEntity.SETTLEMENT_BATCH, [batch.id]);
     const escape = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    const rows: unknown[][] = [['Batch', 'Created at', 'Line type', 'Booking ID', 'Currency', 'Gross booking value', 'Vendor payable base', 'Adjustment', 'GST on commission', 'TDS 194-O', 'GST TCS', 'Tax informational', 'Net vendor payable']];
+    const rows: unknown[][] = [['Batch', 'Created at', 'Line type', 'Booking ID', 'Currency', 'Gross booking value', 'Vendor payable base', 'Adjustment', 'GST on commission', 'TDS 194-O', 'GST TCS', 'Tax informational', 'Net vendor payable', 'Public batch ID', 'Settlement status', 'Payout ID', 'Payout status', 'Payout reference', 'Commission']];
     for (const line of batch.lines as any[]) {
       const components = line.components && typeof line.components === 'object' ? line.components as Record<string, unknown> : {};
-      rows.push([batch.batchCode, batch.createdAt.toISOString(), line.lineType, bookingCodes.get(line.bookingId) || line.bookingId || '', line.currency, line.grossBookingValue, line.vendorPayableBase, line.adjustmentAmount, components.gstOnCommissionAmount ?? '', components.tds194OAmount ?? '', components.gstTcsAmount ?? '', line.taxInformational, line.netVendorPayable]);
+      rows.push([batch.batchCode, batch.createdAt.toISOString(), line.lineType, bookingCodes.get(line.bookingId) || line.bookingId || '', line.currency, line.grossBookingValue, line.vendorPayableBase, line.adjustmentAmount, components.gstOnCommissionAmount ?? '', components.tds194OAmount ?? '', components.gstTcsAmount ?? '', line.taxInformational, line.netVendorPayable, batchCodes.get(batch.id) || batch.batchCode, batch.status, batch.payout ? payoutCodes.get(batch.payout.id) || '' : '', batch.payout?.status || '', batch.payout?.reference || '', components.supplierCommission ?? '']);
     }
     return rows.map((row) => row.map(escape).join(',')).join('\r\n');
   }

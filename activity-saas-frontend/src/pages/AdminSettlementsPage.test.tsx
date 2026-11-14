@@ -82,12 +82,34 @@ describe('Finance wallet credit approvals', () => {
 });
 
 describe('Commission invoice register', () => {
+  it('explains adjustment-only and incomplete batches instead of offering invalid invoice creation', async () => {
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
+      if (path === '/admin/vendors') return [{ id: 'v', name: 'Demo adventures' }] as never;
+      if (path === '/admin/settlements') return [
+        { id: 'adjustment', publicCode: 'PB-02', vendorTenantId: 'v', status: 'RECONCILED', payout: { publicCode: 'PO-0003-2646' }, lines: [{ lineType: 'ADJUSTMENT' }] },
+        { id: 'incomplete', publicCode: 'PB-03', vendorTenantId: 'v', status: 'RECONCILED', lines: [{ lineType: 'BOOKING', components: { supplierCommission: '10', gstOnCommissionAmount: null } }] },
+        { id: 'zero', publicCode: 'PB-04', vendorTenantId: 'v', status: 'RECONCILED', lines: [{ lineType: 'BOOKING', components: { supplierCommission: '0', gstOnCommissionAmount: '0' } }] },
+      ] as never;
+      return [] as never;
+    });
+    render(<AdminSettlements currentUserId="maker" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Commission invoices' }));
+    const eligibility = within(screen.getByRole('table', { name: 'Commission invoice eligibility' }));
+    expect(eligibility.getByText('PO-0003-2646')).toBeInTheDocument();
+    expect(eligibility.getByText(/Adjustments only/)).toBeInTheDocument();
+    expect(eligibility.getByText(/Recorded booking commission and GST are required/)).toBeInTheDocument();
+    expect(eligibility.getByText(/No positive booking commission/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create draft invoice' })).toBeDisabled();
+    expect(within(screen.getByRole('combobox', { name: 'Reconciled settlement batch' })).getAllByRole('option')).toHaveLength(1);
+    expect(request.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
+  });
+
   it('creates a draft from a reconciled batch and shows the persisted invoice ID', async () => {
     let stored: any[] = [];
     const request = vi.spyOn(api, 'request').mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === '/admin/finance/configuration') return { paymentCollectionMode: 'UNCONFIGURED', baseCurrency: 'INR', version: 1 } as never;
       if (path === '/admin/agents') return [] as never;
-      if (path === '/admin/settlements') return [{ id: 'batch-1', batchCode: 'PB-20261104', publicCode: 'PB-20261104', vendorTenantId: 'vendor-1', currency: 'INR', netPayable: '1000.00', status: 'RECONCILED', lineCount: 2 }] as never;
+      if (path === '/admin/settlements') return [{ id: 'batch-1', batchCode: 'PB-20261104', publicCode: 'PB-20261104', vendorTenantId: 'vendor-1', currency: 'INR', netPayable: '1000.00', status: 'RECONCILED', lineCount: 2, lines: [{ lineType: 'BOOKING', components: { supplierCommission: '100', gstOnCommissionAmount: '18' } }] }] as never;
       if (path === '/admin/vendors') return [{ id: 'vendor-1', name: 'Coastal Adventures' }] as never;
       if (path === '/admin/commission-invoices' && init?.method === 'POST') {
         const created = { id: 'invoice-1', invoiceNumber: 'INV/2627/000184', publicCode: 'INV/2627/000184', financialYear: '2627', settlementBatchId: 'batch-1', vendorTenantId: 'vendor-1', vendorLegalName: 'Coastal Adventures', currency: 'INR', commissionSubtotal: '100.00', gstOnCommissionAmount: '18.00', totalAmount: '118.00', status: 'DRAFT', createdById: 'maker-1' };

@@ -37,7 +37,7 @@ describe('vendor payments prototype parity', () => {
     expect(within(row).getByText('₹1,197.60')).toBeInTheDocument();
     expect(screen.getByText(/VERIFIED · change needs re-verification/i)).toBeInTheDocument();
     expect(screen.getByText('Due 04 Nov 2026 · activities 19 Oct 2026–25 Oct 2026')).toBeInTheDocument();
-    expect(screen.getByText(/Commission is invoiced to you with GST; the invoice is in Reports\./i)).toBeInTheDocument();
+    expect(screen.getByText(/Commission invoices, when recorded, are available in Reports\./i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'All statements' })).toHaveAttribute('href', '/vendor/reports');
   });
 });

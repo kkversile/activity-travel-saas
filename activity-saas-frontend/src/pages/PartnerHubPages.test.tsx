@@ -156,6 +156,20 @@ describe('Partner Hub promotions prototype parity', () => {
 });
 
 describe('Partner Hub reports and persistence parity', () => {
+  it('keeps Admin support report generation read-only and explains existing download access', async () => {
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/vendor/report-schedules') return { items: [], deliveryAvailable: false } as never;
+      return [] as never;
+    });
+    render(<PartnerReportsPage readOnly />);
+    expect(await screen.findByText(/Admin support sessions are read-only/)).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('button', { name: /Payout statement.*Generate report/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Commission invoices.*Generate report/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Schedule report' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Payout statement.*Generate report/ }));
+    expect(request.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
+  });
+
   it('queues a report first and downloads only after it is ready', async () => {
     const report = { id: 'report-1', name: 'Products report', type: 'PRODUCTS', format: 'CSV', createdAt: '2026-11-04T10:00:00.000Z', status: 'READY', downloadUrl: '/api/vendor/reports/report-1/download' };
     const request = vi.spyOn(api, 'request').mockImplementation(async (path, options) => {
