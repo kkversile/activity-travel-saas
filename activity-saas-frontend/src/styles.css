@@ -279,9 +279,11 @@
 .voya-experience-ux .prototype-calendar-grid button.unsaved { background:var(--voya-surface); background-image:none; color:var(--voya-muted); border-color:var(--voya-border); }
 
 /* Keep review navigation within its column and submitted values readable. */
-.voya-experience-ux .experience-wizard-nav { min-width:0; }
+.voya-experience-ux .experience-wizard-nav { min-width:0; grid-template-columns:minmax(0,1fr); }
 .voya-experience-ux .experience-wizard-step { width:100%; min-width:0; max-width:100%; }
 .voya-experience-ux .experience-wizard-step > span:last-child { min-width:0; white-space:normal; overflow-wrap:anywhere; }
+.voya-experience-ux .experience-score-card { min-width:0; grid-template-columns:minmax(0,1fr); }
+.voya-experience-ux .experience-score-card > span { white-space:normal; overflow-wrap:anywhere; }
 .admin-product-view :is(input,textarea,select,.product-type-card,.option-pricing-mode-card):disabled { opacity:1; color:var(--voya-text); -webkit-text-fill-color:var(--voya-text); }
 
 /* Keep bulk import confirmation reachable while reviewing long files. */
