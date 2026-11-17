@@ -77,7 +77,7 @@ export class DashboardService {
       this.prisma.product.count({ where: { ...productWhere, status: ProductStatus.DRAFT } }),
       this.prisma.productRevision.count({ where: { product: productWhere, status: 'REJECTED' } }),
       this.prisma.vendorDocument.findMany({ where: { tenantId, currentStatus: 'VERIFIED' }, select: { type: true, versions: { orderBy: { versionNumber: 'desc' }, take: 1, select: { status: true, expiresAt: true } } } }),
-      this.prisma.vendorProfile.findUnique({ where: { tenantId }, select: { readinessScore: true, payoutAccountMasked: true, payoutBankName: true, payoutCurrency: true, verificationStatus: true } }),
+      this.prisma.vendorProfile.findUnique({ where: { tenantId }, select: { tenant: { select: { vendorOnboarding: { select: { status: true } } } }, readinessScore: true, payoutAccountMasked: true, payoutBankName: true, payoutCurrency: true, verificationStatus: true } }),
       this.prisma.booking.findMany({
         where: bookingWhere,
         orderBy: { createdAt: 'desc' },
@@ -137,7 +137,9 @@ export class DashboardService {
       documentsExpiring: expiringDocuments.length,
       nearestExpiringDocument: expiringDocuments[0] || null,
       responseTimeMinutes: quality.metrics.find((m) => m.metricCode === 'AVG_VENDOR_RESPONSE_MINUTES')?.rawValue ?? null,
-      readinessScore: profile?.readinessScore ?? 0,
+      // Approved onboarding is the canonical completion signal. The stored score
+      // predates onboarding and remains the fallback for incomplete/legacy profiles.
+      readinessScore: profile?.tenant?.vendorOnboarding?.status === 'APPROVED' ? 100 : profile?.readinessScore ?? 0,
       qualityIssueCount: quality.openIssues.length,
       reviewsToReply,
       averageReviewRatingMtd: averageReviewRating._avg.rating ?? null,

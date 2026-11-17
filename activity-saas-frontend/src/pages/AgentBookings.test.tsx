@@ -37,7 +37,7 @@ describe('Agent cancellation and refund details', () => {
     expect(dialog.getByText(/Booking amount:/)).toHaveTextContent('2,520.00');
     expect(dialog.getByText(/Cancellation charge:/)).toHaveTextContent(charge === '2520' ? '2,520.00' : '1,260.00');
     expect(dialog.getByText(/Expected refund:/)).toHaveTextContent(refund === '0' ? '0.00' : '1,260.00');
-    if (refund === '0') expect(dialog.getByRole('status')).toHaveTextContent('No refund will be issued');
+    if (refund === '0') expect(dialog.getByText('No refund will be issued. The full booking amount is the cancellation charge.')).toHaveAttribute('role', 'status');
     fireEvent.change(dialog.getByLabelText('Reason', { exact: true }), { target: { value: 'Guests cannot travel' } });
     fireEvent.click(dialog.getByRole('checkbox'));
     fireEvent.click(dialog.getByRole('button', { name: 'Confirm cancellation' }));

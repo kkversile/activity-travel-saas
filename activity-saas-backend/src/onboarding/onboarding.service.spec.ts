@@ -169,3 +169,15 @@ describe('OnboardingService.requestOtp delivery safeguards', () => {
     expect(update).not.toHaveBeenCalled();
   });
 });
+
+
+describe('OnboardingService.adminGet display blockers', () => {
+  it('does not expose approval-action blockers for an approved application', async () => {
+    const vendor = { id: 'tenant-1', vendorOnboarding: { id: 'app-1', status: 'APPROVED', signatureData: 'signature' } };
+    const prisma = { tenant: { findFirst: jest.fn().mockResolvedValue(vendor) }, vendorDocument: { findMany: jest.fn().mockResolvedValue([]) }, $transaction: jest.fn() };
+    const service = new OnboardingService(prisma as any, {} as any, {} as any, {} as any);
+    const result = await service.adminGet('tenant-1');
+    expect(result.vendorOnboarding?.approvalBlockers).toEqual([]);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});

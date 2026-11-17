@@ -364,7 +364,7 @@ export class OnboardingService {
   async adminGet(tenantId: string) {
     const vendor = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, select: { id: true, name: true, vendorProfile: true, vendorOnboarding: { select: { ...publicApplicationSelect, signatureData: true } } } });
     if (!vendor) throw new NotFoundException('Vendor not found');
-    const blockers = vendor.vendorOnboarding ? await this.prisma.$transaction((tx) => vendorOnboardingApprovalBlockers(tx, tenantId)) : [];
+    const blockers = vendor.vendorOnboarding && vendor.vendorOnboarding.status !== VendorOnboardingStatus.APPROVED ? await this.prisma.$transaction((tx) => vendorOnboardingApprovalBlockers(tx, tenantId)) : [];
     return { ...vendor, vendorOnboarding: vendor.vendorOnboarding ? { ...vendor.vendorOnboarding, hasSignature: Boolean(vendor.vendorOnboarding.signatureData), documents: await this.documents(tenantId), approvalBlockers: blockers } : null };
   }
 

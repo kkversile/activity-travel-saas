@@ -4,7 +4,7 @@ import { DashboardService } from './dashboard.service';
 describe('DashboardService', () => {
   const user = { sub: 'vendor-user', email: 'vendor@example.com', role: UserRole.VENDOR, tenantId: 'tenant-1' };
 
-  it('returns the nearest document expiry and sums vendor net earnings rather than gross booking amounts', async () => {
+  it.each([['APPROVED', 0, 100], ['DRAFT', 25, 25], [null, 80, 80]])('returns accurate profile readiness for %s without changing financial totals', async (onboardingStatus, storedScore, expectedScore) => {
     const expiresAt = new Date(Date.now() + 10 * 86400000);
     const expiredAt = new Date(Date.now() - 10 * 86400000);
     const prisma: any = {
@@ -28,7 +28,7 @@ describe('DashboardService', () => {
         { type: 'PUBLIC_LIABILITY_INSURANCE', versions: [{ status: 'VERIFIED', expiresAt }] },
         { type: 'GSTIN', versions: [{ status: 'VERIFIED', expiresAt: expiredAt }] },
       ]) },
-      vendorProfile: { findUnique: jest.fn().mockResolvedValue({ readinessScore: 80, payoutAccountMasked: '••4417', payoutBankName: 'HDFC', payoutCurrency: 'INR', verificationStatus: 'VERIFIED' }) },
+      vendorProfile: { findUnique: jest.fn().mockResolvedValue({ readinessScore: storedScore, tenant: { vendorOnboarding: onboardingStatus ? { status: onboardingStatus } : null }, payoutAccountMasked: '••4417', payoutBankName: 'HDFC', payoutCurrency: 'INR', verificationStatus: 'VERIFIED' }) },
       vendorReview: { count: jest.fn().mockResolvedValue(3), aggregate: jest.fn().mockResolvedValue({ _avg: { rating: 4.6 } }) },
     };
     const performance = { computeCurrent: jest.fn().mockResolvedValue({ metrics: [], openIssues: [] }) };
@@ -38,6 +38,7 @@ describe('DashboardService', () => {
 
     expect(prisma.vendorDocument.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 'tenant-1', currentStatus: 'VERIFIED' } }));
     expect(result.nextPayout).toMatchObject({ amount: 0, heldAmount: 150 });
+    expect(result.readinessScore).toBe(expectedScore);
     expect(result.documentsExpiring).toBe(1);
     expect(result.expiredDocuments).toBe(1);
     expect(result.nearestExpiringDocument).toEqual({ type: 'PUBLIC_LIABILITY_INSURANCE', expiresAt });
