@@ -1,0 +1,158 @@
+
+> @voya/api@0.1.0 test
+> jest --runInBand --runInBand
+
+PASS src/common/controller-permissions.spec.ts (7.859 s)
+PASS src/finance/finance.service.spec.ts
+PASS src/vendor-tools/vendor-tools.service.spec.ts
+PASS src/admin/governance.dto.spec.ts
+PASS src/auth/auth.service.spec.ts
+  ● Console
+
+    console.info
+      [demo email OTP] new-vendor@example.com ACTIVATE_VENDOR: 123456
+
+      at AuthService.deliverVendorEmailCode (auth/auth.service.ts:325:15)
+
+    console.info
+      [demo email OTP] new-vendor@example.com ACTIVATE_VENDOR: 123456
+
+      at AuthService.deliverVendorEmailCode (auth/auth.service.ts:325:15)
+
+PASS src/admin/platform-theme.spec.ts
+PASS src/catalogue/catalogue.immutability.spec.ts
+PASS src/marketplace/marketplace.service.spec.ts
+PASS src/rate-plans/rate-plans.service.spec.ts
+PASS src/demand/marketplace-demand-instrumentation.spec.ts
+PASS src/catalogue/catalogue.service.spec.ts
+  ● Console
+
+    console.warn
+      [catalogue email] submission notification skipped Email delivery is not configured
+
+      4143 |       // Email is an asynchronous notification. It must not turn a committed
+      4144 |       // product state transition into a false failure when SMTP is unavailable.
+    > 4145 |       console.warn(
+           |               ^
+      4146 |         `[catalogue email] ${context} notification skipped`,
+      4147 |         error instanceof Error ? error.message : error,
+      4148 |       );
+
+      at CatalogueService.notifyCatalogueEmail (catalogue/catalogue.service.ts:4145:15)
+      at CatalogueService.submitRevision (catalogue/catalogue.service.ts:3534:7)
+      at Object.<anonymous> (catalogue/catalogue.service.spec.ts:104:508)
+
+PASS src/fulfilment/voucher-generation.service.spec.ts
+PASS src/finance/finance.operations.spec.ts
+PASS src/catalogue/catalogue.import-recovery.spec.ts
+PASS src/vendor-outlets/multi-outlet-isolation.spec.ts
+PASS src/catalogue/catalogue.import-batch.spec.ts
+PASS src/activity-ai/activity-ai.service.spec.ts
+PASS src/admin/admin.service.spec.ts
+PASS src/vendor/vendor.service.spec.ts
+PASS src/vendor-outlets/vendor-outlets.service.spec.ts
+PASS src/commercial/commercial-scope.spec.ts
+PASS src/catalogue/catalogue.revision-clone.spec.ts
+PASS src/catalogue/activity-prices-availability.spec.ts
+PASS src/auth/jwt-auth.guard.spec.ts
+PASS src/activity-ai/providers/gemini.provider.spec.ts
+PASS src/activity-ai/providers/groq.provider.spec.ts
+PASS src/finance/settlement-concurrency.spec.ts
+PASS src/admin/agent-wallet-credit-approval.spec.ts
+PASS src/eligibility/eligibility.service.spec.ts
+PASS src/schedules/schedules.requirement.spec.ts
+PASS src/distribution/distribution.service.spec.ts
+PASS src/finance/payout-release-approval.spec.ts
+PASS src/outbox/vendor-notification.worker.spec.ts
+PASS src/onboarding/onboarding.service.spec.ts
+PASS src/commercial/commercial-calculator.service.spec.ts
+PASS src/bookings/bookings.service.spec.ts
+PASS src/bookings/booking-projection.service.spec.ts
+PASS src/finance/finance-configuration.spec.ts
+PASS src/eligibility/cutoff.service.spec.ts
+PASS src/fulfilment/booking-completion.spec.ts
+PASS src/distribution/distribution-event.service.spec.ts
+PASS src/fulfilment/vendor-voucher-lookup.spec.ts
+PASS src/fulfilment/voucher-generation.concurrency.spec.ts
+PASS src/bookings/refund.concurrency.spec.ts
+PASS src/vendor/vendor-document-expiry.worker.spec.ts
+[Nest] 37940  - 17/11/2026, 8:51:37 am     LOG [VendorDocumentExpiryWorker] Document expiry sync: paused 1, resumed 0 vendor products.
+[Nest] 37940  - 17/11/2026, 8:51:37 am     LOG [VendorDocumentExpiryWorker] Document expiry sync: paused 0, resumed 1 vendor products.
+[Nest] 37940  - 17/11/2026, 8:51:37 am     LOG [VendorDocumentExpiryWorker] Document expiry sync: queued 1 expiry reminder(s).
+[Nest] 37940  - 17/11/2026, 8:51:37 am     LOG [VendorDocumentExpiryWorker] Document expiry sync: restored 1 saved expiry date(s) to current document versions.
+PASS src/admin/commercial-guardrails.spec.ts
+PASS src/resources/resources.service.spec.ts
+PASS src/vendor-outlets/vendor-outlet-access.service.spec.ts
+PASS src/finance/finance.dto.spec.ts
+PASS src/fulfilment/fulfilment-readiness.service.spec.ts
+PASS src/commercial/commercial-validation.spec.ts
+PASS src/finance/payout-state-machine.spec.ts
+PASS src/demand/demand-policy.service.spec.ts
+PASS src/commercial/commercial.service.spec.ts
+PASS src/audit/audit.service.spec.ts
+PASS src/commercial/commercial-stacking.service.spec.ts
+PASS src/commercial/commercial-resolution.spec.ts
+PASS src/commercial/commercial-readiness.service.spec.ts
+PASS src/admin/agent-tier-maker-checker.spec.ts
+PASS src/finance/cancellation-settlement.spec.ts
+PASS src/admin/agent-commercial-maker-checker.spec.ts
+PASS src/experience-matching/experience-matching.service.spec.ts
+PASS src/schedules/schedules.service.spec.ts
+PASS src/finance/settlement-reconciliation.spec.ts
+PASS src/bookings/cancellation.service.spec.ts
+PASS src/finance/vendor-payout-holds.spec.ts
+PASS src/demand/demand-analysis.service.spec.ts
+PASS src/quality/supplier-quality-issues.spec.ts
+PASS src/dashboard/dashboard.service.spec.ts
+PASS src/commercial/commercial-snapshot.spec.ts
+PASS src/finance/commission-invoice.spec.ts
+PASS src/distribution/channel-mapping.service.spec.ts
+PASS src/quality/supplier-quality-evaluator.spec.ts
+PASS src/commercial/commercial-effective-dating.service.spec.ts
+PASS src/bookings/booking-expiry.service.spec.ts
+PASS src/finance/payout-readiness.spec.ts
+PASS src/files/files.service.spec.ts
+PASS src/inventory/inventory.service.spec.ts
+PASS src/demand/demand-opportunity.service.spec.ts
+PASS src/quality/supplier-quality-policy.spec.ts
+PASS src/inventory/inventory-reservation.service.spec.ts
+PASS src/catalogue/catalogue.listing.service.spec.ts
+PASS src/demand/demand-observation.service.spec.ts
+PASS src/vendor-reviews/vendor-reviews.service.spec.ts
+PASS src/common/tenant.spec.ts
+PASS src/quality/supplier-quality-metric-behavior.spec.ts
+PASS src/catalogue/product-readiness.service.spec.ts
+PASS src/auth/register.dto.spec.ts
+PASS src/bookings/cancellation-policy.service.spec.ts
+PASS src/activity-ai/activity-ai-research.service.spec.ts
+PASS src/fulfilment/fulfilment-lifecycle.service.spec.ts
+PASS src/schedules/schedule-utils.spec.ts
+PASS src/quality/supplier-performance.service.spec.ts
+PASS src/quality/supplier-tier.service.spec.ts
+PASS src/commercial/commercial-calculator.phase32.spec.ts
+PASS src/marketplace/marketplace-ranking.service.spec.ts
+PASS src/bookings/booking-snapshot.service.spec.ts
+PASS src/quality/quality-security.spec.ts
+PASS src/activity-ai/activity-ai.mapper.spec.ts
+PASS src/experience-matching/selection-scoring.spec.ts
+PASS src/finance/booking-tax-snapshot.spec.ts
+PASS src/fulfilment/fulfilment.service.spec.ts
+PASS src/catalogue/activity-pricing-history.spec.ts
+PASS src/activity-ai/activity-ai.schema.spec.ts
+PASS src/qa/qa-only-eligibility.spec.ts
+PASS src/vendor/vendor-document-requirements.spec.ts
+PASS src/inventory/inventory.types.spec.ts
+PASS src/vendor-outlets/backfill-policy.spec.ts
+PASS src/common/permissions.spec.ts
+PASS src/common/mobile-verification-settings.spec.ts
+PASS src/common/public-identifiers.spec.ts
+PASS src/admin/vendor-metrics.spec.ts
+PASS src/demand/demand-security.spec.ts
+PASS src/bookings/booking-fingerprint.spec.ts
+PASS src/common/secret-crypto.spec.ts
+
+Test Suites: 115 passed, 115 total
+Tests:       675 passed, 675 total
+Snapshots:   0 total
+Time:        50.209 s, estimated 68 s
+Ran all test suites.

@@ -5,13 +5,18 @@ import { settlementHeldAmount } from '../finance/settlement-hold-amount';
 import { requireTenant } from '../common/tenant';
 import { PrismaService } from '../prisma/prisma.service';
 import { SupplierPerformanceService } from '../quality/supplier-performance.service';
+import { VendorOutletAccessService } from '../vendor-outlets/vendor-outlet-access.service';
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService, private readonly performance: SupplierPerformanceService) {}
+  constructor(private readonly prisma: PrismaService, private readonly performance: SupplierPerformanceService, private readonly outletAccess: VendorOutletAccessService) {}
 
-  async summary(user: AuthUser) {
+  async summary(user: AuthUser, outletId?: string) {
     const tenantId = requireTenant(user);
+    const outletScope = await this.outletAccess.resolve(user, outletId, { aggregateRead: true });
+    const outletWhere = outletScope.outletIds ? { outletId: { in: outletScope.outletIds } } : {};
+    const bookingWhere = { vendorTenantId: tenantId, ...outletWhere };
+    const productWhere = { tenantId, ...(outletScope.outletIds ? { outletId: { in: outletScope.outletIds } } : {}) };
     const now = new Date();
     const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const tomorrow = new Date(today); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
@@ -26,15 +31,16 @@ export class DashboardService {
       booking: {
         is: {
           vendorTenantId: tenantId,
+          ...outletWhere,
           createdAt: { gte: monthStart, lt: now },
           status: { in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] },
         },
       },
     };
     const [todayBookings, todayGuestRows, nextSevenDayRows, netVendorRevenue, baseVendorRevenue, previousNetVendorRevenue, previousBaseVendorRevenue, nextPayout, vendorActionRequiredBookings, manualReviewPendingBookings, legacyPendingBookings, totalBookings, cancelled, listings, liveListings, draftListings, rejectedListings, vendorDocuments, profile, recentBookings, upcomingDepartures, todayDepartures, quality, reviewsToReply, averageReviewRating] = await Promise.all([
-      this.prisma.booking.count({ where: { vendorTenantId: tenantId, createdAt: { gte: today, lt: tomorrow } } }),
-      this.prisma.booking.findMany({ where: { vendorTenantId: tenantId, serviceDate: { gte: today, lt: tomorrow }, status: { notIn: [BookingStatus.CANCELLED, BookingStatus.VENDOR_REJECTED, BookingStatus.MANUAL_REJECTED] } }, select: { pax: true } }),
-      this.prisma.booking.findMany({ where: { vendorTenantId: tenantId, serviceDate: { gte: today, lt: sevenDays }, status: { notIn: [BookingStatus.CANCELLED, BookingStatus.VENDOR_REJECTED, BookingStatus.MANUAL_REJECTED] } }, select: { pax: true } }),
+      this.prisma.booking.count({ where: { ...bookingWhere, createdAt: { gte: today, lt: tomorrow } } }),
+      this.prisma.booking.findMany({ where: { ...bookingWhere, serviceDate: { gte: today, lt: tomorrow }, status: { notIn: [BookingStatus.CANCELLED, BookingStatus.VENDOR_REJECTED, BookingStatus.MANUAL_REJECTED] } }, select: { pax: true } }),
+      this.prisma.booking.findMany({ where: { ...bookingWhere, serviceDate: { gte: today, lt: sevenDays }, status: { notIn: [BookingStatus.CANCELLED, BookingStatus.VENDOR_REJECTED, BookingStatus.MANUAL_REJECTED] } }, select: { pax: true } }),
       this.prisma.bookingEconomicsSnapshot.aggregate({
         _sum: { netVendorPayable: true },
         where: { ...monthlyVendorBookingFilter, netVendorPayable: { not: null } },
@@ -45,51 +51,52 @@ export class DashboardService {
       }),
       this.prisma.bookingEconomicsSnapshot.aggregate({
         _sum: { netVendorPayable: true },
-        where: { booking: { is: { vendorTenantId: tenantId, createdAt: { gte: previousMonthStart, lt: previousPeriodEnd }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] } } }, netVendorPayable: { not: null } },
+        where: { booking: { is: { ...bookingWhere, createdAt: { gte: previousMonthStart, lt: previousPeriodEnd }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] } } }, netVendorPayable: { not: null } },
       }),
       this.prisma.bookingEconomicsSnapshot.aggregate({
         _sum: { vendorPayable: true },
-        where: { booking: { is: { vendorTenantId: tenantId, createdAt: { gte: previousMonthStart, lt: previousPeriodEnd }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] } } }, netVendorPayable: null },
+        where: { booking: { is: { ...bookingWhere, createdAt: { gte: previousMonthStart, lt: previousPeriodEnd }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.COMPLETED] } } }, netVendorPayable: null },
       }),
       this.prisma.payout.findFirst({
         where: {
           tenantId,
+          ...(outletScope.outletIds ? { outletId: { in: outletScope.outletIds } } : {}),
           recordType: PayoutRecordType.CANONICAL,
           status: { notIn: [PayoutStatus.PAID, PayoutStatus.RELEASED, PayoutStatus.RECONCILED] },
         },
         orderBy: { dueDate: 'asc' },
         select: { amount: true, dueDate: true, currency: true, status: true, settlementBatch: { include: { lines: { include: { allocations: { select: { financialEventId: true, financialEvent: { select: { amount: true, vendorAmount: true } } } } } } } } },
       }),
-      this.prisma.booking.count({ where: { vendorTenantId: tenantId, recordType: 'CANONICAL', status: BookingStatus.PENDING_VENDOR_CONFIRMATION } }),
-      this.prisma.booking.count({ where: { vendorTenantId: tenantId, recordType: 'CANONICAL', status: BookingStatus.PENDING_MANUAL_REVIEW } }),
-      this.prisma.booking.count({ where: { vendorTenantId: tenantId, recordType: 'LEGACY', status: { in: [BookingStatus.PENDING, BookingStatus.NEW] } } }),
-      this.prisma.booking.count({ where: { vendorTenantId: tenantId, createdAt: { gte: monthStart } } }),
-      this.prisma.booking.count({ where: { vendorTenantId: tenantId, createdAt: { gte: monthStart }, status: BookingStatus.CANCELLED } }),
-      this.prisma.product.count({ where: { tenantId } }),
-      this.prisma.product.count({ where: { tenantId, status: ProductStatus.LIVE } }),
-      this.prisma.product.count({ where: { tenantId, status: ProductStatus.DRAFT } }),
-      this.prisma.productRevision.count({ where: { product: { tenantId }, status: 'REJECTED' } }),
+      this.prisma.booking.count({ where: { ...bookingWhere, recordType: 'CANONICAL', status: BookingStatus.PENDING_VENDOR_CONFIRMATION } }),
+      this.prisma.booking.count({ where: { ...bookingWhere, recordType: 'CANONICAL', status: BookingStatus.PENDING_MANUAL_REVIEW } }),
+      this.prisma.booking.count({ where: { ...bookingWhere, recordType: 'LEGACY', status: { in: [BookingStatus.PENDING, BookingStatus.NEW] } } }),
+      this.prisma.booking.count({ where: { ...bookingWhere, createdAt: { gte: monthStart } } }),
+      this.prisma.booking.count({ where: { ...bookingWhere, createdAt: { gte: monthStart }, status: BookingStatus.CANCELLED } }),
+      this.prisma.product.count({ where: productWhere }),
+      this.prisma.product.count({ where: { ...productWhere, status: ProductStatus.LIVE } }),
+      this.prisma.product.count({ where: { ...productWhere, status: ProductStatus.DRAFT } }),
+      this.prisma.productRevision.count({ where: { product: productWhere, status: 'REJECTED' } }),
       this.prisma.vendorDocument.findMany({ where: { tenantId, currentStatus: 'VERIFIED' }, select: { type: true, versions: { orderBy: { versionNumber: 'desc' }, take: 1, select: { status: true, expiresAt: true } } } }),
       this.prisma.vendorProfile.findUnique({ where: { tenantId }, select: { readinessScore: true, payoutAccountMasked: true, payoutBankName: true, payoutCurrency: true, verificationStatus: true } }),
       this.prisma.booking.findMany({
-        where: { vendorTenantId: tenantId },
+        where: bookingWhere,
         orderBy: { createdAt: 'desc' },
         take: 5,
         include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } } },
       }),
       this.prisma.booking.findMany({
-        where: { vendorTenantId: tenantId, serviceDate: { gte: today, lt: sevenDays }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.REDEEMED] } },
+        where: { ...bookingWhere, serviceDate: { gte: today, lt: sevenDays }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.REDEEMED] } },
         orderBy: { serviceDate: 'asc' }, take: 6,
         include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } } },
       }),
       this.prisma.booking.findMany({
-        where: { vendorTenantId: tenantId, serviceDate: { gte: today, lt: tomorrow }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.REDEEMED] } },
+        where: { ...bookingWhere, serviceDate: { gte: today, lt: tomorrow }, status: { in: [BookingStatus.CONFIRMED, BookingStatus.REDEEMED] } },
         orderBy: { createdAt: 'asc' }, take: 12,
         include: { variant: { select: { name: true } }, session: { select: { localStartTime: true } }, product: { select: { productCode: true, currentRevision: { select: { productName: true, meetingPoint: true } } } } },
       }),
-      this.performance.computeCurrent(tenantId, now),
-      this.prisma.vendorReview.count({ where: { tenantId, status: 'PUBLISHED', vendorReply: null } }),
-      this.prisma.vendorReview.aggregate({ where: { tenantId, status: 'PUBLISHED', reviewedAt: { gte: monthStart } }, _avg: { rating: true } }),
+      this.performance.computeCurrent(tenantId, now, undefined, outletScope.outletIds),
+      this.prisma.vendorReview.count({ where: { tenantId, ...(outletScope.outletIds ? { product: { outletId: { in: outletScope.outletIds } } } : {}), status: 'PUBLISHED', vendorReply: null } }),
+      this.prisma.vendorReview.aggregate({ where: { tenantId, ...(outletScope.outletIds ? { product: { outletId: { in: outletScope.outletIds } } } : {}), status: 'PUBLISHED', reviewedAt: { gte: monthStart } }, _avg: { rating: true } }),
     ]);
 
     const verifiedLatestDocuments = vendorDocuments.flatMap((document: any) => {
@@ -140,8 +147,10 @@ export class DashboardService {
     };
   }
 
-  async bookingTrend(user: AuthUser, fromInput?: string, toInput?: string) {
+  async bookingTrend(user: AuthUser, fromInput?: string, toInput?: string, outletId?: string) {
     const tenantId = requireTenant(user);
+    const outletScope = await this.outletAccess.resolve(user, outletId, { aggregateRead: true });
+    const outletWhere = outletScope.outletIds ? { outletId: { in: outletScope.outletIds } } : {};
     const now = new Date();
     const defaultTo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const defaultFrom = new Date(defaultTo); defaultFrom.setUTCDate(defaultFrom.getUTCDate() - 13);
@@ -156,7 +165,7 @@ export class DashboardService {
     const to = new Date(toStart); to.setUTCDate(to.getUTCDate() + 1);
     if (to <= from) throw new BadRequestException('Dashboard trend end date must be after the start date.');
     const rows = await this.prisma.booking.findMany({
-      where: { vendorTenantId: tenantId, serviceDate: { gte: from, lt: to }, status: { notIn: [BookingStatus.CANCELLED, BookingStatus.VENDOR_REJECTED, BookingStatus.MANUAL_REJECTED] } },
+      where: { vendorTenantId: tenantId, ...outletWhere, serviceDate: { gte: from, lt: to }, status: { notIn: [BookingStatus.CANCELLED, BookingStatus.VENDOR_REJECTED, BookingStatus.MANUAL_REJECTED] } },
       select: { serviceDate: true, pax: true, amount: true }, orderBy: { serviceDate: 'asc' },
     });
     const totals = new Map<string, { bookings: number; guests: number; revenue: number }>();

@@ -123,7 +123,7 @@ describe('BookingsService supplier failover selection', () => {
     const service = new BookingsService({} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
     const process = jest.spyOn(service as any, 'processVendorFailure').mockResolvedValue({ outcome: 'FAILOVERED' });
     await expect(service.vendorApiFailure({ role: 'VENDOR', tenantId: 'vendor-1', sub: 'user-1' } as any, 'booking-1', { reason: 'supplier timeout' })).resolves.toEqual({ outcome: 'FAILOVERED' });
-    expect(process).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'vendor-1' }), 'booking-1', { reason: 'supplier timeout' }, 'VENDOR_API_FAILURE');
+    expect(process).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'vendor-1' }), 'booking-1', { reason: 'supplier timeout' }, 'VENDOR_API_FAILURE', undefined);
   });
 });
 
@@ -158,18 +158,22 @@ describe('BookingsService supplier allocation enforcement', () => {
 });
 
 describe('BookingsService vendor booking search parity', () => {
+  const withOutletAccess = (service: BookingsService) => {
+    (service as any).outletAccess = { resolve: jest.fn().mockResolvedValue({ tenantId: 'vendor-1', outletIds: ['outlet-1'], aggregate: false }) };
+    return service;
+  };
   it('returns paginated vendor bookings with server-side queue filters and a total count', async () => {
     const row = { id: 'booking-2', bookingCode: 'BK-2', vendorTenantId: 'vendor-1' };
     const prisma: any = {
       publicIdentifier: { findMany: jest.fn().mockResolvedValue([]) },
       booking: { count: jest.fn().mockResolvedValue(61), findMany: jest.fn().mockResolvedValue([row]) },
     };
-    const service = new BookingsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, { forVendor: (booking: any) => booking } as any);
+    const service = withOutletAccess(new BookingsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, { forVendor: (booking: any) => booking } as any));
 
     const result = await service.vendorPage({ role: 'VENDOR', tenantId: 'vendor-1' } as any, { status: BookingStatus.CONFIRMED, page: 3, limit: 25 } as any);
 
-    expect(prisma.booking.count).toHaveBeenCalledWith({ where: { vendorTenantId: 'vendor-1', status: BookingStatus.CONFIRMED } });
-    expect(prisma.booking.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 50, take: 25, where: { vendorTenantId: 'vendor-1', status: BookingStatus.CONFIRMED } }));
+    expect(prisma.booking.count).toHaveBeenCalledWith({ where: { vendorTenantId: 'vendor-1', outletId: { in: ['outlet-1'] }, status: BookingStatus.CONFIRMED } });
+    expect(prisma.booking.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 50, take: 25, where: { vendorTenantId: 'vendor-1', outletId: { in: ['outlet-1'] }, status: BookingStatus.CONFIRMED } }));
     expect(result).toEqual({ items: [row], pagination: { page: 3, limit: 25, total: 61, totalPages: 3 } });
   });
 
@@ -193,7 +197,7 @@ describe('BookingsService vendor booking search parity', () => {
       publicIdentifier: { findMany: jest.fn().mockResolvedValue([]) },
       booking: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const service = new BookingsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, { forVendor: (row: any) => row } as any);
+    const service = withOutletAccess(new BookingsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, { forVendor: (row: any) => row } as any));
 
     await service.vendorList({ role: 'VENDOR', tenantId: 'vendor-1' } as any, { from: '2026-11-04', to: '2026-11-04' } as any);
 
@@ -210,13 +214,14 @@ describe('BookingsService vendor booking search parity', () => {
       booking: { findMany: jest.fn().mockResolvedValue([booking]) },
     };
     const projection: any = { forVendor: jest.fn((row) => ({ id: row.id, bookingCode: row.bookingCode, publicCode: row.publicCode })) };
-    const service = new BookingsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, projection);
+    const service = withOutletAccess(new BookingsService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, projection));
 
     const result = await service.vendorList({ role: 'VENDOR', tenantId: 'vendor-1' } as any, { q: 'VB-26-0042', channel: 'VOYA_AGENT' } as any);
 
     expect(prisma.booking.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         vendorTenantId: 'vendor-1',
+        outletId: { in: ['outlet-1'] },
         channel: 'VOYA_AGENT',
         OR: expect.arrayContaining([{ id: { in: ['booking-1'] } }]),
       }),

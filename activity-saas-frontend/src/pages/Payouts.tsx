@@ -73,7 +73,7 @@ export default function Payouts() {
   });
   const payoutAccountDetail = summary?.payoutAccount.masked
     ? [summary.payoutAccount.bankName, 'change needs re-verification'].filter(Boolean).join(' · ')
-    : 'Add payout details in Business profile & KYC';
+    : summary?.payoutAccount.verificationStatus === 'OUTLET_SPECIFIC' ? 'Select an outlet to view its verified payout account' : 'Add a verified payout account in Team & settings';
   const nextPayoutDetail = summary?.nextPayout
     ? [summary.nextPayout.heldAmount ? `${money(summary.nextPayout.heldAmount, summary.nextPayout.currency)} on hold` : null, `Due ${shortDate(summary.nextPayout.dueDate)}`, summary.nextPayout.periodFrom && summary.nextPayout.periodTo ? `activities ${shortDate(summary.nextPayout.periodFrom)}–${shortDate(summary.nextPayout.periodTo)}` : null].filter(Boolean).join(' · ')
     : 'No pending release';

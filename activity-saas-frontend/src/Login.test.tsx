@@ -15,9 +15,9 @@ describe('vendor passwordless login flow', () => {
 
     render(<Login onLogin={vi.fn()} onRegister={vi.fn()} />);
 
-    expect(screen.getByRole('heading', { name: 'List your tours, tickets and experiences in front of millions of Indian travellers.' })).toBeInTheDocument();
-    expect(screen.getByText('Log in', { selector: 'span' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create account' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Bring your experiences to millions of travellers.' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Create account' })[0]).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Vendor Login' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });

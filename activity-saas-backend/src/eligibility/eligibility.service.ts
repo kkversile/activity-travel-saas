@@ -14,6 +14,7 @@ import { getQaOnlyEligibilityOverride } from '../qa/qa-only-eligibility';
 export type EligibilityDbClient = PrismaService | Prisma.TransactionClient;
 
 const productInclude = {
+  outlet: true,
   tenant: { include: { vendorProfile: true } },
   currentRevision: { include: { fulfilmentPolicy: true, media: { where: { archivedAt: null }, include: { fileAsset: { select: { id: true, visibility: true, purpose: true } } }, orderBy: { rank: 'asc' as const } } } },
 } as const;
@@ -50,6 +51,7 @@ export class EligibilityService {
     const product = plan.variant.product; const vendor = product.tenant; const revision = product.currentRevision; const date = session?.serviceDate ? new Date(session.serviceDate) : now;
     const qaOverride = await getQaOnlyEligibilityOverride(db, product.id, input.agentTenantId, now, plan.id);
     if (!vendor?.vendorProfile) add('VENDOR', 'FAIL', 'VENDOR_NOT_VERIFIED'); else if (vendor.kind !== TenantKind.VENDOR || vendor.vendorProfile.verificationStatus === VendorVerificationStatus.SUSPENDED) add('VENDOR', 'FAIL', 'VENDOR_SUSPENDED'); else if (vendor.vendorProfile.verificationStatus !== VendorVerificationStatus.VERIFIED) add('VENDOR', 'FAIL', 'VENDOR_NOT_VERIFIED'); else add('VENDOR', 'PASS', undefined, { tenantId: vendor.id });
+    if (product.outlet === null || product.outlet?.status === 'INACTIVE') add('OUTLET', 'FAIL', 'PRODUCT_OUTLET_INACTIVE');
     if (product.status !== ProductStatus.LIVE && qaOverride && product.status === ProductStatus.SUSPENDED && revision?.status === ProductRevisionStatus.PUBLISHED) add('PRODUCT', 'PASS', undefined, { revisionId: revision.id, qaOnlyTestFixture: true, insuranceDocumentStatus: qaOverride.documentStatus }); else if (product.status !== ProductStatus.LIVE) add('PRODUCT', 'FAIL', 'PRODUCT_NOT_LIVE'); else if (!revision || product.currentRevisionId !== revision.id || revision.status !== ProductRevisionStatus.PUBLISHED) add('PRODUCT', 'FAIL', 'PRODUCT_PUBLISHED_REVISION_MISSING'); else add('PRODUCT', 'PASS', undefined, { revisionId: revision.id });
     if (!revision || product.currentRevisionId !== revision.id || revision.status !== ProductRevisionStatus.PUBLISHED || !revision.fulfilmentPolicy) add('FULFILMENT_POLICY', 'FAIL', 'FULFILMENT_POLICY_MISSING'); else { const policy = validateFulfilmentPolicy(revision.fulfilmentPolicy); add('FULFILMENT_POLICY', policy.valid ? 'PASS' : 'FAIL', policy.valid ? undefined : policy.reason, { policyId: revision.fulfilmentPolicy.id, mode: revision.fulfilmentPolicy.mode }); }
     if (plan.variant.status !== VariantStatus.ACTIVE || plan.variant.archivedAt) add('VARIANT', 'FAIL', 'VARIANT_NOT_ACTIVE'); else add('VARIANT', 'PASS', undefined, { variantId: plan.variantId });

@@ -7,6 +7,7 @@ import { SchedulesController } from './schedules.controller';
 import { SessionMaterializerService } from './session-materializer.service';
 import { SchedulesService } from './schedules.service';
 import { ScheduleOperationalStateService } from './schedule-operational-state.service';
+import { VendorOutletsModule } from '../vendor-outlets/vendor-outlets.module';
 
-@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule], controllers: [SchedulesController], providers: [SchedulesService, SessionMaterializerService, ScheduleOperationalStateService], exports: [SchedulesService, SessionMaterializerService, ScheduleOperationalStateService] })
+@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, VendorOutletsModule], controllers: [SchedulesController], providers: [SchedulesService, SessionMaterializerService, ScheduleOperationalStateService], exports: [SchedulesService, SessionMaterializerService, ScheduleOperationalStateService] })
 export class SchedulesModule {}

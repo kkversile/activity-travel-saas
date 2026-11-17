@@ -33,6 +33,7 @@ import { OutboxService } from "../outbox/outbox.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { FilePurpose, FileVisibility } from "@prisma/client";
 import { StorageService } from "../storage/storage.service";
+import { VendorOutletAccessService } from "../vendor-outlets/vendor-outlet-access.service";
 import { validateFulfilmentPolicy } from "../fulfilment/fulfilment.types";
 import {
   ActivityPricesAvailabilityDto,
@@ -388,6 +389,7 @@ export class CatalogueService {
     @Optional() private readonly schedules?: SchedulesService,
     @Optional() private readonly materializer?: SessionMaterializerService,
     @Optional() private readonly catalogueEmail?: CatalogueEmailService,
+    @Optional() private readonly outletAccess?: VendorOutletAccessService,
   ) {}
 
   /** Validate the prototype's image quality contract before an asset reaches storage. */
@@ -555,11 +557,21 @@ export class CatalogueService {
       },
     });
     if (!found) throw new NotFoundException("Product not found");
+    if (user.role === UserRole.VENDOR) {
+      if (!this.outletAccess || !found.outletId) throw new NotFoundException("Product not found");
+      await this.outletAccess.resolve(user, found.outletId);
+    }
     return found;
   }
 
   private async tenantForRevision(user: AuthUser, revisionId: string) {
-    if (user.role === UserRole.VENDOR) return requireTenant(user);
+    if (user.role === UserRole.VENDOR) {
+      const tenantId = requireTenant(user);
+      const row = await this.prisma.productRevision.findFirst({ where: { id: revisionId, ...{ product: { tenantId } } }, select: { product: { select: { outletId: true } } } });
+      if (!row || !row.product?.outletId) throw new NotFoundException('Catalogue record not found');
+      await this.outletAccess!.resolve(user, row.product.outletId);
+      return tenantId;
+    }
     const revision = await this.prisma.productRevision.findFirst({
       where: {
         id: revisionId,
@@ -572,7 +584,13 @@ export class CatalogueService {
   }
 
   private async tenantForVariant(user: AuthUser, variantId: string) {
-    if (user.role === UserRole.VENDOR) return requireTenant(user);
+    if (user.role === UserRole.VENDOR) {
+      const tenantId = requireTenant(user);
+      const row = await this.prisma.productVariant.findFirst({ where: { id: variantId, ...{ product: { tenantId } } }, select: { product: { select: { outletId: true } } } });
+      if (!row || !row.product?.outletId) throw new NotFoundException('Catalogue record not found');
+      await this.outletAccess!.resolve(user, row.product.outletId);
+      return tenantId;
+    }
     const variant = await this.prisma.productVariant.findFirst({
       where: {
         id: variantId,
@@ -585,7 +603,13 @@ export class CatalogueService {
   }
 
   private async tenantForQuestion(user: AuthUser, questionId: string) {
-    if (user.role === UserRole.VENDOR) return requireTenant(user);
+    if (user.role === UserRole.VENDOR) {
+      const tenantId = requireTenant(user);
+      const row = await this.prisma.productBookingQuestion.findFirst({ where: { id: questionId, ...{ productRevision: { product: { tenantId } } } }, select: { productRevision: { select: { product: { select: { outletId: true } } } } } });
+      if (!row || !row.productRevision.product?.outletId) throw new NotFoundException('Catalogue record not found');
+      await this.outletAccess!.resolve(user, row.productRevision.product.outletId);
+      return tenantId;
+    }
     const question = await this.prisma.productBookingQuestion.findFirst({
       where: {
         id: questionId,
@@ -679,9 +703,11 @@ export class CatalogueService {
 
   async list(user: AuthUser, query: ProductQueryDto) {
     const tenantId = requireTenant(user);
+    const outletScope = user.role === UserRole.VENDOR ? await this.outletAccess!.resolve(user, query.outletId, { aggregateRead: true }) : null;
     return this.prisma.product.findMany({
       where: {
         tenantId,
+        ...(outletScope?.outletIds ? { outletId: { in: outletScope.outletIds } } : {}),
         deletedAt: null,
         ...(query.search
           ? { productCode: { contains: query.search, mode: "insensitive" } }
@@ -718,10 +744,11 @@ export class CatalogueService {
    */
   async listing(user: AuthUser, query: ProductListingQueryDto) {
     const tenantId = requireTenant(user);
+    const outletScope = user.role === UserRole.VENDOR ? await this.outletAccess!.resolve(user, query.outletId, { aggregateRead: true }) : null;
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
     const search = query.search?.trim();
-    const where: any = { tenantId, deletedAt: null };
+    const where: any = { tenantId, deletedAt: null, ...(outletScope?.outletIds ? { outletId: { in: outletScope.outletIds } } : {}) };
     if (search) {
       const publicMatches = this.prisma.publicIdentifier
         ? await this.prisma.publicIdentifier.findMany({
@@ -1433,8 +1460,12 @@ export class CatalogueService {
     return result;
   }
 
-  async create(user: AuthUser, dto: CreateProductDto) {
+  async create(user: AuthUser, dto: CreateProductDto, outletId?: string) {
     const tenantId = requireTenant(user);
+    const resolvedOutletId = user.role === UserRole.VENDOR
+      ? (await this.outletAccess!.resolve(user, outletId, { mutation: true })).outletIds![0]
+      : (await this.prisma.vendorOutlet.findFirst({ where: { tenantId, isDefault: true, status: 'ACTIVE' }, select: { id: true } }))?.id;
+    if (!resolvedOutletId) throw new ConflictException('Create or activate a default outlet before adding products.');
     if (!dto.initialRevision)
       throw new BadRequestException("initialRevision is required");
     const initialRevision = {
@@ -1446,6 +1477,7 @@ export class CatalogueService {
         const product = await tx.product.create({
           data: {
             tenantId,
+            outletId: resolvedOutletId,
             productCode: dto.productCode,
             currency: dto.currency?.trim().toUpperCase() || "INR",
             status: ProductStatus.DRAFT,
@@ -1508,8 +1540,9 @@ export class CatalogueService {
     user: AuthUser,
     dto: CreateProductDraftDto,
     identity?: ImportIdentity,
+    outletId?: string,
   ) {
-    return this.createDraftForTenant(user, requireTenant(user), dto, identity);
+    return this.createDraftForTenant(user, requireTenant(user), dto, identity, outletId);
   }
 
   async createDraftAsAdmin(
@@ -1534,7 +1567,12 @@ export class CatalogueService {
     tenantId: string,
     dto: CreateProductDraftDto,
     identity?: ImportIdentity,
+    outletId?: string,
   ) {
+    const selectedOutletId = user.role === UserRole.VENDOR
+      ? (await this.outletAccess!.resolve(user, outletId, { mutation: true })).outletIds![0]
+      : (await this.prisma.vendorOutlet.findFirst({ where: { tenantId, isDefault: true, status: 'ACTIVE' }, select: { id: true } }))?.id;
+    if (!selectedOutletId) throw new ConflictException('Create or activate a default outlet before adding products.');
     let draftIdentity = identity;
     if (dto.importMode) {
       const importFingerprint = fingerprint({
@@ -1604,6 +1642,7 @@ export class CatalogueService {
       const product = await tx.product.create({
         data: {
           tenantId,
+          outletId: selectedOutletId,
           productCode,
           currency: dto.currency?.trim().toUpperCase() || "INR",
           status: ProductStatus.DRAFT,
@@ -1811,6 +1850,7 @@ export class CatalogueService {
     dto: ImportProductJsonDto,
     idempotencyKey?: string,
     validateOnly = false,
+    outletId?: string,
   ) {
     const source = dto as ImportProductJsonDto & Record<string, unknown>;
     const importSections = ["Basic_Info", "Experience", "Options", "Ticket_Types", "Rate_Plans", "Availability", "Media", "Booking_Questions", "Fulfilment"];
@@ -2107,6 +2147,7 @@ export class CatalogueService {
             ? { importIdempotencyKey: stableIdempotencyKey }
             : {}),
         },
+        outletId,
       );
     } catch (error: any) {
       if (error?.code === "P2002") {
@@ -2499,7 +2540,7 @@ export class CatalogueService {
     }
   }
 
-  async importBatch(user: AuthUser, dto: { products: ImportProductJsonDto[] }, validateOnly = false) {
+  async importBatch(user: AuthUser, dto: { products: ImportProductJsonDto[] }, validateOnly = false, outletId?: string) {
     const products = Array.isArray(dto?.products) ? dto.products : [];
     if (!products.length || products.length > 200)
       throw new BadRequestException({
@@ -2527,7 +2568,7 @@ export class CatalogueService {
     const validationIssues: Array<{ productIndex: number; productKey: string; issues: unknown }> = [];
     for (let index = 0; index < products.length; index += 1) {
       try {
-        await this.importJson(user, products[index], undefined, true);
+        await this.importJson(user, products[index], undefined, true, outletId);
       } catch (error: any) {
         const response = typeof error?.getResponse === "function" ? error.getResponse() : error?.response;
         validationIssues.push({
@@ -2595,7 +2636,7 @@ export class CatalogueService {
     const imported: any[] = [];
     for (let index = 0; index < products.length; index += 1) {
       try {
-        imported.push(await this.importJson(user, products[index]));
+        imported.push(await this.importJson(user, products[index], undefined, false, outletId));
       } catch (error: any) {
         return {
           status: "PARTIAL",

@@ -1,0 +1,540 @@
+{
+  "checkedAt": "2026-11-17T03:23:06.878Z",
+  "snapshotSha256": "af0fba4c97d88059e1a5518ab60f26dbee480199cc7ce932de830b8a37be6694",
+  "sourcePostgres": "15.20",
+  "stagingPostgres": "15.20 (Debian 15.20-0+deb12u1)",
+  "stagingDatabase": "127.0.0.1:55445/voya_outlet_staging_pg15_20261117",
+  "sourceWrites": false,
+  "successfulHistoricalMigrations": 97,
+  "rolledBackHistoricalAttempts": 17,
+  "unresolvedMigrations": 0,
+  "lineEndingOnlyChecksums": 25,
+  "historicalChecksumDifferences": [
+    "20261031120000_partner_hub_gap_models"
+  ],
+  "preflight": {
+    "booking_product_mismatch": 0,
+    "event_booking_mismatch": 0,
+    "duplicate_canonical_weeks": 0
+  },
+  "originalTablesVerified": 121,
+  "originalDataUnchanged": true,
+  "immutableFingerprints": {
+    "ActivityCategory": {
+      "rows": 7,
+      "fingerprint": "f6087059a3aa0a8511882e5723e6ce68"
+    },
+    "ActivityPriceApplyRequest": {
+      "rows": 46,
+      "fingerprint": "88a0d22c483ccbab0d307f74240bac47"
+    },
+    "ActivitySubcategory": {
+      "rows": 14,
+      "fingerprint": "8fffa5cc3252934808ea65c5af13e35e"
+    },
+    "AgentCommercialChangeRequest": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "AgentCommercialProfile": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "AgentGroup": {
+      "rows": 5,
+      "fingerprint": "e0879ddfb07afa3aa891752de8a56a4b"
+    },
+    "AgentGroupMember": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "AgentProfile": {
+      "rows": 1,
+      "fingerprint": "15cdfb581525f15e5bb41ecd58541b90"
+    },
+    "AgentWalletCreditApprovalRequest": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "AgentWalletLedger": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "AuditLog": {
+      "rows": 2972,
+      "fingerprint": "fd59b2dd19965baae21a2c71be6ca0b3"
+    },
+    "Booking": {
+      "rows": 17,
+      "fingerprint": "efacde61f540908f2489ce9853a8fb25"
+    },
+    "BookingCancellation": {
+      "rows": 10,
+      "fingerprint": "aada283061824f55a2040b75b8799a68"
+    },
+    "BookingEconomicsSnapshot": {
+      "rows": 12,
+      "fingerprint": "6bb673c5b59abca4c57b28222abe535c"
+    },
+    "BookingEvent": {
+      "rows": 59,
+      "fingerprint": "7a862c5b83a622b77f035112557cf467"
+    },
+    "BookingFulfilment": {
+      "rows": 12,
+      "fingerprint": "e49f0e48bc10175756712ea8d04577eb"
+    },
+    "BookingRedemption": {
+      "rows": 1,
+      "fingerprint": "dfa2832538ec0f8fb767b8023262823e"
+    },
+    "BookingSnapshot": {
+      "rows": 12,
+      "fingerprint": "4d05665ca555e9e50df147133a971b10"
+    },
+    "BookingTraveller": {
+      "rows": 24,
+      "fingerprint": "d8f5ab28b5ade91a2af4a3a7f31fda7b"
+    },
+    "BuyBox": {
+      "rows": 2,
+      "fingerprint": "60d7679257c09d8582e3f57cc4220a01"
+    },
+    "BuyBoxBid": {
+      "rows": 2,
+      "fingerprint": "5b9ef1bf7e2486594d72a88fb057056b"
+    },
+    "BuyBoxOffer": {
+      "rows": 4,
+      "fingerprint": "aed9cd871e958b944e27c6c68015a84d"
+    },
+    "CancellationRule": {
+      "rows": 92,
+      "fingerprint": "69d8f04192235faf932116a6ef7b4e9d"
+    },
+    "CancellationVendorSettlementResolution": {
+      "rows": 6,
+      "fingerprint": "aa5bc8abdd82b9d8ce243b2d7a0d15ac"
+    },
+    "ChannelApiCredential": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "ChannelContract": {
+      "rows": 1,
+      "fingerprint": "b71771cd7484f3bf92cb2a02eb121473"
+    },
+    "ChannelInventoryRule": {
+      "rows": 14,
+      "fingerprint": "9ea3024511c18218c6d7e7e32413b191"
+    },
+    "CommercialGuardrailConfiguration": {
+      "rows": 1,
+      "fingerprint": "e8819e01b4aa37d443d9aa010f64b7d8"
+    },
+    "CommercialRule": {
+      "rows": 13,
+      "fingerprint": "3cc44f65526438b5ad0d7d90a47fe758"
+    },
+    "CommercialRuleVersion": {
+      "rows": 12,
+      "fingerprint": "0c6b3d87af4b6205cfe2ad138c83c5a6"
+    },
+    "CommissionInvoice": {
+      "rows": 1,
+      "fingerprint": "f01df87dd032624ccd8beaa1cc104e08"
+    },
+    "DemandAnalysisRun": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "DemandIntelligencePolicy": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "DemandOpportunity": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "DemandOpportunityAssessment": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "DemandOpportunityEvent": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "DemandOpportunityRule": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "DemandOpportunityVendorTarget": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "DistributionChannel": {
+      "rows": 1,
+      "fingerprint": "4d6b5c1d68b7e89da0efa5ce220a422a"
+    },
+    "DistributionEvent": {
+      "rows": 26,
+      "fingerprint": "2a26b4a4281e16fbc6524415a30b31ff"
+    },
+    "DistributionProjectionCursor": {
+      "rows": 1,
+      "fingerprint": "bb5564973995fde21bc11d6b02ee9c41"
+    },
+    "EmailAuthChallenge": {
+      "rows": 29,
+      "fingerprint": "ccd5fec9d0eee844acab7a0f85983c53"
+    },
+    "ExperienceMaster": {
+      "rows": 3,
+      "fingerprint": "cc70f86bb49945d2fdbb96d41aa0c3c5"
+    },
+    "ExperienceMasterOption": {
+      "rows": 4,
+      "fingerprint": "86f0992913553b2014cfaa4c375d7bed"
+    },
+    "ExperienceMasterOptionPlacement": {
+      "rows": 4,
+      "fingerprint": "ad1cb0e48527858802b011461c8fc269"
+    },
+    "ExperienceOfferPlacement": {
+      "rows": 4,
+      "fingerprint": "ee81d4be04b0a95f44d32f593aa652f4"
+    },
+    "ExperienceSelectionLock": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "ExperienceSelectionRuleSet": {
+      "rows": 1,
+      "fingerprint": "cdecee2f954f1ddea85125a2ea3bc552"
+    },
+    "FileAsset": {
+      "rows": 71,
+      "fingerprint": "1c411dd0d2821d20b7645ec96b0fe9fc"
+    },
+    "FinanceConfiguration": {
+      "rows": 1,
+      "fingerprint": "9fe30238d4cb568ec39f5a4e77c0bc92"
+    },
+    "FinancialEvent": {
+      "rows": 61,
+      "fingerprint": "a8d1991a32b0add0a5c6ce2e2d366a74"
+    },
+    "FulfilmentEvidence": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "ImpersonationSession": {
+      "rows": 28,
+      "fingerprint": "a06f2ff77dda1308254c3f89716e904b"
+    },
+    "InventoryAllocation": {
+      "rows": 12,
+      "fingerprint": "905984647400d6d15224ef098984140a"
+    },
+    "InventoryHold": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "InventoryState": {
+      "rows": 11441,
+      "fingerprint": "fcca59e6c4e0cc488007bd63d211c72a"
+    },
+    "ItineraryStop": {
+      "rows": 21,
+      "fingerprint": "914990670170b89191c94522391728ab"
+    },
+    "MarketplaceSearchObservation": {
+      "rows": 39,
+      "fingerprint": "80bd9a0287a8c6c84cd181f903e5e973"
+    },
+    "OutboxEvent": {
+      "rows": 2328,
+      "fingerprint": "87333f9b07daf1c95f4c49066b47155a"
+    },
+    "Payout": {
+      "rows": 7,
+      "fingerprint": "8e1537d78b8bf238809b82d8e5e7690f"
+    },
+    "PayoutAttempt": {
+      "rows": 6,
+      "fingerprint": "3310d98ef060a8814cfe0fa964a2bd31"
+    },
+    "PayoutReleaseApprovalRequest": {
+      "rows": 7,
+      "fingerprint": "31d0c9413bc36af45d9af021e1b6d6ed"
+    },
+    "PlatformCoupon": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "PricingRule": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "Product": {
+      "rows": 33,
+      "fingerprint": "bf1c78ad2e33521c6698b06d302476f9"
+    },
+    "ProductBookingQuestion": {
+      "rows": 68,
+      "fingerprint": "991478b2cb61a0d7a8708e70d9a29a66"
+    },
+    "ProductChannelMapping": {
+      "rows": 9,
+      "fingerprint": "2b2d59d97dd9a742d2a468639c73ae08"
+    },
+    "ProductFulfilmentPolicy": {
+      "rows": 34,
+      "fingerprint": "eef80e28f96976f5aaba60268e2fa3e3"
+    },
+    "ProductLocationVerification": {
+      "rows": 16,
+      "fingerprint": "a2f7e14bb025dd6ead8cb4e46c960ac7"
+    },
+    "ProductMatchSuggestion": {
+      "rows": 2,
+      "fingerprint": "4cfe05d19e14a3c6051a55a4881bf27e"
+    },
+    "ProductMedia": {
+      "rows": 36,
+      "fingerprint": "d0475865521d41b6782c507229bfdf35"
+    },
+    "ProductRevision": {
+      "rows": 44,
+      "fingerprint": "155a2d1bd313e12876f8480015f5c1e4"
+    },
+    "ProductVariant": {
+      "rows": 51,
+      "fingerprint": "903fc8bf98dfdc50cee82f755523c3f4"
+    },
+    "ProductVariantTicketType": {
+      "rows": 13,
+      "fingerprint": "22ac9b00c5df7643315dbf2d404af0ff"
+    },
+    "ProductVariantUnit": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "ProductViewEvent": {
+      "rows": 22,
+      "fingerprint": "c858f450b1223a9763a4882a710915d3"
+    },
+    "Promotion": {
+      "rows": 1,
+      "fingerprint": "f05e6b2ec13a21e3e33d328cf9673b85"
+    },
+    "PublicIdentifier": {
+      "rows": 3200,
+      "fingerprint": "a440bf2545cfb5c3e719c4de7323f031"
+    },
+    "PublicIdentifierSequence": {
+      "rows": 15,
+      "fingerprint": "6c9568a9ca413f6f77469903e191460d"
+    },
+    "RatePlan": {
+      "rows": 53,
+      "fingerprint": "c1f219a5518e350fb09fcf5865e6a245"
+    },
+    "RatePlanChannelMapping": {
+      "rows": 15,
+      "fingerprint": "811b54fe4ec990b842f3828ea6d6376e"
+    },
+    "RatePlanCommercialVersion": {
+      "rows": 67,
+      "fingerprint": "70236001f1dfccd0e54ceea3d1365216"
+    },
+    "RatePlanSchedule": {
+      "rows": 37,
+      "fingerprint": "ff6086a3e2eae1475ea546c229493757"
+    },
+    "RatePlanTravellerPrice": {
+      "rows": 78,
+      "fingerprint": "902aedbeaa2f595e8b7bbaca49d00088"
+    },
+    "Refund": {
+      "rows": 8,
+      "fingerprint": "0e4d7a0a4b48e9fb03014b10dbd2f7df"
+    },
+    "ReportSchedule": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "Resource": {
+      "rows": 1,
+      "fingerprint": "b66b5ccc953c7cb0d91fc43d911044e4"
+    },
+    "ScheduleException": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "ScheduleResourceRequirement": {
+      "rows": 1,
+      "fingerprint": "d04b5d1c925bddcaa3a2e24c31c70ded"
+    },
+    "ScheduleSlotTemplate": {
+      "rows": 43,
+      "fingerprint": "9a1bd4bfa6de0e9c1d6e5f66f6e63dec"
+    },
+    "ScheduleTemplate": {
+      "rows": 37,
+      "fingerprint": "9fb6db1dca8fa09796de9d8ef7d77cad"
+    },
+    "ServiceSession": {
+      "rows": 11441,
+      "fingerprint": "487cadce82eab427298ec12db4cfb5f2"
+    },
+    "SessionResourceAllocation": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "SettlementBatch": {
+      "rows": 4,
+      "fingerprint": "310bbbb3bca5956744064f9ee74ccbf1"
+    },
+    "SettlementEventAllocation": {
+      "rows": 5,
+      "fingerprint": "94a39baa0616d67c4b37f2a17f78fbdb"
+    },
+    "SettlementHold": {
+      "rows": 2,
+      "fingerprint": "a2c5a1953da0be94b63dddf25dea51a7"
+    },
+    "SettlementLine": {
+      "rows": 5,
+      "fingerprint": "86782f7f53ff0b028a9fa186dd3146bf"
+    },
+    "SupplierQualityIssue": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "SupplierQualityMetricRule": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "SupplierQualityMetricSnapshot": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "SupplierQualityPolicy": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "SupplierQualitySnapshot": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "SupplierTierAssignment": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "SupplierTierRule": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "Tenant": {
+      "rows": 12,
+      "fingerprint": "a8a4f2516f0c150539e4f545e776feb0"
+    },
+    "TravellerRule": {
+      "rows": 69,
+      "fingerprint": "867dd5ff67ba60d539f7b80f8554d814"
+    },
+    "User": {
+      "rows": 13,
+      "fingerprint": "af9e71411937cf79622b406047ffbf97"
+    },
+    "VariantChannelMapping": {
+      "rows": 12,
+      "fingerprint": "3e5dcd803c24130fb0536cf73e7c4c63"
+    },
+    "VendorCommercialChangeRequest": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "VendorDocument": {
+      "rows": 37,
+      "fingerprint": "7d2d2c8b72d4d68d019001f1627efafb"
+    },
+    "VendorDocumentVersion": {
+      "rows": 47,
+      "fingerprint": "1deb3a4982e4ca4738448e2481967904"
+    },
+    "VendorOnboardingApplication": {
+      "rows": 11,
+      "fingerprint": "82fce6f5a696d9c4205a032b98e48657"
+    },
+    "VendorProfile": {
+      "rows": 11,
+      "fingerprint": "9fb93e2d6fa80c60c8932fcc7881b876"
+    },
+    "VendorReportExport": {
+      "rows": 3,
+      "fingerprint": "fefdffdf2b952f07a899eb7f934135bd"
+    },
+    "VendorReview": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "VendorSettlementPolicy": {
+      "rows": 4,
+      "fingerprint": "dedbe8d6e512308ef64bd04d1521cd95"
+    },
+    "VendorTeamInvitation": {
+      "rows": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "VendorTrustedDevice": {
+      "rows": 6,
+      "fingerprint": "2df21394a043900581d42b1ae012f6bd"
+    },
+    "VoucherShareEvent": {
+      "rows": 7,
+      "fingerprint": "5dbc82cdc17fbd0a2a044bf96b0b25d9"
+    },
+    "VoucherVersion": {
+      "rows": 13,
+      "fingerprint": "1959c89a56c49ab9572719aa53f34197"
+    },
+    "global_settings": {
+      "rows": 6,
+      "fingerprint": "ee3b7902914717373d7d3d727ca0a142"
+    }
+  },
+  "migration": "20261117100000_multi_outlet_core",
+  "deployed": "Prisma schema loaded from prisma\\schema.prisma\nDatasource \"db\": PostgreSQL database \"voya_outlet_staging_pg15_20261117\", schema \"public\" at \"127.0.0.1:55445\"\n\n98 migrations found in prisma/migrations\n\nApplying migration `20261117100000_multi_outlet_core`\n\nThe following migration(s) have been applied:\n\nmigrations/\n  └─ 20261117100000_multi_outlet_core/\n    └─ migration.sql\n      \nAll migrations have been successfully applied.\n",
+  "dryRun": "{\n  \"mode\": \"dry-run\",\n  \"vendors\": 11,\n  \"outletsToCreate\": 11,\n  \"unassignedProducts\": 33,\n  \"eligibleBookings\": 17,\n  \"unassignedResources\": 1,\n  \"bookingLinkedEvents\": 50,\n  \"nonOwnerUsers\": 0\n}\n",
+  "firstBackfill": "{\n  \"mode\": \"apply\",\n  \"vendors\": 11,\n  \"outletsToCreate\": 11,\n  \"unassignedProducts\": 33,\n  \"eligibleBookings\": 17,\n  \"unassignedResources\": 1,\n  \"bookingLinkedEvents\": 50,\n  \"nonOwnerUsers\": 0\n}\n{\n  \"completed\": true,\n  \"productsWithoutOutlet\": 0,\n  \"eligibleBookingsWithoutOutlet\": 0,\n  \"bookingEventsWithoutOutlet\": 0,\n  \"mixedOrUnattributedBatchesForReview\": 0\n}\n",
+  "secondBackfill": "{\n  \"mode\": \"apply\",\n  \"vendors\": 11,\n  \"outletsToCreate\": 0,\n  \"unassignedProducts\": 0,\n  \"eligibleBookings\": 0,\n  \"unassignedResources\": 0,\n  \"bookingLinkedEvents\": 0,\n  \"nonOwnerUsers\": 0\n}\n{\n  \"completed\": true,\n  \"productsWithoutOutlet\": 0,\n  \"eligibleBookingsWithoutOutlet\": 0,\n  \"bookingEventsWithoutOutlet\": 0,\n  \"mixedOrUnattributedBatchesForReview\": 0\n}\n",
+  "repeatCounts": {
+    "outlets": 11,
+    "banks": 1,
+    "grants": 0,
+    "invitation_grants": 0
+  },
+  "remaining": {
+    "products": 0,
+    "bookings": 0,
+    "resources": 0,
+    "batches": 0,
+    "payouts": 0,
+    "exports": 0,
+    "booking_events": 0,
+    "invalid_defaults": 0
+  },
+  "financial": {
+    "booking_amount": "70174.70",
+    "payout_amount": "358396.0000",
+    "event_vendor_amount": "29328.0000",
+    "unpaid_canonical_without_beneficiary": 0,
+    "assigned_beneficiaries": 1,
+    "explicit_vendor_wide_adjustments": 3
+  },
+  "inheritedSchemaDrift": "-- DropForeignKey\nALTER TABLE \"Payout\" DROP CONSTRAINT \"Payout_tenantId_fkey\";\n\n-- DropIndex\nDROP INDEX \"BookingFulfilment_status_generationStatus_updatedAt_idx\";\n\n-- DropIndex\nDROP INDEX \"ExperienceOfferPlacement_experienceMasterId_pinnedUntil_idx\";\n\n-- DropIndex\nDROP INDEX \"FinancialEvent_vendorTenantId_currency_status_idx\";\n\n-- DropIndex\nDROP INDEX \"InventoryAllocation_bookingId_status_idx\";\n\n-- DropIndex\nDROP INDEX \"InventoryHold_bookingId_status_idx\";\n\n-- DropIndex\nDROP INDEX \"ProductChannelMapping_channelId_activatedAt_idx\";\n\n-- DropIndex\nDROP INDEX \"SettlementBatch_vendorTenantId_currency_status_idx\";\n\n-- DropIndex\nDROP INDEX \"VariantChannelMapping_channelId_activatedAt_idx\";\n\n-- DropIndex\nDROP INDEX \"VendorSettlementPolicy_vendorTenantId_active_idx\";\n\n-- AlterTable\nALTER TABLE \"CommercialGuardrailConfiguration\" ALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"DistributionProjectionCursor\" ALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"EmailAuthChallenge\" ALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"PublicIdentifierSequence\" ALTER COLUMN \"lastValue\" SET DEFAULT 0,\nALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"VendorOnboardingApplication\" ALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"VendorReview\" ALTER COLUMN \"reviewedAt\" SET DATA TYPE TIMESTAMP(3),\nALTER COLUMN \"repliedAt\" SET DATA TYPE TIMESTAMP(3),\nALTER COLUMN \"createdAt\" SET DATA TYPE TIMESTAMP(3),\nALTER COLUMN \"updatedAt\" SET DATA TYPE TIMESTAMP(3);\n\n-- CreateIndex\nCREATE INDEX \"ExperienceOfferPlacement_experienceMasterId_priority_idx\" ON \"ExperienceOfferPlacement\"(\"experienceMasterId\", \"priority\");\n\n-- CreateIndex\nCREATE UNIQUE INDEX \"SupplierQualityPolicy_versionNumber_key\" ON \"SupplierQualityPolicy\"(\"versionNumber\");\n\n-- AddForeignKey\nALTER TABLE \"Payout\" ADD CONSTRAINT \"Payout_tenantId_fkey\" FOREIGN KEY (\"tenantId\") REFERENCES \"Tenant\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;\n\n-- RenameIndex\nALTER INDEX \"AgentWalletCreditApprovalRequest_agentTenantId_status_createdAt\" RENAME TO \"AgentWalletCreditApprovalRequest_agentTenantId_status_creat_idx\";\n\n-- RenameIndex\nALTER INDEX \"BookingFulfilment_status_generationStatus_generationLeaseExpire\" RENAME TO \"BookingFulfilment_status_generationStatus_generationLeaseEx_idx\";\n\n-- RenameIndex\nALTER INDEX \"ExperienceSelectionLock_agentTenantId_searchAttemptId_experienc\" RENAME TO \"ExperienceSelectionLock_agentTenantId_searchAttemptId_exper_key\";\n\n-- RenameIndex\nALTER INDEX \"SupplierQualitySnapshot_vendorTenantId_windowStart_windowEnd_id\" RENAME TO \"SupplierQualitySnapshot_vendorTenantId_windowStart_windowEn_idx\";\n\n",
+  "postMigrationSchemaDrift": "-- DropForeignKey\nALTER TABLE \"Payout\" DROP CONSTRAINT \"Payout_tenantId_fkey\";\n\n-- DropIndex\nDROP INDEX \"BookingFulfilment_status_generationStatus_updatedAt_idx\";\n\n-- DropIndex\nDROP INDEX \"ExperienceOfferPlacement_experienceMasterId_pinnedUntil_idx\";\n\n-- DropIndex\nDROP INDEX \"FinancialEvent_vendorTenantId_currency_status_idx\";\n\n-- DropIndex\nDROP INDEX \"InventoryAllocation_bookingId_status_idx\";\n\n-- DropIndex\nDROP INDEX \"InventoryHold_bookingId_status_idx\";\n\n-- DropIndex\nDROP INDEX \"ProductChannelMapping_channelId_activatedAt_idx\";\n\n-- DropIndex\nDROP INDEX \"ReportSchedule_tenantId_outletId_status_idx\";\n\n-- DropIndex\nDROP INDEX \"Resource_tenantId_active_type_idx\";\n\n-- DropIndex\nDROP INDEX \"SettlementBatch_vendorTenantId_currency_status_idx\";\n\n-- DropIndex\nDROP INDEX \"VariantChannelMapping_channelId_activatedAt_idx\";\n\n-- DropIndex\nDROP INDEX \"VendorReportExport_tenantId_outletId_createdAt_idx\";\n\n-- DropIndex\nDROP INDEX \"VendorSettlementPolicy_vendorTenantId_active_idx\";\n\n-- AlterTable\nALTER TABLE \"CommercialGuardrailConfiguration\" ALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"DistributionProjectionCursor\" ALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"EmailAuthChallenge\" ALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"PublicIdentifierSequence\" ALTER COLUMN \"lastValue\" SET DEFAULT 0,\nALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"VendorOnboardingApplication\" ALTER COLUMN \"updatedAt\" DROP DEFAULT;\n\n-- AlterTable\nALTER TABLE \"VendorReview\" ALTER COLUMN \"reviewedAt\" SET DATA TYPE TIMESTAMP(3),\nALTER COLUMN \"repliedAt\" SET DATA TYPE TIMESTAMP(3),\nALTER COLUMN \"createdAt\" SET DATA TYPE TIMESTAMP(3),\nALTER COLUMN \"updatedAt\" SET DATA TYPE TIMESTAMP(3);\n\n-- CreateIndex\nCREATE INDEX \"ExperienceOfferPlacement_experienceMasterId_priority_idx\" ON \"ExperienceOfferPlacement\"(\"experienceMasterId\", \"priority\");\n\n-- CreateIndex\nCREATE UNIQUE INDEX \"SupplierQualityPolicy_versionNumber_key\" ON \"SupplierQualityPolicy\"(\"versionNumber\");\n\n-- AddForeignKey\nALTER TABLE \"Payout\" ADD CONSTRAINT \"Payout_tenantId_fkey\" FOREIGN KEY (\"tenantId\") REFERENCES \"Tenant\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;\n\n-- RenameIndex\nALTER INDEX \"AgentWalletCreditApprovalRequest_agentTenantId_status_createdAt\" RENAME TO \"AgentWalletCreditApprovalRequest_agentTenantId_status_creat_idx\";\n\n-- RenameIndex\nALTER INDEX \"BookingFulfilment_status_generationStatus_generationLeaseExpire\" RENAME TO \"BookingFulfilment_status_generationStatus_generationLeaseEx_idx\";\n\n-- RenameIndex\nALTER INDEX \"ExperienceSelectionLock_agentTenantId_searchAttemptId_experienc\" RENAME TO \"ExperienceSelectionLock_agentTenantId_searchAttemptId_exper_key\";\n\n-- RenameIndex\nALTER INDEX \"SupplierQualitySnapshot_vendorTenantId_windowStart_windowEnd_id\" RENAME TO \"SupplierQualitySnapshot_vendorTenantId_windowStart_windowEn_idx\";\n\n",
+  "externalMailAndPaymentActions": false
+}

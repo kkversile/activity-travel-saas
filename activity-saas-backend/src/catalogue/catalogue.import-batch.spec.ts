@@ -1,6 +1,7 @@
 import { UserRole } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import { CatalogueService } from './catalogue.service';
+import { attachCatalogueTestOutletAccess } from './catalogue-test-outlet-access';
 
 const vendor = { sub: 'vendor-user', email: 'vendor@example.test', role: UserRole.VENDOR, tenantId: 'tenant-1' } as any;
 const productImport = (key: string) => ({
@@ -13,7 +14,7 @@ const productImport = (key: string) => ({
 
 function createService() {
   const prisma: any = { product: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) } };
-  const service = new CatalogueService(prisma, {} as any, {} as any, {} as any);
+  const service = attachCatalogueTestOutletAccess(new CatalogueService(prisma, {} as any, {} as any, {} as any));
   return { service, prisma };
 }
 
@@ -92,7 +93,7 @@ describe('CatalogueService bulk rate update import', () => {
 
   function rateService() {
     const prisma: any = { product: { findMany: jest.fn().mockResolvedValue([{ id: 'p1', productCode: 'TA-GA-0318' }]) } };
-    const service = new CatalogueService(prisma, {} as any, {} as any, {} as any);
+    const service = attachCatalogueTestOutletAccess(new CatalogueService(prisma, {} as any, {} as any, {} as any));
     jest.spyOn(service, 'activityPricesAvailability').mockResolvedValue({ options: [{ variantId: 'v1', variantCode: 'OPT-1', ratePlans: [{ editable: true, currency: 'INR', pricingUnit: 'PER_PERSON', minPax: 1, maxPax: 20, cancellationRules: [], versions: [{ versionNumber: 4, pricingUnit: 'PER_PERSON', currency: 'INR', supplierModel: 'NET_RATE', bookingMode: 'INSTANT', supplierBaseAmount: '500', travellerPrices: [{ travellerType: 'ADULT', amount: '500' }], sourcePayload: { pricingDays: ['MON', 'TUE'], mrpMode: 'YES', mrpAmount: '1000' } }] }] }] } as any);
     const preview = jest.spyOn(service, 'previewActivityPricesAvailability').mockResolvedValue({ valid: true } as any);
     const apply = jest.spyOn(service, 'applyActivityPricesAvailability').mockResolvedValue({ saved: true } as any);

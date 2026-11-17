@@ -1,5 +1,6 @@
 import { ProductRevisionStatus, ProductStatus, ProductType, UserRole, VariantStatus } from '@prisma/client';
 import { CatalogueService } from './catalogue.service';
+import { attachCatalogueTestOutletAccess } from './catalogue-test-outlet-access';
 
 const vendor = { sub: 'u1', email: 'vendor@test', role: UserRole.VENDOR, tenantId: 't1' } as any;
 const admin = { sub: 'a1', email: 'admin@test', role: UserRole.SUPER_ADMIN, tenantId: null } as any;
@@ -9,7 +10,8 @@ function service() {
   const tx: any = { $queryRaw: jest.fn(), product: { create: jest.fn(), update: jest.fn(), findUniqueOrThrow: jest.fn() }, productRevision: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), aggregate: jest.fn().mockResolvedValue({ _max: { versionNumber: 1 } }), update: jest.fn(), updateMany: jest.fn(), findUniqueOrThrow: jest.fn() }, productVariant: { create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), findUniqueOrThrow: jest.fn() }, productMedia: { create: jest.fn(), createMany: jest.fn(), update: jest.fn(), findFirst: jest.fn() }, productVariantTicketType: { deleteMany: jest.fn(), createMany: jest.fn() }, productVariantUnit: { deleteMany: jest.fn(), createMany: jest.fn() }, productLocationVerification: { upsert: jest.fn() }, itineraryStop: { deleteMany: jest.fn(), createMany: jest.fn() }, fileAsset: { create: jest.fn() } };
   const prisma: any = { product: { findFirst: jest.fn(), findFirstOrThrow: jest.fn() }, productRevision: { findFirst: jest.fn(), findMany: jest.fn() }, productVariant: { findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() }, $transaction: jest.fn(async (cb: any) => cb(tx)) };
   const audit: any = { write: jest.fn() }; const outbox: any = { enqueue: jest.fn() }; const storage: any = { save: jest.fn(), remove: jest.fn() };
-  return { service: new CatalogueService(prisma, audit, outbox, storage), prisma, tx, audit, outbox, storage };
+  const catalogue = attachCatalogueTestOutletAccess(new CatalogueService(prisma, audit, outbox, storage));
+  return { service: catalogue, prisma, tx, audit, outbox, storage };
 }
 
 describe('catalogue hierarchy and revision state machine', () => {

@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { BookingRecordType, BookingStatus, CancellationFinancialState, CancellationInitiator, CancellationReasonCategory, FinancialEventStatus, FinancialEventType, Prisma, RefundStatus, UserRole } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InventoryReservationService, ReservationTx } from '../inventory/inventory-reservation.service';
 import { AdminCancellationListQueryDto, AgentCancellationDto, FinancialResolutionDto, OperationalCancellationDto, RefundConfirmDto, RefundFailDto } from './cancellation.dto';
 import { fingerprint } from './booking-fingerprint';
+import { VendorOutletAccessService } from '../vendor-outlets/vendor-outlet-access.service';
 import { FulfilmentLifecycleService } from '../fulfilment/fulfilment-lifecycle.service';
 import { allocatePublicCode, ensurePublicIdentifier, PublicEntity, publicIdentifier, publicIdentifierMap } from '../common/public-identifiers';
 
@@ -14,7 +15,7 @@ const bookingInclude: any = { operationalSnapshot: true, economicsSnapshot: true
 
 @Injectable()
 export class CancellationService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly inventory: InventoryReservationService, private readonly fulfilment: FulfilmentLifecycleService = null as any) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly inventory: InventoryReservationService, private readonly fulfilment: FulfilmentLifecycleService = null as any, @Optional() private readonly outletAccess?: VendorOutletAccessService) {}
 
   async agentPreview(user: AuthUser, bookingId: string) {
     const tenantId = this.requireAgent(user);
@@ -23,9 +24,11 @@ export class CancellationService {
     return this.previewProjection(booking, CancellationInitiator.AGENT);
   }
 
-  async vendorPreview(user: AuthUser, bookingId: string) {
+  async vendorPreview(user: AuthUser, bookingId: string, outletId?: string) {
     const tenantId = this.requireVendor(user);
-    const booking = await this.prisma.booking.findFirst({ where: { id: bookingId, vendorTenantId: tenantId }, include: bookingInclude });
+    if (!this.outletAccess) throw new ForbiddenException('Vendor outlet authorization is unavailable');
+    const scope = await this.outletAccess.resolve(user, outletId);
+    const booking = await this.prisma.booking.findFirst({ where: { id: bookingId, vendorTenantId: tenantId, outletId: { in: scope.outletIds! } }, include: bookingInclude });
     if (!booking) throw new NotFoundException('Booking not found');
     return this.previewProjection(booking, CancellationInitiator.VENDOR);
   }
@@ -86,16 +89,20 @@ export class CancellationService {
     }
   }
 
-  async operationalCancel(user: AuthUser, bookingId: string, dto: OperationalCancellationDto, initiator: CancellationInitiator, idempotencyKey?: string) {
+  async operationalCancel(user: AuthUser, bookingId: string, dto: OperationalCancellationDto, initiator: CancellationInitiator, idempotencyKey?: string, outletId?: string) {
     if (!dto.reason?.trim()) throw new ConflictException('Cancellation reason is required');
     const tenantId = initiator === CancellationInitiator.VENDOR ? this.requireVendor(user) : null;
+    const outletScope = initiator === CancellationInitiator.VENDOR
+      ? this.outletAccess ? await this.outletAccess.resolve(user, outletId, { mutation: true, existingObligation: true }) : null
+      : null;
+    if (initiator === CancellationInitiator.VENDOR && !outletScope) throw new ForbiddenException('Vendor outlet authorization is unavailable');
     const now = new Date();
-    const existing = await this.prisma.bookingCancellation.findFirst({ where: { bookingId, ...(tenantId ? { booking: { vendorTenantId: tenantId } } : {}) }, include: { booking: { include: bookingInclude }, refund: true, financialEvents: true } });
+    const existing = await this.prisma.bookingCancellation.findFirst({ where: { bookingId, ...(tenantId ? { booking: { vendorTenantId: tenantId, outletId: { in: outletScope!.outletIds! } } } : {}) }, include: { booking: { include: bookingInclude }, refund: true, financialEvents: true } });
     if (existing) return this.roleProjection(existing.booking, existing, initiator);
     const key = idempotencyKey?.trim() || null;
     const saved = await this.prisma.$transaction(async (tx) => {
       const booking = await this.lockBooking(tx, bookingId);
-      if (tenantId && booking.vendorTenantId !== tenantId) throw new NotFoundException('Booking not found');
+      if (tenantId && (booking.vendorTenantId !== tenantId || !outletScope!.outletIds?.includes(booking.outletId || ''))) throw new NotFoundException('Booking not found');
       if (booking.recordType !== BookingRecordType.CANONICAL) throw new ConflictException('LEGACY_CANCELLATION_COMPATIBILITY_ONLY');
       const already = await tx.bookingCancellation.findUnique({ where: { bookingId }, include: { refund: true, financialEvents: true } });
       if (already) return { booking, cancellation: already };
@@ -202,8 +209,8 @@ export class CancellationService {
   private async createRefund(tx: ReservationTx, cancellation: any, amount: Prisma.Decimal, currency: string, userId: string, now: Date) { if (amount.lte(0)) throw new ConflictException('REFUND_AMOUNT_MUST_BE_POSITIVE'); const refund = await tx.refund.create({ data: { bookingId: cancellation.bookingId, cancellationId: cancellation.id, amount, currency, status: RefundStatus.PENDING, createdById: userId, requestedAt: now } }); const prefix = `RF-${String(now.getUTCFullYear()).slice(-2)}${String(now.getUTCMonth() + 1).padStart(2, '0')}`; await ensurePublicIdentifier(tx, PublicEntity.REFUND, refund.id, await allocatePublicCode(tx, PublicEntity.REFUND, prefix, 4)); await this.addFinancialEvent(tx, { eventKey: `refund:${refund.id}:created`, bookingId: cancellation.bookingId, cancellationId: cancellation.id, refundId: refund.id, type: FinancialEventType.REFUND_CREATED, status: FinancialEventStatus.PENDING, currency, amount, components: { refundId: refund.id, financialState: CancellationFinancialState.REFUND_PENDING }, occurredAt: now }); const booking = await tx.booking.findUniqueOrThrow({ where: { id: cancellation.bookingId }, select: { vendorTenantId: true } }); await this.outbox.enqueue(tx, { tenantId: booking.vendorTenantId, eventType: 'REFUND_CREATED', aggregateType: 'Refund', aggregateId: refund.id, payload: { bookingId: cancellation.bookingId, cancellationId: cancellation.id, amount: amount.toString() } }); return { ...refund, publicCode: await publicIdentifier(tx, PublicEntity.REFUND, refund.id) }; }
   private async addFinancialEvent(tx: ReservationTx, data: any) {
     let booking: any = null;
-    if (data.bookingId && (tx as any).booking?.findUnique) booking = await (tx as any).booking.findUnique({ where: { id: data.bookingId }, select: { vendorTenantId: true, agentTenantId: true } });
-    const create = { ...data, vendorTenantId: data.vendorTenantId ?? booking?.vendorTenantId, agentTenantId: data.agentTenantId ?? booking?.agentTenantId, vendorAmount: data.vendorAmount ?? null };
+    if (data.bookingId && (tx as any).booking?.findUnique) booking = await (tx as any).booking.findUnique({ where: { id: data.bookingId }, select: { vendorTenantId: true, outletId: true, agentTenantId: true } });
+    const create = { ...data, vendorTenantId: data.vendorTenantId ?? booking?.vendorTenantId, outletId: data.outletId ?? booking?.outletId ?? null, agentTenantId: data.agentTenantId ?? booking?.agentTenantId, vendorAmount: data.vendorAmount ?? null };
     if (!create.vendorTenantId && !(tx as any).booking) create.vendorTenantId = 'legacy-test-vendor';
     if (!create.vendorTenantId) throw new ConflictException('FINANCIAL_EVENT_VENDOR_TENANT_MISSING');
     return tx.financialEvent.upsert({ where: { eventKey: data.eventKey }, update: {}, create });

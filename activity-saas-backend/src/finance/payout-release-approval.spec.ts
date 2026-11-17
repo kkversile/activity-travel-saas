@@ -7,7 +7,8 @@ const checker: any = { sub: 'admin-checker', role: UserRole.ADMIN };
 function service(payoutReleaseApprovalRequest: any, payout: any = {}) {
   const tx: any = {
     $queryRawUnsafe: jest.fn(),
-    payout: { findUnique: jest.fn().mockResolvedValue({ id: 'payout-1', tenantId: 'vendor-1', settlementBatchId: 'batch-1', amount: '1250', currency: 'INR', recordType: PayoutRecordType.CANONICAL, status: PayoutStatus.READY_TO_RELEASE, ...payout }), findMany: jest.fn().mockResolvedValue([]), update: jest.fn().mockResolvedValue({ id: 'payout-1', status: PayoutStatus.RELEASED }) },
+    payout: { findUnique: jest.fn().mockResolvedValue({ id: 'payout-1', tenantId: 'vendor-1', outletId: 'outlet-1', bankAccountId: 'bank-1', beneficiarySnapshot: { bankAccountId: 'bank-1' }, settlementBatchId: 'batch-1', amount: '1250', currency: 'INR', recordType: PayoutRecordType.CANONICAL, status: PayoutStatus.READY_TO_RELEASE, ...payout }), findMany: jest.fn().mockResolvedValue([]), update: jest.fn().mockResolvedValue({ id: 'payout-1', status: PayoutStatus.RELEASED }) },
+    vendorBankAccount: { findFirst: jest.fn().mockResolvedValue({ id: 'bank-1' }) },
     payoutAttempt: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'attempt-1' }) },
     settlementBatch: { update: jest.fn(), findUnique: jest.fn().mockResolvedValue({ id: 'batch-1', vendorTenantId: 'vendor-1', netPayable: '1250', lines: [{ id: 'line-1', bookingId: 'booking-1', netVendorPayable: '1250', vendorPayableBase: '1250', adjustmentAmount: '0', allocations: [{ financialEventId: 'event-1', financialEvent: { amount: '1250', vendorAmount: '1250' } }] }] }) },
     settlementEventAllocation: { updateMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
@@ -23,6 +24,25 @@ function service(payoutReleaseApprovalRequest: any, payout: any = {}) {
 }
 
 describe('payout release maker-checker', () => {
+  it('blocks an unattributed historical canonical payout before creating a release request', async () => {
+    const create = jest.fn();
+    const s = service({ findFirst: jest.fn().mockResolvedValue(null), create }, { outletId: null });
+    await expect(s.service.requestRelease(maker, 'payout-1', { externalReference: 'bank-ref-1' } as any))
+      .rejects.toThrow('PAYOUT_BLOCKED_BANK_ACCOUNT_NOT_VERIFIED');
+    expect(create).not.toHaveBeenCalled();
+    expect(s.tx.payout.update).not.toHaveBeenCalled();
+    expect(s.tx.financialEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('rechecks unattributed historical payouts at approval without posting finance records', async () => {
+    const s = service({ findUnique: jest.fn().mockResolvedValue({ id: 'request-1', payoutId: 'payout-1', requestedById: maker.sub, status: PayoutReleaseApprovalStatus.PENDING, requestedAmount: '1250' }) }, { outletId: null });
+    await expect(s.service.approveRelease(checker, 'request-1'))
+      .rejects.toThrow('PAYOUT_BLOCKED_BANK_ACCOUNT_NOT_VERIFIED');
+    expect(s.tx.payout.update).not.toHaveBeenCalled();
+    expect(s.tx.payoutAttempt.create).not.toHaveBeenCalled();
+    expect(s.tx.financialEvent.create).not.toHaveBeenCalled();
+  });
+
   it('cannot approve evidence superseded by a failed attempt after retry', async () => {
     const s = service({ findUnique: jest.fn().mockResolvedValue({ id: 'request-1', payoutId: 'payout-1', requestedById: maker.sub, status: PayoutReleaseApprovalStatus.REJECTED }) });
     await expect(s.service.approveRelease(checker, 'request-1')).rejects.toThrow('PAYOUT_RELEASE_REQUEST_NOT_PENDING');

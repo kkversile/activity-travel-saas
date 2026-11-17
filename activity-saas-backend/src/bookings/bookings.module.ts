@@ -20,6 +20,7 @@ import { VendorBookingsController } from './vendor-bookings.controller';
 import { CancellationService } from './cancellation.service';
 import { FulfilmentLifecycleService } from '../fulfilment/fulfilment-lifecycle.service';
 import { DistributionModule } from '../distribution/distribution.module';
+import { VendorOutletsModule } from '../vendor-outlets/vendor-outlets.module';
 
-@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, EligibilityModule, CommercialModule, InventoryModule, DistributionModule], controllers: [BookingsController, AgentBookingsController, VendorBookingsController], providers: [BookingsService, BookingExpiryService, BookingExpiryWorker, BookingSnapshotService, BookingProjectionService, CancellationPolicyService, CancellationService, FulfilmentLifecycleService, RolesGuard], exports: [BookingsService, BookingExpiryService, CancellationService, FulfilmentLifecycleService] })
+@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, EligibilityModule, CommercialModule, InventoryModule, DistributionModule, VendorOutletsModule], controllers: [BookingsController, AgentBookingsController, VendorBookingsController], providers: [BookingsService, BookingExpiryService, BookingExpiryWorker, BookingSnapshotService, BookingProjectionService, CancellationPolicyService, CancellationService, FulfilmentLifecycleService, RolesGuard], exports: [BookingsService, BookingExpiryService, CancellationService, FulfilmentLifecycleService] })
 export class BookingsModule {}

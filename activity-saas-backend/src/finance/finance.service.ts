@@ -28,6 +28,7 @@ import { requireTenant } from "../common/tenant";
 import { PublicEntity, allocatePublicCode, ensurePublicIdentifier, isoWeekInfo, publicIdentifier, publicIdentifierMap, vendorPayoutPublicCode } from "../common/public-identifiers";
 import { OutboxService } from "../outbox/outbox.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { VendorOutletAccessService } from "../vendor-outlets/vendor-outlet-access.service";
 import {
   CancellationResolutionDto,
   FailPayoutDto,
@@ -58,6 +59,7 @@ export class FinanceService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly outbox: OutboxService,
+    private readonly outletAccess?: VendorOutletAccessService,
   ) {}
 
   configuration() {
@@ -226,6 +228,14 @@ export class FinanceService {
   ) {
     const vendorTenantId = this.scopeVendor(user, dto.vendorTenantId);
     const currency = this.requireCurrency(dto.currency);
+    const outlets: Array<{ id: string; outletCode: string; isDefault: boolean }> = client.vendorOutlet?.findMany
+      ? await client.vendorOutlet.findMany({ where: { tenantId: vendorTenantId }, select: { id: true, outletCode: true, isDefault: true } })
+      : [];
+    let outletId = dto.outletId;
+    if (client.vendorOutlet?.findMany && !outlets.length) throw new ConflictException('VENDOR_OUTLET_BACKFILL_REQUIRED');
+    if (outletId && !outlets.some((outlet) => outlet.id === outletId)) throw new NotFoundException('Outlet not found in this vendor workspace.');
+    if (!outletId && outlets.length === 1) outletId = outlets[0].id;
+    if (!outletId && outlets.length > 1) throw new ConflictException('Choose an outlet before previewing a settlement.');
     const config = await client.financeConfiguration.upsert({
       where: { id: "default" },
       update: {},
@@ -237,6 +247,7 @@ export class FinanceService {
     const events: any[] = await client.financialEvent.findMany({
       where: {
         vendorTenantId,
+        ...(outletId ? (outlets.find((outlet) => outlet.id === outletId)?.isDefault ? { OR: [{ outletId }, { outletId: null, bookingId: null, type: FinancialEventType.VENDOR_ADJUSTMENT }] } : { outletId }) : {}),
         type: { in: settlementTypes },
         status: FinancialEventStatus.POSTED,
         currency,
@@ -365,6 +376,7 @@ export class FinanceService {
     );
     const response: any = {
       vendorTenantId,
+      outletId: outletId ?? null,
       currency,
       paymentCollectionMode: config.paymentCollectionMode,
       policy,
@@ -383,6 +395,7 @@ export class FinanceService {
       currency,
       policyVersion: policy?.version ?? null,
       eligibleLines: response.eligibleLines,
+      outletId: response.outletId,
       blocked,
       alreadyAllocated,
       totals: response.totals,
@@ -488,9 +501,10 @@ export class FinanceService {
           await tx.$queryRawUnsafe(
             `SELECT "id" FROM "FinanceConfiguration" WHERE "id" = 'default' FOR UPDATE`,
           );
+          const settlementOutlet: any = initial.outletId ? await tx.vendorOutlet.findFirst({ where: { id: initial.outletId, tenantId: vendorTenantId }, include: { bankAccount: { select: { id: true, accountNumberMasked: true, bankName: true, ifsc: true, accountHolder: true, currency: true, verificationStatus: true, active: true } } } }) : null;
           const vendorPublicCode = await publicIdentifier(tx, PublicEntity.VENDOR, vendorTenantId);
           const payoutPublicCode = vendorPublicCode
-            ? vendorPayoutPublicCode(vendorPublicCode, payoutCreatedAt)
+            ? vendorPayoutPublicCode(vendorPublicCode, payoutCreatedAt, settlementOutlet?.outletCode)
             : null;
           if (!payoutPublicCode)
             throw new ConflictException("VENDOR_PUBLIC_IDENTIFIER_REQUIRED_FOR_PAYOUT");
@@ -520,16 +534,17 @@ export class FinanceService {
           const status = net.eq(0)
             ? SettlementBatchStatus.CLOSED_NO_PAYOUT
             : config.paymentCollectionMode ===
-                PaymentCollectionMode.VOYA_COLLECTS
+                PaymentCollectionMode.VOYA_COLLECTS && (!initial.outletId || (settlementOutlet?.bankAccount?.active && settlementOutlet.bankAccount.verificationStatus === 'VERIFIED' && settlementOutlet.bankAccount.currency === currency))
               ? SettlementBatchStatus.READY_FOR_PAYOUT
               : SettlementBatchStatus.PAYOUT_BLOCKED;
           if (status === SettlementBatchStatus.READY_FOR_PAYOUT) {
-            await this.assertNoWeeklyVendorPayout(tx, vendorTenantId, payoutWeek);
+            await this.assertNoWeeklyVendorPayout(tx, vendorTenantId, payoutWeek, initial.outletId ?? null);
           }
           const batch: any = await tx.settlementBatch.create({
             data: {
               batchCode: `SET-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${randomUUID().slice(0, 8).toUpperCase()}`,
               vendorTenantId,
+              outletId: initial.outletId ?? null,
               currency,
               policySnapshot: (policy ?? {
                 vendorTenantId,
@@ -593,6 +608,7 @@ export class FinanceService {
             data: {
               eventKey: `settlement-batch:${batch.id}`,
               vendorTenantId,
+              outletId: initial.outletId ?? null,
               type: FinancialEventType.SETTLEMENT_BATCH_CREATED,
               status: FinancialEventStatus.POSTED,
               currency,
@@ -612,6 +628,9 @@ export class FinanceService {
             const payout: any = await tx.payout.create({
               data: {
                 tenantId: vendorTenantId,
+                outletId: initial.outletId ?? null,
+                bankAccountId: settlementOutlet?.bankAccount?.id ?? null,
+                beneficiarySnapshot: settlementOutlet?.bankAccount ? { bankAccountId: settlementOutlet.bankAccount.id, accountNumberMasked: settlementOutlet.bankAccount.accountNumberMasked, bankName: settlementOutlet.bankAccount.bankName, ifsc: settlementOutlet.bankAccount.ifsc, accountHolder: settlementOutlet.bankAccount.accountHolder, currency: settlementOutlet.bankAccount.currency } : undefined,
                 recordType: PayoutRecordType.CANONICAL,
                 settlementBatchId: batch.id,
                 amount: net,
@@ -654,6 +673,7 @@ export class FinanceService {
         },
       );
     } catch (error: any) {
+      if (error?.code === 'P2034') throw new ConflictException('SETTLEMENT_CONCURRENT_MODIFICATION_RETRY');
       if (error?.code === "P2002")
         throw new ConflictException("SETTLEMENT_EVENT_ALREADY_ALLOCATED");
       throw error;
@@ -664,6 +684,7 @@ export class FinanceService {
     tx: Prisma.TransactionClient,
     vendorTenantId: string,
     week: { start: Date; end: Date },
+    outletId: string | null,
   ) {
     // Serialize all payout creation for this vendor. The weekly uniqueness
     // check must run after acquiring this row lock, otherwise two batches
@@ -675,6 +696,7 @@ export class FinanceService {
     const existing = await tx.payout.findFirst({
       where: {
         tenantId: vendorTenantId,
+        outletId,
         recordType: PayoutRecordType.CANONICAL,
         createdAt: { gte: week.start, lt: week.end },
       },
@@ -698,7 +720,10 @@ export class FinanceService {
             where: { id: dto.bookingId, vendorTenantId: vendor.id },
           });
           if (!booking) throw new NotFoundException("Booking not found");
+          if (dto.outletId && booking.outletId !== dto.outletId) throw new ConflictException('ADJUSTMENT_OUTLET_MUST_MATCH_BOOKING');
         }
+        const outletId = booking?.outletId ?? dto.outletId ?? null;
+        if (dto.outletId && !await tx.vendorOutlet.findFirst({ where: { id: dto.outletId, tenantId: vendor.id }, select: { id: true } })) throw new NotFoundException('Outlet not found in this vendor workspace.');
         const config = await tx.financeConfiguration.findUnique({
           where: { id: "default" },
         });
@@ -712,6 +737,7 @@ export class FinanceService {
             eventKey: `vendor-adjustment:${randomUUID()}`,
             bookingId: dto.bookingId ?? null,
             vendorTenantId: vendor.id,
+            outletId,
             agentTenantId: booking?.agentTenantId ?? null,
             type: FinancialEventType.VENDOR_ADJUSTMENT,
             status: FinancialEventStatus.POSTED,
@@ -721,6 +747,7 @@ export class FinanceService {
             components: {
               adjustmentKind: "MANUAL",
               signedAmount: amount.toString(),
+              scope: outletId ? 'OUTLET' : 'VENDOR_WIDE',
             },
             reason,
             reference,
@@ -800,6 +827,7 @@ export class FinanceService {
             eventKey: `cancellation-vendor-adjustment:${cancellationId}`,
             bookingId: cancellation.bookingId,
             vendorTenantId: cancellation.booking.vendorTenantId,
+            outletId: cancellation.booking.outletId,
             agentTenantId: cancellation.booking.agentTenantId,
             cancellationId,
             type: FinancialEventType.VENDOR_ADJUSTMENT,
@@ -986,11 +1014,13 @@ export class FinanceService {
         )
           throw new ConflictException("PAYOUT_BLOCKED_COLLECTION_MODEL");
         const payoutCreatedAt = new Date();
+        const settlementOutlet: any = batch.outletId ? await tx.vendorOutlet.findFirst({ where: { id: batch.outletId, tenantId: batch.vendorTenantId }, include: { bankAccount: { select: { id: true, accountNumberMasked: true, bankName: true, ifsc: true, accountHolder: true, currency: true, verificationStatus: true, active: true } } } }) : null;
+        if (batch.outletId && (!settlementOutlet?.bankAccount?.active || settlementOutlet.bankAccount.verificationStatus !== 'VERIFIED' || settlementOutlet.bankAccount.currency !== batch.currency)) throw new ConflictException('PAYOUT_BLOCKED_BANK_ACCOUNT_NOT_VERIFIED');
         const vendorPublicCode = await publicIdentifier(tx, PublicEntity.VENDOR, batch.vendorTenantId);
-        const payoutPublicCode = vendorPublicCode ? vendorPayoutPublicCode(vendorPublicCode, payoutCreatedAt) : null;
+        const payoutPublicCode = vendorPublicCode ? vendorPayoutPublicCode(vendorPublicCode, payoutCreatedAt, settlementOutlet?.outletCode) : null;
         if (!payoutPublicCode)
           throw new ConflictException("VENDOR_PUBLIC_IDENTIFIER_REQUIRED_FOR_PAYOUT");
-        await this.assertNoWeeklyVendorPayout(tx, batch.vendorTenantId, isoWeekInfo(payoutCreatedAt));
+        await this.assertNoWeeklyVendorPayout(tx, batch.vendorTenantId, isoWeekInfo(payoutCreatedAt), batch.outletId ?? null);
         const updated: any = await tx.settlementBatch.update({
           where: { id },
           data: {
@@ -1001,6 +1031,9 @@ export class FinanceService {
         const payout = await tx.payout.create({
           data: {
             tenantId: batch.vendorTenantId,
+            outletId: batch.outletId ?? null,
+            bankAccountId: settlementOutlet?.bankAccount?.id ?? null,
+            beneficiarySnapshot: settlementOutlet?.bankAccount ? { bankAccountId: settlementOutlet.bankAccount.id, accountNumberMasked: settlementOutlet.bankAccount.accountNumberMasked, bankName: settlementOutlet.bankAccount.bankName, ifsc: settlementOutlet.bankAccount.ifsc, accountHolder: settlementOutlet.bankAccount.accountHolder, currency: settlementOutlet.bankAccount.currency } : undefined,
             recordType: PayoutRecordType.CANONICAL,
             settlementBatchId: id,
             amount: batch.netPayable,
@@ -1119,7 +1152,7 @@ export class FinanceService {
       });
       await tx.financialEvent.create({
         data: {
-          eventKey: `payout-released:${payout.id}:${attempt.id}`, vendorTenantId: payout.tenantId,
+          eventKey: `payout-released:${payout.id}:${attempt.id}`, vendorTenantId: payout.tenantId, outletId: payout.outletId,
           settlementBatchId: payout.settlementBatchId, payoutId: payout.id, type: FinancialEventType.PAYOUT_RELEASED,
           status: FinancialEventStatus.POSTED, currency: payout.currency, amount: releaseAmounts.amount, vendorAmount: releaseAmounts.amount,
           components: { externalReference: current.externalReference, note: current.note }, reference: current.externalReference,
@@ -1372,6 +1405,7 @@ export class FinanceService {
           },
         },
         payout: true,
+        outlet: { select: { id: true, name: true, outletCode: true } },
         commissionInvoice: { select: { id: true, invoiceNumber: true, status: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -1502,6 +1536,16 @@ export class FinanceService {
     return settlementHeldAmount(batch, holds);
   }
   private async payoutReleaseAmounts(tx: any, payout: any) {
+    // Ambiguous historical payouts must be reconciled before a new release.
+    if (payout.recordType === PayoutRecordType.CANONICAL && !payout.outletId) {
+      throw new ConflictException('PAYOUT_BLOCKED_BANK_ACCOUNT_NOT_VERIFIED');
+    }
+    if (payout.outletId) {
+      if (!payout.bankAccountId || !payout.beneficiarySnapshot) throw new ConflictException('PAYOUT_BLOCKED_BANK_ACCOUNT_NOT_VERIFIED');
+      await tx.$queryRawUnsafe('SELECT "id" FROM "VendorBankAccount" WHERE "id" = $1 FOR UPDATE', payout.bankAccountId);
+      const bank = await tx.vendorBankAccount.findFirst({ where: { id: payout.bankAccountId, tenantId: payout.tenantId, active: true, verificationStatus: 'VERIFIED', currency: payout.currency }, select: { id: true } });
+      if (!bank || payout.beneficiarySnapshot.bankAccountId !== bank.id) throw new ConflictException('PAYOUT_BLOCKED_BANK_ACCOUNT_NOT_VERIFIED');
+    }
     if (!payout.settlementBatchId) return { amount: this.decimal(payout.amount), heldAmount: this.zero(), holdIds: [] as string[] };
     const batch = await tx.settlementBatch.findUnique({
       where: { id: payout.settlementBatchId },
@@ -1617,6 +1661,7 @@ export class FinanceService {
             eventKey: `payout-hold-release:${payoutRow.id}:${hold.id}:${line.id}`,
             bookingId: line.bookingId,
             vendorTenantId: payoutRow.tenantId,
+            outletId: payoutRow.outletId ?? null,
             type: FinancialEventType.VENDOR_ADJUSTMENT,
             status: FinancialEventStatus.POSTED,
             currency: payoutRow.currency,
@@ -1727,12 +1772,13 @@ export class FinanceService {
       releaseApprovalRequests: undefined,
     }));
   }
-  async vendorSettlements(user: AuthUser) {
+  async vendorSettlements(user: AuthUser, outletId?: string) {
     const vendorTenantId = requireTenant(user);
+    const scope = this.outletAccess ? await this.outletAccess.resolve(user, outletId, { aggregateRead: true }) : { outletIds: outletId ? [outletId] : null, aggregate: !outletId };
     const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
     const [batches, storedPayouts, legacyPayouts, profile] = await Promise.all([
       this.prisma.settlementBatch.findMany({
-        where: { vendorTenantId },
+        where: { vendorTenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) },
         include: { lines: { include: { allocations: { select: { financialEventId: true, financialEvent: { select: { amount: true, vendorAmount: true } } } } } }, payout: true },
         orderBy: { createdAt: "desc" },
       }),
@@ -1740,6 +1786,7 @@ export class FinanceService {
         where: {
           tenantId: vendorTenantId,
           recordType: PayoutRecordType.CANONICAL,
+          ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}),
         },
         include: { settlementBatch: true, attempts: true },
         orderBy: { createdAt: "desc" },
@@ -1748,6 +1795,7 @@ export class FinanceService {
         where: {
           tenantId: vendorTenantId,
           recordType: PayoutRecordType.LEGACY,
+          ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}),
         },
         orderBy: { dueDate: "desc" },
       }),
@@ -1756,6 +1804,9 @@ export class FinanceService {
     const holds = batches.length ? await this.prisma.settlementHold.findMany({ where: { vendorTenantId, status: SettlementHoldStatus.ACTIVE }, select: { scope: true, vendorTenantId: true, bookingId: true, financialEventId: true } }) : [];
     const releasedStatuses: string[] = [PayoutStatus.PAID, PayoutStatus.RELEASED, PayoutStatus.RECONCILED, PayoutStatus.RECONCILIATION_REQUIRED];
     const batchesById = new Map(batches.map((batch) => [batch.id, batch]));
+    const selectedBank = scope.outletIds?.length === 1 && this.prisma.vendorOutlet?.findFirst
+      ? (await this.prisma.vendorOutlet.findFirst({ where: { id: scope.outletIds[0], tenantId: vendorTenantId }, select: { bankAccount: { select: { accountNumberMasked: true, accountHolder: true, bankName: true, currency: true, verificationStatus: true } } } }))?.bankAccount
+      : null;
     const payouts = storedPayouts.map((payout) => {
       const batch = batchesById.get(payout.settlementBatchId!);
       if (!batch || releasedStatuses.includes(payout.status)) return payout;
@@ -1772,12 +1823,14 @@ export class FinanceService {
       })),
       payouts,
       legacyPayouts,
-      summary: { paidInSelectedMonth, onHold, nextPayout: nextPayout ? { amount: Number(nextPayout.amount), heldAmount: Number(nextPayout.heldAmount ?? 0), dueDate: nextPayout.dueDate, currency: nextPayout.currency, periodFrom: nextPayout.settlementBatch?.periodFrom ?? null, periodTo: nextPayout.settlementBatch?.periodTo ?? null } : null, payoutAccount: { masked: profile?.payoutAccountMasked || null, holder: profile?.payoutAccountHolder || null, bankName: profile?.payoutBankName || null, currency: profile?.payoutCurrency || null, verificationStatus: profile?.verificationStatus || 'PENDING' } },
+      summary: { paidInSelectedMonth, onHold, nextPayout: nextPayout ? { amount: Number(nextPayout.amount), heldAmount: Number(nextPayout.heldAmount ?? 0), dueDate: nextPayout.dueDate, currency: nextPayout.currency, periodFrom: nextPayout.settlementBatch?.periodFrom ?? null, periodTo: nextPayout.settlementBatch?.periodTo ?? null } : null, payoutAccount: selectedBank ? { masked: selectedBank.accountNumberMasked, holder: selectedBank.accountHolder, bankName: selectedBank.bankName, currency: selectedBank.currency, verificationStatus: selectedBank.verificationStatus } : { masked: null, holder: null, bankName: null, currency: null, verificationStatus: scope.aggregate ? 'OUTLET_SPECIFIC' : 'PENDING' } },
     };
   }
 
-  async vendorSettlementStatement(user: AuthUser, id: string) {
-    const batch = await this.prisma.settlementBatch.findFirst({ where: { id, vendorTenantId: requireTenant(user) }, include: { lines: true, payout: { select: { id: true, status: true, reference: true } } } });
+  async vendorSettlementStatement(user: AuthUser, id: string, outletId?: string) {
+    const vendorTenantId = requireTenant(user);
+    const scope = this.outletAccess ? await this.outletAccess.resolve(user, outletId, { aggregateRead: true }) : { outletIds: outletId ? [outletId] : null, aggregate: !outletId };
+    const batch = await this.prisma.settlementBatch.findFirst({ where: { id, vendorTenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, include: { lines: true, payout: { select: { id: true, status: true, reference: true } } } });
     if (!batch) throw new NotFoundException("Settlement batch not found");
     const bookingCodes = await publicIdentifierMap(this.prisma, PublicEntity.BOOKING, batch.lines.map((line) => line.bookingId).filter((id): id is string => Boolean(id)));
     const payoutCodes = await publicIdentifierMap(this.prisma, PublicEntity.PAYOUT, batch.payout ? [batch.payout.id] : []);

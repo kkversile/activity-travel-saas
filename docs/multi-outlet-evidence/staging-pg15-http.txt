@@ -1,0 +1,13 @@
+{
+  "checkedAt": "2026-11-17T03:25:10.636Z",
+  "stagingPostgres": "15.20 (Debian 15.20-0+deb12u1)",
+  "databaseRole": "Explicit isolated staging writer: existing onboarding GET may normalize supplemental data",
+  "immutableFinanceUnchanged": true,
+  "externalJobsDisabled": true,
+  "liveWrites": false,
+  "existingActiveUsersChecked": 13,
+  "existingVendorsChecked": 10,
+  "successfulHttpChecks": 150,
+  "readyReportsDownloaded": 3,
+  "failures": []
+}

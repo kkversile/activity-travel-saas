@@ -33,7 +33,8 @@ describe('DashboardService', () => {
     };
     const performance = { computeCurrent: jest.fn().mockResolvedValue({ metrics: [], openIssues: [] }) };
 
-    const result = await new DashboardService(prisma, performance as any).summary(user);
+    const outletAccess = { resolve: jest.fn().mockResolvedValue({ tenantId: 'tenant-1', outletIds: ['outlet-1'], aggregate: false }) };
+    const result = await new DashboardService(prisma, performance as any, outletAccess as any).summary(user);
 
     expect(prisma.vendorDocument.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: 'tenant-1', currentStatus: 'VERIFIED' } }));
     expect(result.nextPayout).toMatchObject({ amount: 0, heldAmount: 150 });
@@ -49,11 +50,12 @@ describe('DashboardService', () => {
     expect(result.averageReviewRatingMtd).toBe(4.6);
     expect(result.payoutAccount).toEqual({ masked: '••4417', bankName: 'HDFC', currency: 'INR', verificationStatus: 'VERIFIED' });
     expect(prisma.payout.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
+      where: expect.objectContaining({
         tenantId: 'tenant-1',
         recordType: 'CANONICAL',
         status: { notIn: ['PAID', 'RELEASED', 'RECONCILED'] },
-      },
+        outletId: { in: ['outlet-1'] },
+      }),
       orderBy: { dueDate: 'asc' },
     }));
     expect(prisma.bookingEconomicsSnapshot.aggregate).toHaveBeenNthCalledWith(1, expect.objectContaining({
@@ -71,7 +73,7 @@ describe('DashboardService', () => {
       { serviceDate: new Date('2026-10-30T00:00:00.000Z'), pax: 2, amount: '400' },
       { serviceDate: new Date('2026-10-30T00:00:00.000Z'), pax: 1, amount: '125' },
     ]) } } as any;
-    const service = new DashboardService(prisma, {} as any);
+    const service = new DashboardService(prisma, {} as any, { resolve: jest.fn().mockResolvedValue({ tenantId: 'tenant-1', outletIds: ['outlet-1'], aggregate: false }) } as any);
 
     const result = await service.bookingTrend(user, '2026-10-30', '2026-10-31');
 
@@ -83,7 +85,7 @@ describe('DashboardService', () => {
   });
 
   it('rejects malformed trend date input', async () => {
-    const service = new DashboardService({ booking: { findMany: jest.fn() } } as any, {} as any);
+    const service = new DashboardService({ booking: { findMany: jest.fn() } } as any, {} as any, { resolve: jest.fn().mockResolvedValue({ tenantId: 'tenant-1', outletIds: ['outlet-1'], aggregate: false }) } as any);
     await expect(service.bookingTrend(user, 'not-a-date', '2026-10-31')).rejects.toThrow('YYYY-MM-DD');
   });
 });

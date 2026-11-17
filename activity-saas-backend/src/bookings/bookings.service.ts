@@ -23,6 +23,7 @@ import { BookingSnapshotService } from './booking-snapshot.service';
 import { FulfilmentLifecycleService } from '../fulfilment/fulfilment-lifecycle.service';
 import { ChannelEligibilityService } from '../distribution/channel-eligibility.service';
 import { snapshotBookingTaxDeductions } from '../finance/booking-tax-snapshot';
+import { VendorOutletAccessService } from '../vendor-outlets/vendor-outlet-access.service';
 
 const bookingInclude: any = { events: { orderBy: { createdAt: 'asc' } }, travellers: { orderBy: { sequence: 'asc' } }, operationalSnapshot: true, economicsSnapshot: true, inventoryHolds: true, inventoryAllocations: true, fulfilment: { include: { vouchers: { where: { status: 'CURRENT' }, select: { voucherCode: true } } } }, cancellation: { include: { refund: true, financialEvents: true } }, vendorTenant: { select: { id: true, name: true } }, agentTenant: { select: { id: true, name: true } }, agentUser: { select: { id: true, fullName: true, email: true } }, product: { select: { id: true, productCode: true } }, ratePlan: { select: { id: true, ratePlanCode: true, name: true } } };
 
@@ -40,7 +41,12 @@ function serviceDateRange(from?: string, to?: string) {
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly eligibility: EligibilityService, private readonly commercial: CommercialService, private readonly inventory: InventoryReservationService, private readonly policy: CancellationPolicyService, private readonly snapshot: BookingSnapshotService, private readonly projection: BookingProjectionService, private readonly fulfilment: FulfilmentLifecycleService = null as any, @Optional() private readonly channelEligibility?: ChannelEligibilityService) {}
+  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly eligibility: EligibilityService, private readonly commercial: CommercialService, private readonly inventory: InventoryReservationService, private readonly policy: CancellationPolicyService, private readonly snapshot: BookingSnapshotService, private readonly projection: BookingProjectionService, private readonly fulfilment: FulfilmentLifecycleService = null as any, @Optional() private readonly channelEligibility?: ChannelEligibilityService, @Optional() private readonly outletAccess?: VendorOutletAccessService) {}
+
+  private async vendorOutletScope(user: AuthUser, outletId?: string, aggregateRead = false, mutation = false) {
+    if (!this.outletAccess) throw new ForbiddenException('Vendor outlet authorization is unavailable');
+    return this.outletAccess.resolve(user, outletId, { aggregateRead, mutation, existingObligation: mutation });
+  }
 
   private assertAgent(user: AuthUser) { if (user.role !== 'TRAVEL_AGENT' || !user.tenantId) throw new ForbiddenException('An authenticated Travel Agent is required'); return user.tenantId; }
   private async loadContext(client: any, ratePlanId: string, sessionId: string, agentTenantId: string) {
@@ -57,6 +63,7 @@ export class BookingsService {
               product: {
                 include: {
                   tenant: { include: { vendorProfile: true } },
+                  outlet: { select: { status: true } },
                   currentRevision: {
                     include: { fulfilmentPolicy: true, bookingQuestions: { where: { archivedAt: null }, orderBy: [{ rank: 'asc' }, { code: 'asc' }] } },
                   },
@@ -100,6 +107,7 @@ export class BookingsService {
       experienceMasterId,
       status: 'LIVE',
       deletedAt: null,
+      outlet: { status: 'ACTIVE' },
       currentRevision: { status: ProductRevisionStatus.PUBLISHED },
       tenant: { kind: TenantKind.VENDOR, vendorProfile: { verificationStatus: 'VERIFIED' } },
       variants: { some: { status: 'ACTIVE', archivedAt: null, ratePlans: { some: {
@@ -194,7 +202,9 @@ export class BookingsService {
         const bookingPrefix = channel.channel.code === 'VOYA_AGENT' ? 'AG' : channel.channel.code === 'VOYA_API' ? 'AP' : 'BK';
         const bookingPeriod = `${String(new Date().getUTCFullYear()).slice(-2)}${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
         const publicBookingCode = await allocatePublicCode(tx, PublicEntity.BOOKING, `${bookingPrefix}-${bookingPeriod}`, 4);
-        const booking = await tx.booking.create({ data: { recordType: BookingRecordType.CANONICAL, bookingCode: `VY-${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`, vendorTenantId: vendor.id, agentTenantId, agentUserId: user.sub, productId: plan.variant.product.id, productRevisionId: plan.variant.product.currentRevision?.id, variantId: plan.variant.id, ratePlanId: plan.id, sessionId: session.id, distributionChannelId: channel.channel.id, bookingMode: quoteBeforeLock.bookingMode, channel: channel.channel.code, serviceDate: session.serviceDate, serviceTimezone: session.scheduleTemplate.timezone, pax: normalized.totalPax, paxBreakdown: normalized.quantitiesByType as Prisma.InputJsonValue, units: dto.units, capacityConsumption: capacity, amount: quoteBeforeLock.finalAmount ?? 0, currency: quoteBeforeLock.currency ?? plan.currency, status: BookingStatus.NEW, idempotencyKey: key, requestFingerprint, customerName: dto.customerName, customerEmail: dto.customerEmail } });
+        const productOutletId = plan.variant.product.outletId;
+        if (!productOutletId || plan.variant.product.outlet?.status !== 'ACTIVE') throw new ConflictException('Selected supplier outlet is unavailable for new bookings.');
+        const booking = await tx.booking.create({ data: { recordType: BookingRecordType.CANONICAL, bookingCode: `VY-${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`, vendorTenantId: vendor.id, outletId: productOutletId, agentTenantId, agentUserId: user.sub, productId: plan.variant.product.id, productRevisionId: plan.variant.product.currentRevision?.id, variantId: plan.variant.id, ratePlanId: plan.id, sessionId: session.id, distributionChannelId: channel.channel.id, bookingMode: quoteBeforeLock.bookingMode, channel: channel.channel.code, serviceDate: session.serviceDate, serviceTimezone: session.scheduleTemplate.timezone, pax: normalized.totalPax, paxBreakdown: normalized.quantitiesByType as Prisma.InputJsonValue, units: dto.units, capacityConsumption: capacity, amount: quoteBeforeLock.finalAmount ?? 0, currency: quoteBeforeLock.currency ?? plan.currency, status: BookingStatus.NEW, idempotencyKey: key, requestFingerprint, customerName: dto.customerName, customerEmail: dto.customerEmail } });
         if (searchSelectionLock) await tx.experienceSelectionLock.update({ where: { id: searchSelectionLock.id }, data: { bookingId: booking.id, consumedAt: new Date() } });
         await ensurePublicIdentifier(tx, PublicEntity.BOOKING, booking.id, publicBookingCode);
         const lockedState = await this.inventory.lockStateForBooking(tx, session.id); if (!lockedState) throw new NotFoundException('Inventory state not found'); await this.lockBookingContext(tx, plan.variant.product.id, plan.variant.id, plan.id, session.id); context = await this.loadContext(tx, dto.ratePlanId, dto.sessionId, agentTenantId); if (!context.plan || !context.session || !context.agent) throw new ConflictException('BOOKING_CONTEXT_CHANGED'); plan = context.plan; session = context.session;
@@ -235,13 +245,13 @@ export class BookingsService {
       }
     }
     const event = await tx.financialEvent.upsert({ where: { eventKey }, update: {}, create: {
-      eventKey: `booking:${booking.id}:confirmed`, bookingId: booking.id, vendorTenantId: booking.vendorTenantId, agentTenantId: booking.agentTenantId,
+      eventKey: `booking:${booking.id}:confirmed`, bookingId: booking.id, vendorTenantId: booking.vendorTenantId, outletId: booking.outletId, agentTenantId: booking.agentTenantId,
       type: FinancialEventType.BOOKING_CONFIRMED, status: FinancialEventStatus.POSTED, currency: booking.currency, amount: booking.amount,
       vendorAmount: economics?.netVendorPayable ?? economics?.vendorPayable ?? null,
       components: { bookingMode: booking.bookingMode, finalAmount: booking.amount?.toString?.() ?? String(booking.amount), economicsSnapshotId: economics?.id ?? null, supplierGrossBasis: economics?.supplierGrossBasis?.toString?.() ?? null, supplierCommission: economics?.supplierCommission?.toString?.() ?? null, vendorPayable: economics?.vendorPayable?.toString?.() ?? null, netVendorPayable: economics?.netVendorPayable?.toString?.() ?? economics?.vendorPayable?.toString?.() ?? null, gstOnCommissionPercent: economics?.gstOnCommissionPercent?.toString?.() ?? null, gstOnCommissionAmount: economics?.gstOnCommissionAmount?.toString?.() ?? null, tds194OPercent: economics?.tds194OPercent?.toString?.() ?? null, tds194OAmount: economics?.tds194OAmount?.toString?.() ?? null, gstTcsPercent: economics?.gstTcsPercent?.toString?.() ?? null, gstTcsAmount: economics?.gstTcsAmount?.toString?.() ?? null, financeConfigurationVersion: economics?.financeConfigurationVersion ?? null, taxAmount: economics?.taxAmount?.toString?.() ?? null, promotionAmount: economics?.promotionAmount?.toString?.() ?? null, promotionFunder: economics?.promotionFunder ?? null },
       actorUserId: actor?.sub ?? null, occurredAt
     } });
-    if (economics?.promotionAmount?.gt?.(0) && economics.promotionFunder && (tx as any).financialEvent?.upsert) await tx.financialEvent.upsert({ where: { eventKey: `booking:${booking.id}:promotion-funded` }, update: {}, create: { eventKey: `booking:${booking.id}:promotion-funded`, bookingId: booking.id, vendorTenantId: booking.vendorTenantId, agentTenantId: booking.agentTenantId, type: FinancialEventType.PROMOTION_FUNDED, status: FinancialEventStatus.POSTED, currency: booking.currency, amount: economics.promotionAmount, vendorAmount: null, components: { promotionAmount: economics.promotionAmount.toString(), promotionFunder: economics.promotionFunder, promotionFundingBreakdown: economics.promotionContext ?? {}, economicsSnapshotId: economics.id }, actorUserId: actor?.sub ?? null, occurredAt } });
+    if (economics?.promotionAmount?.gt?.(0) && economics.promotionFunder && (tx as any).financialEvent?.upsert) await tx.financialEvent.upsert({ where: { eventKey: `booking:${booking.id}:promotion-funded` }, update: {}, create: { eventKey: `booking:${booking.id}:promotion-funded`, bookingId: booking.id, vendorTenantId: booking.vendorTenantId, outletId: booking.outletId, agentTenantId: booking.agentTenantId, type: FinancialEventType.PROMOTION_FUNDED, status: FinancialEventStatus.POSTED, currency: booking.currency, amount: economics.promotionAmount, vendorAmount: null, components: { promotionAmount: economics.promotionAmount.toString(), promotionFunder: economics.promotionFunder, promotionFundingBreakdown: economics.promotionContext ?? {}, economicsSnapshotId: economics.id }, actorUserId: actor?.sub ?? null, occurredAt } });
     return event;
   }
 
@@ -267,6 +277,7 @@ export class BookingsService {
   async agentDetail(user: AuthUser, id: string) { const agentTenantId = this.assertAgent(user); const row = await this.prisma.booking.findFirst({ where: { id, recordType: BookingRecordType.CANONICAL, agentTenantId }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); return this.projectAgentBooking(row); }
   async vendorList(user: AuthUser, query: BookingListQueryDto) {
     const vendorTenantId = requireTenant(user);
+    const outletScope = await this.vendorOutletScope(user, query.outletId, true);
     const search = query.q?.trim();
     const serviceDates = serviceDateRange(query.from, query.to);
     const publicMatches = search
@@ -278,6 +289,7 @@ export class BookingsService {
     const rows: any[] = await this.prisma.booking.findMany({
       where: {
         vendorTenantId,
+        ...(outletScope.outletIds ? { outletId: { in: outletScope.outletIds } } : {}),
         ...(query.status ? { status: query.status } : query.statusGroup === 'REJECTED' ? { status: { in: [BookingStatus.VENDOR_REJECTED, BookingStatus.MANUAL_REJECTED, BookingStatus.CONFIRMATION_EXPIRED] } } : {}),
         ...(query.recordType ? { recordType: query.recordType } : {}),
         ...(query.bookingMode ? { bookingMode: query.bookingMode } : {}),
@@ -308,11 +320,13 @@ export class BookingsService {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? 25, 100);
     const vendorTenantId = requireTenant(user);
+    const outletScope = await this.vendorOutletScope(user, query.outletId, true);
     const search = query.q?.trim();
     const serviceDates = serviceDateRange(query.from, query.to);
     const publicMatches = search ? await this.prisma.publicIdentifier.findMany({ where: { entityType: PublicEntity.BOOKING, publicCode: { contains: search, mode: 'insensitive' } }, select: { entityId: true } }) : [];
     const where: any = {
       vendorTenantId,
+      ...(outletScope.outletIds ? { outletId: { in: outletScope.outletIds } } : {}),
       ...(query.status ? { status: query.status } : query.statusGroup === 'REJECTED' ? { status: { in: [BookingStatus.VENDOR_REJECTED, BookingStatus.MANUAL_REJECTED, BookingStatus.CONFIRMATION_EXPIRED] } } : {}),
       ...(query.recordType ? { recordType: query.recordType } : {}),
       ...(query.bookingMode ? { bookingMode: query.bookingMode } : {}),
@@ -343,16 +357,17 @@ export class BookingsService {
     const lines = [['Booking', 'Product', 'Service date', 'Agent', 'Status', 'Pax', 'Amount', 'Currency'], ...rows.map((row: any) => [row.bookingCode, row.snapshot?.productSnapshot?.productName || '', row.serviceDate, row.agent?.name || '', row.status, row.travellers?.reduce((sum: number, item: any) => sum + Number(item.quantity || 1), 0) || '', row.amount ?? '', row.currency || 'INR'])];
     return `${lines.map((line) => line.map(csv).join(',')).join('\r\n')}\r\n`;
   }
-  async vendorDetail(user: AuthUser, id: string) { const vendorTenantId = requireTenant(user); const row = await this.prisma.booking.findFirst({ where: { id, vendorTenantId }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); return this.projection.forVendor(row); }
+  async vendorDetail(user: AuthUser, id: string, outletId?: string) { const vendorTenantId = requireTenant(user); const scope = await this.vendorOutletScope(user, outletId, true); const row = await this.prisma.booking.findFirst({ where: { id, vendorTenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); return this.projection.forVendor(row); }
 
   private async lockBookingContext(tx: Prisma.TransactionClient, productId: string, variantId: string, ratePlanId: string, sessionId: string) { for (const [table, id] of [['Product', productId], ['ProductVariant', variantId], ['RatePlan', ratePlanId], ['ServiceSession', sessionId]]) { const rows = await tx.$queryRawUnsafe<any[]>(`SELECT "id" FROM "public"."${table}" WHERE "id" = $1 FOR UPDATE`, id); if (!rows[0]) throw new ConflictException('BOOKING_CONTEXT_CHANGED'); } }
   private async lockBooking(tx: Prisma.TransactionClient, id: string) { const rows = await tx.$queryRawUnsafe<any[]>(`SELECT * FROM "public"."Booking" WHERE "id" = $1 FOR UPDATE`, id); if (!rows[0]) throw new NotFoundException('Booking not found'); return tx.booking.findUniqueOrThrow({ where: { id }, include: bookingInclude }); }
-  async vendorConfirm(user: AuthUser, id: string) {
+  async vendorConfirm(user: AuthUser, id: string, outletId?: string) {
     const vendorTenantId = requireTenant(user);
+    const scope = await this.vendorOutletScope(user, outletId, false, true);
     const now = new Date();
     const result = await this.prisma.$transaction(async (tx) => {
       const booking = await this.lockBooking(tx, id);
-      if (booking.vendorTenantId !== vendorTenantId) throw new NotFoundException('Booking not found');
+      if (booking.vendorTenantId !== vendorTenantId || !scope.outletIds?.includes(booking.outletId || '')) throw new NotFoundException('Booking not found');
       if (booking.recordType !== BookingRecordType.CANONICAL || booking.status !== BookingStatus.PENDING_VENDOR_CONFIRMATION) throw new ConflictException(`Booking cannot be confirmed from ${booking.status}`);
       if (!booking.confirmationDueAt || now >= booking.confirmationDueAt) {
         await this.expireLocked(tx, booking, null, 'confirmation deadline reached', now);
@@ -372,19 +387,20 @@ export class BookingsService {
     if (result.outcome === 'EXPIRED') throw new ConflictException('BOOKING_CONFIRMATION_EXPIRED');
     return this.projection.forVendor(result.booking);
   }
-  async vendorReject(user: AuthUser, id: string, dto: BookingDecisionDto) {
-    return this.processVendorFailure(user, id, dto, 'VENDOR_REJECTED');
+  async vendorReject(user: AuthUser, id: string, dto: BookingDecisionDto, outletId?: string) {
+    return this.processVendorFailure(user, id, dto, 'VENDOR_REJECTED', outletId);
   }
-  async vendorApiFailure(user: AuthUser, id: string, dto: BookingDecisionDto) {
-    return this.processVendorFailure(user, id, dto, 'VENDOR_API_FAILURE');
+  async vendorApiFailure(user: AuthUser, id: string, dto: BookingDecisionDto, outletId?: string) {
+    return this.processVendorFailure(user, id, dto, 'VENDOR_API_FAILURE', outletId);
   }
-  private async processVendorFailure(user: AuthUser, id: string, dto: BookingDecisionDto, failureType: 'VENDOR_REJECTED' | 'VENDOR_API_FAILURE') {
+  private async processVendorFailure(user: AuthUser, id: string, dto: BookingDecisionDto, failureType: 'VENDOR_REJECTED' | 'VENDOR_API_FAILURE', outletId?: string) {
     const vendorTenantId = requireTenant(user);
+    const scope = await this.vendorOutletScope(user, outletId, false, true);
     if (!dto.reason?.trim()) throw new ConflictException('A rejection reason is required');
     const now = new Date();
     const result = await this.prisma.$transaction(async (tx) => {
       const booking = await this.lockBooking(tx, id);
-      if (booking.vendorTenantId !== vendorTenantId) throw new NotFoundException('Booking not found');
+      if (booking.vendorTenantId !== vendorTenantId || !scope.outletIds?.includes(booking.outletId || '')) throw new NotFoundException('Booking not found');
       if (booking.recordType !== BookingRecordType.CANONICAL || booking.status !== BookingStatus.PENDING_VENDOR_CONFIRMATION) throw new ConflictException(`Booking cannot be rejected from ${booking.status}`);
       if (await this.expireIfDueLocked(tx, booking, user, now)) return { outcome: 'EXPIRED' as const };
       const candidate = await this.findAutoFailoverCandidate(tx, booking);
@@ -492,10 +508,10 @@ export class BookingsService {
   }
   async adminDetail(id: string) { const row: any = await this.prisma.booking.findUnique({ where: { id }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); const [bookingCode, productCode, ratePlanCode] = await Promise.all([publicIdentifierMap(this.prisma, PublicEntity.BOOKING, [row.id]), publicIdentifierMap(this.prisma, PublicEntity.PRODUCT, row.product?.id ? [row.product.id] : []), publicIdentifierMap(this.prisma, PublicEntity.RATE_PLAN, row.ratePlan?.id ? [row.ratePlan.id] : [])]); row.publicCode = bookingCode.get(row.id) || null; if (row.product) row.product.publicCode = productCode.get(row.product.id) || null; if (row.ratePlan) row.ratePlan.publicCode = ratePlanCode.get(row.ratePlan.id) || null; return this.projection.forAdmin(row); }
 
-  async list(user: AuthUser, status?: BookingStatus) { return this.vendorList(user, { status }); }
-  async confirm(user: AuthUser, id: string) { const booking = await this.prisma.booking.findFirst({ where: { id, vendorTenantId: requireTenant(user), recordType: BookingRecordType.LEGACY, status: BookingStatus.PENDING } }); if (!booking) throw new ConflictException('Legacy booking cannot be confirmed'); return this.prisma.booking.update({ where: { id }, data: { status: BookingStatus.CONFIRMED, version: { increment: 1 } } }); }
-  async cancel(user: AuthUser, id: string) { const booking = await this.prisma.booking.findFirst({ where: { id, vendorTenantId: requireTenant(user) } }); if (!booking) throw new NotFoundException('Booking not found'); if (booking.recordType === BookingRecordType.CANONICAL) throw new ConflictException('CANCELLATION_ENGINE_NOT_IMPLEMENTED'); return this.prisma.booking.update({ where: { id }, data: { status: BookingStatus.CANCELLED, version: { increment: 1 } } }); }
-  async voucher(user: AuthUser, id: string) { const tenantId = requireTenant(user); const booking: any = await this.prisma.booking.findFirst({ where: { id, vendorTenantId: tenantId }, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true, address: true } } } }, ratePlan: { select: { name: true, variant: { select: { pickupInput: true } } } } } }); if (!booking) throw new NotFoundException('Booking not found'); if (booking.recordType === BookingRecordType.CANONICAL) throw new ConflictException('FULFILMENT_NOT_IMPLEMENTED'); if (![BookingStatus.CONFIRMED, BookingStatus.COMPLETED].includes(booking.status)) throw new ConflictException('Voucher is available only for confirmed bookings'); const existing = await this.prisma.fileAsset.findFirst({ where: { tenantId, purpose: FilePurpose.BOOKING_VOUCHER, entityId: booking.id, archivedAt: null }, orderBy: { createdAt: 'desc' } }); if (existing) return { voucherCode: `VCH-${booking.bookingCode}`, fileId: existing.id, fileName: existing.originalName, booking }; throw new ConflictException('Legacy voucher generation is unavailable in this build'); }
+  async list(user: AuthUser, status?: BookingStatus, outletId?: string) { return this.vendorList(user, { status, outletId }); }
+  async confirm(user: AuthUser, id: string, outletId?: string) { const tenantId = requireTenant(user); const scope = await this.vendorOutletScope(user, outletId, false, true); const booking = await this.prisma.booking.findFirst({ where: { id, vendorTenantId: tenantId, outletId: { in: scope.outletIds! }, recordType: BookingRecordType.LEGACY, status: BookingStatus.PENDING } }); if (!booking) throw new ConflictException('Legacy booking cannot be confirmed'); return this.prisma.booking.update({ where: { id }, data: { status: BookingStatus.CONFIRMED, version: { increment: 1 } } }); }
+  async cancel(user: AuthUser, id: string, outletId?: string) { const tenantId = requireTenant(user); const scope = await this.vendorOutletScope(user, outletId, false, true); const booking = await this.prisma.booking.findFirst({ where: { id, vendorTenantId: tenantId, outletId: { in: scope.outletIds! } } }); if (!booking) throw new NotFoundException('Booking not found'); if (booking.recordType === BookingRecordType.CANONICAL) throw new ConflictException('CANCELLATION_ENGINE_NOT_IMPLEMENTED'); return this.prisma.booking.update({ where: { id }, data: { status: BookingStatus.CANCELLED, version: { increment: 1 } } }); }
+  async voucher(user: AuthUser, id: string, outletId?: string) { const tenantId = requireTenant(user); const scope = await this.vendorOutletScope(user, outletId, true); const booking: any = await this.prisma.booking.findFirst({ where: { id, vendorTenantId: tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true, address: true } } } }, ratePlan: { select: { name: true, variant: { select: { pickupInput: true } } } } } }); if (!booking) throw new NotFoundException('Booking not found'); if (booking.recordType === BookingRecordType.CANONICAL) throw new ConflictException('FULFILMENT_NOT_IMPLEMENTED'); if (![BookingStatus.CONFIRMED, BookingStatus.COMPLETED].includes(booking.status)) throw new ConflictException('Voucher is available only for confirmed bookings'); const existing = await this.prisma.fileAsset.findFirst({ where: { tenantId, purpose: FilePurpose.BOOKING_VOUCHER, entityId: booking.id, archivedAt: null }, orderBy: { createdAt: 'desc' } }); if (existing) return { voucherCode: `VCH-${booking.bookingCode}`, fileId: existing.id, fileName: existing.originalName, booking }; throw new ConflictException('Legacy voucher generation is unavailable in this build'); }
   private async findAutoFailoverCandidate(tx: Prisma.TransactionClient, booking: any) {
     const selectionRule = booking.operationalSnapshot?.confirmationPolicySnapshot?.selectionRule;
     if (!selectionRule?.autoFailover) return null;
@@ -536,7 +552,10 @@ export class BookingsService {
     const nextStatus = quote.bookingMode === BookingMode.INSTANT ? BookingStatus.CONFIRMED : quote.bookingMode === BookingMode.VENDOR_CONFIRMATION ? BookingStatus.PENDING_VENDOR_CONFIRMATION : BookingStatus.PENDING_MANUAL_REVIEW;
     const hold = await this.inventory.createHoldInTransaction(tx, { sessionId: session.id, quantity: eligibility.capacityConsumption, expiresAt: due ?? new Date(now.getTime() + 60_000), referenceKey: `booking:${booking.id}:failover:${plan.id}`, bookingId: booking.id, reason: 'automatic supplier failover', actor });
     await this.inventory.releaseHoldInTransaction(tx, currentHold.id, reason, actor); if (nextStatus === BookingStatus.CONFIRMED) await this.inventory.convertHoldToConfirmedInTransaction(tx, hold.id, { bookingId: booking.id, referenceKey: `booking:${booking.id}`, actor });
-    const updated = await tx.booking.update({ where: { id: booking.id }, data: { vendorTenantId: plan.variant.product.tenantId, productId: plan.variant.product.id, productRevisionId: plan.variant.product.currentRevision.id, variantId: plan.variant.id, ratePlanId: plan.id, sessionId: session.id, distributionChannelId: plan.channelMappings.find((mapping: any) => mapping.channel.code === booking.channel)?.channel.id, bookingMode: quote.bookingMode, serviceDate: session.serviceDate, serviceTimezone: session.scheduleTemplate.timezone, amount, currency: quote.currency ?? plan.currency, capacityConsumption: eligibility.capacityConsumption, status: nextStatus, confirmationDueAt: due, confirmedAt: nextStatus === BookingStatus.CONFIRMED ? now : null, rejectedAt: null, version: { increment: 1 } } });
+    if (!plan.variant.product.outletId || plan.variant.product.outlet?.status !== 'ACTIVE') throw new ConflictException('Failover supplier outlet is unavailable.');
+    const hasFinancialAttribution = await tx.financialEvent.findFirst({ where: { bookingId: booking.id }, select: { id: true } });
+    if (hasFinancialAttribution) throw new ConflictException('Booking outlet cannot change after a financial event has been recorded.');
+    const updated = await tx.booking.update({ where: { id: booking.id }, data: { vendorTenantId: plan.variant.product.tenantId, outletId: plan.variant.product.outletId, productId: plan.variant.product.id, productRevisionId: plan.variant.product.currentRevision.id, variantId: plan.variant.id, ratePlanId: plan.id, sessionId: session.id, distributionChannelId: plan.channelMappings.find((mapping: any) => mapping.channel.code === booking.channel)?.channel.id, bookingMode: quote.bookingMode, serviceDate: session.serviceDate, serviceTimezone: session.scheduleTemplate.timezone, amount, currency: quote.currency ?? plan.currency, capacityConsumption: eligibility.capacityConsumption, status: nextStatus, confirmationDueAt: due, confirmedAt: nextStatus === BookingStatus.CONFIRMED ? now : null, rejectedAt: null, version: { increment: 1 } } });
     const persistedSelectionRule = booking.operationalSnapshot?.confirmationPolicySnapshot?.selectionRule ? { ...booking.operationalSnapshot.confirmationPolicySnapshot.selectionRule, experienceMasterId: plan.variant.product.experienceMasterId, selectedRatePlanId: plan.id } : null;
     if (booking.operationalSnapshot) { await tx.bookingSnapshot.delete({ where: { bookingId: booking.id } }); await this.snapshot.create(tx, { booking: updated, plan, session, agent: booking.agentTenant, user: booking.agentUser ?? { sub: booking.agentUserId, fullName: null, email: null }, policy: policy.policy, policyFingerprint: policy.fingerprint, questions: plan.variant.product.currentRevision.bookingQuestions, bookingAnswers: booking.operationalSnapshot.bookingAnswers ?? {}, pickupDetails: booking.operationalSnapshot.pickupSnapshot?.supplied ?? undefined, cancellationAcknowledgedAt: booking.operationalSnapshot.cancellationAcknowledgedAt, quote: { ...quote, confirmationSlaMinutes: lockMinutes }, selectionRule: persistedSelectionRule, fulfilmentPolicy: plan.variant.product.currentRevision.fulfilmentPolicy }); }
     if (booking.economicsSnapshot) await tx.bookingEconomicsSnapshot.update({ where: { bookingId: booking.id }, data: this.commercial.toBookingSnapshotData(quote) as any });

@@ -1,5 +1,6 @@
 import { PricingUnit, UserRole } from '@prisma/client';
 import { buildActivityEditorSourcePayload, CatalogueService } from './catalogue.service';
+import { attachCatalogueTestOutletAccess } from './catalogue-test-outlet-access';
 
 const vendor = { sub: 'u1', email: 'vendor@test', role: UserRole.VENDOR, tenantId: 't1' } as any;
 
@@ -9,7 +10,7 @@ function makeService() {
     productVariant: { findMany: jest.fn() },
     ratePlan: { findMany: jest.fn().mockResolvedValue([]) },
   };
-  return { service: new CatalogueService(prisma, {} as any, {} as any, {} as any), prisma };
+  return { service: attachCatalogueTestOutletAccess(new CatalogueService(prisma, {} as any, {} as any, {} as any)), prisma };
 }
 
 describe('simplified prices and availability editor', () => {

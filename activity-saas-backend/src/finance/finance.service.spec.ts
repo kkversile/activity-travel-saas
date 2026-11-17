@@ -9,6 +9,11 @@ const event = (id: string, type: FinancialEventType, amount: string, b?: any, cu
 function service(events: any[], holds: any[] = []) { const prisma: any = { financeConfiguration: { upsert: jest.fn().mockResolvedValue({ paymentCollectionMode: PaymentCollectionMode.UNCONFIGURED, baseCurrency: 'INR' }) }, vendorSettlementPolicy: { findUnique: jest.fn().mockResolvedValue(policy) }, financialEvent: { findMany: jest.fn().mockResolvedValue(events) }, settlementHold: { findMany: jest.fn().mockResolvedValue(holds) } }; return new FinanceService(prisma, {} as any, {} as any); }
 
 describe('FinanceService settlement reconciliation', () => {
+  it('returns a retryable conflict when concurrent settlement creation loses a serializable transaction', async () => {
+    const finance: any = new FinanceService({ $transaction: jest.fn().mockRejectedValue({ code: 'P2034' }) } as any, {} as any, {} as any);
+    jest.spyOn(finance, 'buildPreview').mockResolvedValue({ previewFingerprint: 'current', eligibleLines: [{ sourceEventIds: ['event-a'] }] });
+    await expect(finance.createBatch(admin, { vendorTenantId: 'vendor-1', currency: 'INR', expectedPreviewFingerprint: 'current' })).rejects.toThrow('SETTLEMENT_CONCURRENT_MODIFICATION_RETRY');
+  });
   it('returns the next payout activity period from its settlement batch', async () => {
     const nextPayout = { id: 'payout-1', amount: new Prisma.Decimal('4500'), dueDate: new Date('2026-11-04T00:00:00.000Z'), currency: 'INR', status: 'PENDING', createdAt: new Date('2026-11-01T00:00:00.000Z'), settlementBatch: { periodFrom: new Date('2026-10-19T00:00:00.000Z'), periodTo: new Date('2026-10-25T00:00:00.000Z') } };
     const prisma: any = {
@@ -79,5 +84,30 @@ describe('FinanceService settlement reconciliation', () => {
     const blocked = event('blocked-1', FinancialEventType.BOOKING_CONFIRMED, '500', { ...booking('booking-blocked', '500'), cancellation: { financialState: 'REFUND_FAILED', refund: { status: 'FAILED' } } });
     const result: any = await service([eligible, blocked]).preview(admin, { vendorTenantId: 'vendor-1', currency: 'INR' } as any);
     expect(result.eligibleLines.map((line: any) => line.sourceEventIds)).toEqual([['eligible-1']]); expect(result.blocked[0].reasonCodes).toContain('REFUND_FAILED');
+  });
+
+  it('requires outlet selection when a vendor has multiple outlets and filters settlement events to one outlet', async () => {
+    const finance: any = service([]);
+    finance.prisma.vendorOutlet = { findMany: jest.fn().mockResolvedValue([{ id: 'outlet-a', outletCode: 'A', isDefault: true }, { id: 'outlet-b', outletCode: 'B', isDefault: false }]) };
+    await expect(finance.preview(admin, { vendorTenantId: 'vendor-1', currency: 'INR' } as any)).rejects.toThrow('Choose an outlet');
+
+    await finance.preview(admin, { vendorTenantId: 'vendor-1', currency: 'INR', outletId: 'outlet-a' } as any);
+    expect(finance.prisma.financialEvent.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ vendorTenantId: 'vendor-1', OR: [{ outletId: 'outlet-a' }, { outletId: null, bookingId: null, type: 'VENDOR_ADJUSTMENT' }] }) }));
+    await finance.preview(admin, { vendorTenantId: 'vendor-1', currency: 'INR', outletId: 'outlet-b' } as any);
+    expect(finance.prisma.financialEvent.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ vendorTenantId: 'vendor-1', outletId: 'outlet-b' }) }));
+    await expect(finance.preview(admin, { vendorTenantId: 'vendor-1', currency: 'INR', outletId: 'other-vendor-outlet' } as any)).rejects.toThrow('Outlet not found');
+  });
+
+  it('checks the payout uniqueness window per outlet after acquiring the vendor lock', async () => {
+    const finance: any = service([]);
+    const tx: any = { $queryRawUnsafe: jest.fn().mockResolvedValue([]), payout: { findFirst: jest.fn().mockResolvedValue(null) } };
+    const week = { start: new Date('2026-11-16T00:00:00Z'), end: new Date('2026-11-23T00:00:00Z') };
+    await finance.assertNoWeeklyVendorPayout(tx, 'vendor-1', week, 'outlet-a');
+    await finance.assertNoWeeklyVendorPayout(tx, 'vendor-1', week, 'outlet-b');
+    expect(tx.payout.findFirst.mock.calls.map((call: any[]) => call[0].where)).toEqual([
+      expect.objectContaining({ tenantId: 'vendor-1', outletId: 'outlet-a', createdAt: { gte: week.start, lt: week.end } }),
+      expect.objectContaining({ tenantId: 'vendor-1', outletId: 'outlet-b', createdAt: { gte: week.start, lt: week.end } }),
+    ]);
+    expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(2);
   });
 });

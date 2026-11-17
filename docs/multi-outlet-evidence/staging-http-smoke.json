@@ -1,0 +1,614 @@
+{
+  "checkedAt": "2026-11-17T03:18:36.062Z",
+  "databaseRole": "Explicit local staging writer: existing onboarding GET may normalize supplemental data",
+  "immutableFinanceUnchanged": true,
+  "externalJobsDisabled": true,
+  "liveWrites": false,
+  "existingActiveUsersChecked": 13,
+  "existingVendorsChecked": 10,
+  "successfulHttpChecks": 150,
+  "readyReportsDownloaded": 3,
+  "failures": [],
+  "checks": [
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "ADMIN",
+      "route": "/auth/me"
+    },
+    {
+      "role": "ADMIN",
+      "route": "/admin/dashboard"
+    },
+    {
+      "role": "ADMIN",
+      "route": "/admin/vendors"
+    },
+    {
+      "role": "ADMIN",
+      "route": "/admin/bookings"
+    },
+    {
+      "role": "ADMIN",
+      "route": "/admin/settlements"
+    },
+    {
+      "role": "ADMIN",
+      "route": "/admin/payouts"
+    },
+    {
+      "role": "ADMIN",
+      "route": "/vendor/admin/bank-accounts/pending"
+    },
+    {
+      "role": "TRAVEL_AGENT",
+      "route": "/auth/me"
+    },
+    {
+      "role": "TRAVEL_AGENT",
+      "route": "/agent/dashboard"
+    },
+    {
+      "role": "TRAVEL_AGENT",
+      "route": "/agent/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "SUPER_ADMIN",
+      "route": "/auth/me"
+    },
+    {
+      "role": "SUPER_ADMIN",
+      "route": "/admin/dashboard"
+    },
+    {
+      "role": "SUPER_ADMIN",
+      "route": "/admin/vendors"
+    },
+    {
+      "role": "SUPER_ADMIN",
+      "route": "/admin/bookings"
+    },
+    {
+      "role": "SUPER_ADMIN",
+      "route": "/admin/settlements"
+    },
+    {
+      "role": "SUPER_ADMIN",
+      "route": "/admin/payouts"
+    },
+    {
+      "role": "SUPER_ADMIN",
+      "route": "/vendor/admin/bank-accounts/pending"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/auth/me"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/outlets"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/profile"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/onboarding"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/dashboard/summary"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/products"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/inventory"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/resources"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/bookings?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/settlements?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports/:id/download?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports/:id/download?outletId=:id"
+    },
+    {
+      "role": "VENDOR",
+      "route": "/vendor/reports/:id/download?outletId=:id"
+    }
+  ]
+}

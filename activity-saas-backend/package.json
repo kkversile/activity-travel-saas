@@ -13,6 +13,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
     "backfill:public-identifiers": "tsx scripts/backfill-public-identifiers.ts",
+    "backfill:multi-outlet": "tsx scripts/backfill-multi-outlet.ts",
     "prisma:db:push": "prisma db push",
     "backfill:product-content": "tsx scripts/backfill-product-content-from-options.ts",
     "verify:phase4-1": "tsx scripts/verify-phase4-1-integrity.ts",
@@ -41,7 +42,11 @@
     "audit:phase12": "tsx scripts/audit-phase12-existing-channel.ts",
     "backfill:phase12": "tsx scripts/backfill-phase12-distribution.ts",
     "verify:phase12": "tsx scripts/verify-phase12-distribution.ts",
-    "verify:phase12-1": "tsx scripts/verify-phase12-1-distribution-integrity.ts"
+    "verify:phase12-1": "tsx scripts/verify-phase12-1-distribution-integrity.ts",
+    "verify:multi-outlet:local": "node scripts/verify-multi-outlet-local.cjs",
+    "rehearse:multi-outlet": "node scripts/rehearse-multi-outlet.cjs",
+    "rehearse:staging-snapshot": "node scripts/rehearse-staging-snapshot.cjs",
+    "verify:staging-copy": "node scripts/verify-staging-copy.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.6",

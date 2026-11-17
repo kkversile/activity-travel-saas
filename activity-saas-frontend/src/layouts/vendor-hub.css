@@ -1130,3 +1130,10 @@ body:has(.partner-app-shell)::-webkit-scrollbar-thumb,.partner-app-shell *::-web
 .partner-app-shell .vendor-booking-toolbar {
   row-gap:12px;
 }
+
+.partner-app-shell .partner-outlet-switcher{display:flex;align-items:center;gap:8px;color:var(--voya-muted, #aeb7cc);font-size:12px;font-weight:650}
+.partner-app-shell .partner-outlet-switcher select{min-width:145px;max-width:220px;min-height:36px;border:1px solid var(--voya-border, #414d68);border-radius:9px;padding:6px 28px 6px 10px;background:var(--voya-raised, #232c48);color:var(--voya-text, #e6e9f1);font:inherit}
+.partner-app-shell .partner-outlet-scope{font-size:12px;font-weight:650;color:var(--voya-text, #e6e9f1);white-space:nowrap}
+
+.partner-app-shell .partner-scope-bar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:12px 24px;border-bottom:1px solid var(--voya-border);background:var(--voya-panel)}
+@media(max-width:760px){.partner-app-shell .partner-scope-bar{padding:12px 16px}.partner-app-shell .partner-outlet-switcher select{min-height:44px}}

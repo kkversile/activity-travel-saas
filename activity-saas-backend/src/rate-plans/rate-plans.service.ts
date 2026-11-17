@@ -6,15 +6,17 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateRatePlanDto, UpdateRatePlanDto } from './rate-plan.dto';
 import { CommercialService } from '../commercial/commercial.service';
+import { VendorOutletAccessService } from '../vendor-outlets/vendor-outlet-access.service';
 
 @Injectable()
 export class RatePlansService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly commercial?: CommercialService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly commercial?: CommercialService, private readonly outletAccess?: VendorOutletAccessService) {}
 
   private async ownedVariant(user: AuthUser, variantId: string) {
     const tenantId = requireTenant(user);
-    const variant = await this.prisma.productVariant.findFirst({ where: { id: variantId, product: { tenantId } } });
+    const variant = await this.prisma.productVariant.findFirst({ where: { id: variantId, product: { tenantId } }, include: { product: { select: { outletId: true } } } });
     if (!variant) throw new NotFoundException('Product variant not found');
+    if (this.outletAccess) await this.outletAccess.resolve(user, variant.product.outletId, { aggregateRead: true });
     return variant;
   }
 
@@ -66,8 +68,9 @@ export class RatePlansService {
 
   async update(user: AuthUser, id: string, dto: UpdateRatePlanDto) {
     const tenantId = requireTenant(user);
-    const existing = await this.prisma.ratePlan.findFirst({ where: { id, variant: { product: { tenantId } } } });
+    const existing = await this.prisma.ratePlan.findFirst({ where: { id, variant: { product: { tenantId } } }, include: { variant: { include: { product: { select: { outletId: true } } } } } });
     if (!existing) throw new NotFoundException('Rate plan not found');
+    if (this.outletAccess) await this.outletAccess.resolve(user, existing.variant.product.outletId, { mutation: true });
     const { travellerRules, cancellationRules, validFrom, validTo, ...rest } = dto;
     const nextValidFrom = validFrom ? new Date(validFrom) : existing.validFrom;
     const nextValidTo = validTo ? new Date(validTo) : existing.validTo;

@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-11-17T03:25:26.798520+00:00",
+  "sourceReadOnly": true,
+  "encryptionKeyConfigured": true,
+  "encryptedOnboardingAccounts": 6,
+  "decryptableAccounts": 6,
+  "verifiedAccounts": 1,
+  "verifiedDecryptableAccounts": 1,
+  "eligibleSelectedProofPresent": 1,
+  "eligibleSelectedProofMissing": 0,
+  "historicalVerifiedProofFilesPresent": 3,
+  "historicalVerifiedProofFilesMissing": 1,
+  "note": "The missing historical proof is not the proof selected for the eligible verified beneficiary. No document or verification status was changed."
+}

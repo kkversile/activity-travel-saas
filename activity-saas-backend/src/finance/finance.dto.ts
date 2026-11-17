@@ -21,6 +21,7 @@ import {
 
 export class SettlementPreviewDto {
   @IsOptional() @IsString() vendorTenantId?: string;
+  @IsOptional() @IsString() outletId?: string;
   @IsOptional() @IsDateString() periodFrom?: string;
   @IsOptional() @IsDateString() periodTo?: string;
   @IsString() @Matches(/^[A-Za-z]{3}$/) currency!: string;
@@ -59,6 +60,7 @@ export class VendorAdjustmentDto {
   @IsString() @MinLength(1) reason!: string;
   @IsString() @MinLength(1) reference!: string;
   @IsOptional() @IsString() bookingId?: string;
+  @IsOptional() @IsString() outletId?: string;
   @IsOptional() @IsString() currency?: string;
 }
 export class CancellationResolutionDto {

@@ -81,7 +81,7 @@ export class VendorService {
         return version;
       });
       const docCode = await publicIdentifier(this.prisma, PublicEntity.VENDOR_DOCUMENT, result.vendorDocumentId);
-      return { id: result.id, publicCode: docCode, documentType: documentKeyMap[key as DocumentKey], versionNumber: result.versionNumber, status: result.status, fileName: file.originalname };
+      return { id: result.id, fileAssetId: result.fileAssetId, publicCode: docCode, documentType: documentKeyMap[key as DocumentKey], versionNumber: result.versionNumber, status: result.status, fileName: file.originalname };
     } catch (error) { await this.storage.remove(saved.storageKey); throw error; }
   }
 }

@@ -201,6 +201,7 @@ export class AuthService {
       const base = emailName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'vendor';
       const tenant = await tx.tenant.create({ data: { name: `${challenge.email} Vendor`, slug: `${base}-${randomBytes(4).toString('hex')}`, kind: TenantKind.VENDOR } });
       const created = await tx.user.create({ data: { tenantId: tenant.id, email: challenge.email, passwordHash, fullName: emailName, role: UserRole.VENDOR, organizationRole: 'OWNER' } });
+      await tx.vendorOutlet.create({ data: { tenantId: tenant.id, outletCode: 'MAIN', name: `${challenge.email} Vendor`, isDefault: true } });
       await ensurePublicIdentifier(tx, PublicEntity.USER, created.id, await allocatePublicCode(tx, PublicEntity.USER, 'VU-', 5));
       await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: '', operatingCity: 'Not set', operatingRegion: 'Not set', voucherShortCode: await allocateVendorVoucherShortCode(tx) } });
       return created;
@@ -224,10 +225,21 @@ export class AuthService {
       const created = await this.prisma.$transaction(async (tx) => {
         const locked = await tx.$queryRawUnsafe<any[]>(`SELECT "id" FROM "public"."VendorTeamInvitation" WHERE "tokenHash" = $1 FOR UPDATE`, tokenHash);
         if (!locked[0]) throw new BadRequestException('Invitation is invalid or expired.');
-        const invitation = await tx.vendorTeamInvitation.findFirst({ where: { id: locked[0].id, email, status: 'INVITED', expiresAt: { gt: new Date() } }, include: { tenant: { select: { kind: true } } } });
+        const invitation = await tx.vendorTeamInvitation.findFirst({ where: { id: locked[0].id, email, status: 'INVITED', expiresAt: { gt: new Date() } }, include: { tenant: { select: { kind: true } }, outletAssignments: { select: { outletId: true } } } });
         if (!invitation) throw new BadRequestException('Invitation is invalid, expired, or belongs to a different email address.');
         const role = invitation.tenant?.kind === TenantKind.TRAVEL_AGENT ? UserRole.TRAVEL_AGENT : UserRole.VENDOR;
         const user = await tx.user.create({ data: { tenantId: invitation.tenantId, email, passwordHash, fullName: dto.fullName, role, organizationRole: invitation.role } });
+        if (role === UserRole.VENDOR && invitation.role !== OrganizationRole.OWNER) {
+          let outletIds = (invitation.outletAssignments ?? []).map((assignment) => assignment.outletId);
+          if (!outletIds.length) {
+            const defaultOutlet = await tx.vendorOutlet.findFirst({ where: { tenantId: invitation.tenantId, isDefault: true, status: 'ACTIVE' }, select: { id: true } });
+            if (!defaultOutlet) throw new BadRequestException('This vendor workspace has no active default outlet. Ask its owner to configure outlet access.');
+            outletIds = [defaultOutlet.id];
+          }
+          const activeOutlets = await tx.vendorOutlet.findMany({ where: { tenantId: invitation.tenantId, id: { in: outletIds }, status: 'ACTIVE' }, select: { id: true } });
+          if (activeOutlets.length !== outletIds.length) throw new BadRequestException('An invited outlet is no longer active. Ask the owner for a new invitation.');
+          await tx.userOutletAccess.createMany({ data: outletIds.map((outletId) => ({ tenantId: invitation.tenantId, userId: user.id, outletId, active: true })), skipDuplicates: true });
+        }
         await ensurePublicIdentifier(tx, PublicEntity.USER, user.id, await allocatePublicCode(tx, PublicEntity.USER, 'VU-', 5));
         await tx.vendorTeamInvitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED', acceptedAt: new Date(), tokenHash: null } });
         return user;
@@ -239,6 +251,7 @@ export class AuthService {
     const created = await this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({ data: { name: `${dto.fullName} Vendor`, slug, kind: 'VENDOR' } });
       const user = await tx.user.create({ data: { tenantId: tenant.id, email, passwordHash, fullName: dto.fullName, role: 'VENDOR', organizationRole: 'OWNER' } });
+      await tx.vendorOutlet.create({ data: { tenantId: tenant.id, outletCode: 'MAIN', name: dto.businessName?.trim() || `${dto.fullName} Vendor`, isDefault: true } });
       await ensurePublicIdentifier(tx, PublicEntity.USER, user.id, await allocatePublicCode(tx, PublicEntity.USER, 'VU-', 5));
       await tx.vendorProfile.create({ data: { tenantId: tenant.id, legalBusinessName: dto.businessName?.trim() || dto.fullName, operatingCity: dto.city?.trim() || 'Not set', operatingRegion: 'Not set', category: dto.category?.trim() || null, registrationMobile: dto.mobile?.trim() || null, termsAcceptedAt: dto.acceptedTerms === true ? new Date() : null, voucherShortCode: await allocateVendorVoucherShortCode(tx) } });
       return user;
@@ -250,9 +263,9 @@ export class AuthService {
   async previewVendorTeamInvitation(token: string) {
     if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) throw new BadRequestException('Invitation is invalid or expired.');
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    const invitation = await this.prisma.vendorTeamInvitation.findFirst({ where: { tokenHash, status: 'INVITED', expiresAt: { gt: new Date() } }, include: { tenant: { select: { name: true, kind: true } } } });
+    const invitation = await this.prisma.vendorTeamInvitation.findFirst({ where: { tokenHash, status: 'INVITED', expiresAt: { gt: new Date() } }, include: { tenant: { select: { name: true, kind: true } }, outletAssignments: { include: { outlet: { select: { id: true, outletCode: true, name: true } } } } } });
     if (!invitation) throw new BadRequestException('Invitation is invalid or expired.');
-    return { email: invitation.email, role: invitation.role, workspaceName: invitation.tenant.name, workspaceKind: invitation.tenant.kind, expiresAt: invitation.expiresAt };
+    return { email: invitation.email, role: invitation.role, workspaceName: invitation.tenant.name, workspaceKind: invitation.tenant.kind, outlets: invitation.outletAssignments.map((assignment) => assignment.outlet), expiresAt: invitation.expiresAt };
   }
 
   private async issueToken(user: { id: string; email: string; fullName: string; role: UserRole; tenantId: string | null; organizationRole: any; active: boolean; mustChangePassword: boolean }) {

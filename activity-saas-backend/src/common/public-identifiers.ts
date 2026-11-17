@@ -175,9 +175,11 @@ export function isoWeekInfo(input: Date) {
   return { year, week, start, end };
 }
 
-export function vendorPayoutPublicCode(vendorPublicCode: string, date: Date) {
+export function vendorPayoutPublicCode(vendorPublicCode: string, date: Date, outletCode?: string | null) {
   const vendorNumber = vendorPublicCode.match(/^SUP-(\d{4})$/)?.[1];
   if (!vendorNumber) return null;
   const { year, week } = isoWeekInfo(date);
-  return `PO-${vendorNumber}-${String(year).slice(-2)}${String(week).padStart(2, "0")}`;
+  const base = `PO-${vendorNumber}-${String(year).slice(-2)}${String(week).padStart(2, "0")}`;
+  const code = String(outletCode || '').toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+  return code && code !== 'MAIN' ? `${base}-${code}` : base;
 }

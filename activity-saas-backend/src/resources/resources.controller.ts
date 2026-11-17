@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -18,8 +18,8 @@ import { swaggerExamples } from '../common/swagger-examples';
 @Roles(UserRole.VENDOR)
 export class ResourcesController {
   constructor(private readonly service: ResourcesService) {}
-  @Get('resources') @Permissions('resource.view') list(@CurrentUser() u: AuthUser) { return this.service.list(u); }
-  @Post('resources') @ApiBody({ schema: { type: 'object', example: swaggerExamples.resources.create } }) @Permissions('resource.edit') create(@CurrentUser() u: AuthUser, @Body() d: ResourceDto) { return this.service.create(u, d); }
+  @Get('resources') @Permissions('resource.view') list(@CurrentUser() u: AuthUser, @Query('outletId') outletId?: string) { return this.service.list(u, outletId); }
+  @Post('resources') @ApiBody({ schema: { type: 'object', example: swaggerExamples.resources.create } }) @Permissions('resource.edit') create(@CurrentUser() u: AuthUser, @Body() d: ResourceDto, @Query('outletId') outletId?: string) { return this.service.create(u, { ...d, outletId: outletId || d.outletId }); }
   @Patch('resources/:id') @ApiBody({ schema: { type: 'object', example: swaggerExamples.resources.update } }) @Permissions('resource.edit') update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: UpdateResourceDto) { return this.service.update(u, id, d); }
   @Post('resources/:id/archive') @ApiBody({ schema: { type: 'object', example: { expectedVersion: 1 } } }) @Permissions('resource.edit') archive(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() d: UpdateResourceDto) { return this.service.archive(u, id, d.expectedVersion); }
   @Get('schedules/:scheduleId/resource-requirements') @Permissions('resource.view') requirements(@CurrentUser() u: AuthUser, @Param('scheduleId') id: string) { return this.service.requirements(u, id); }

@@ -1,5 +1,6 @@
 import { UserRole } from '@prisma/client';
 import { CatalogueService } from './catalogue.service';
+import { attachCatalogueTestOutletAccess } from './catalogue-test-outlet-access';
 import { productImportJsonSample } from '../common/product-import-sample';
 const vendor = {sub:'vendor',tenantId:'tenant',role:UserRole.VENDOR} as any;
 function fixture() {
@@ -9,7 +10,7 @@ function fixture() {
  const commercial:any={createVersion:jest.fn().mockResolvedValue({id:'commercial'}),activateVersion:jest.fn()};
  const ratePlans:any={create:jest.fn().mockResolvedValue({id:'rate'})};
  const schedule={id:'schedule',version:1};const schedules:any={create:jest.fn().mockResolvedValue(schedule),activate:jest.fn().mockResolvedValue(schedule),mapRatePlan:jest.fn(),list:jest.fn().mockResolvedValue([schedule])};
- const service=new CatalogueService(prisma,audit,outbox,{} as any,undefined,commercial,undefined,ratePlans,schedules,{materialize:jest.fn()} as any);
+ const service=attachCatalogueTestOutletAccess(new CatalogueService(prisma,audit,outbox,{} as any,undefined,commercial,undefined,ratePlans,schedules,{materialize:jest.fn()} as any));
  jest.spyOn(service,'createDraft').mockResolvedValue({id:'new-product'} as any);
  jest.spyOn(service,'get').mockResolvedValue({revisions:[{id:'revision',status:'DRAFT'}]} as any);
  jest.spyOn(service,'updateRevision').mockResolvedValue({} as any);

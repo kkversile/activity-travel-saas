@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -19,5 +19,5 @@ export class PayoutsController {
 
   @Get()
   @Permissions('payout.view')
-  list(@CurrentUser() user: AuthUser) { return this.service.list(user); }
+  list(@CurrentUser() user: AuthUser, @Query('outletId') outletId?: string) { return this.service.list(user, outletId); }
 }

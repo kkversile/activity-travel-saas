@@ -14,6 +14,9 @@ export type User = {
   impersonatorEmail?: string;
 };
 
+export type VendorOutlet = { id: string; tenantId: string; outletCode: string; name: string; location?: string | null; status: 'ACTIVE' | 'INACTIVE'; isDefault: boolean; bankAccount?: { id: string; accountNumberMasked: string; bankName: string; verificationStatus: 'PENDING' | 'VERIFIED' | 'REJECTED'; active: boolean } | null };
+export type VendorOutletList = { access: 'ALL' | 'ASSIGNED'; outlets: VendorOutlet[] };
+
 export type PlatformAdmin = { id: string; publicCode?: string | null; email: string; fullName: string; role: 'SUPER_ADMIN' | 'ADMIN'; active: boolean; createdAt: string; updatedAt: string };
 export type ImpersonationTarget = { id: string; publicCode?: string | null; email: string; fullName: string; role: 'ADMIN' | 'VENDOR' | 'TRAVEL_AGENT'; tenantId: string | null; organizationRole?: User['organizationRole']; active: boolean; createdAt: string };
 
@@ -198,16 +201,29 @@ export class ApiError extends Error {
 
 class ApiClient {
   token = localStorage.getItem('voya_token');
+  activeOutletId: string | null = null;
+
+  setActiveOutletId(id: string | null) { this.activeOutletId = id; }
+
+  private scopedPath(path: string) {
+    if (!this.token || !this.activeOutletId || !/^\/(vendor(?:\/|$)|dashboard(?:\/|$)|products(?:\/|$)|product-revisions(?:\/|$)|variants(?:\/|$)|rate-plans(?:\/|$)|rate-plan-commercial-versions(?:\/|$)|schedules(?:\/|$)|sessions(?:\/|$)|inventory(?:\/|$)|resources(?:\/|$)|bookings(?:\/|$)|settlements(?:\/|$)|payouts(?:\/|$))/.test(path) || path.startsWith('/vendor/admin/')) return path;
+    const [pathname, hash = ''] = path.split('#', 2);
+    const [base, query = ''] = pathname.split('?', 2);
+    const params = new URLSearchParams(query);
+    if (!params.has('outletId')) params.set('outletId', this.activeOutletId);
+    return `${base}?${params.toString()}${hash ? `#${hash}` : ''}`;
+  }
 
   setToken(token: string | null) {
     this.token = token;
+    this.activeOutletId = null;
     if (token) localStorage.setItem('voya_token', token);
     else localStorage.removeItem('voya_token');
   }
 
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const bodyIsFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(`${API_BASE}${this.scopedPath(path)}`, {
       ...init,
       headers: {
         ...(bodyIsFormData ? {} : { 'Content-Type': 'application/json' }),
@@ -232,7 +248,7 @@ class ApiClient {
   }
 
   async blob(path: string) {
-    const res = await fetch(`${API_BASE}${path}`, { headers: this.token ? { Authorization: `Bearer ${this.token}` } : {} });
+    const res = await fetch(`${API_BASE}${this.scopedPath(path)}`, { headers: this.token ? { Authorization: `Bearer ${this.token}` } : {} });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.blob();
   }

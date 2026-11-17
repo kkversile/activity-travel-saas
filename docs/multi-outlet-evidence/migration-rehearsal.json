@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-11-16T20:31:39.256Z",
+  "baseRevision": "a599c635b6cb940713cd5b274fd52a51c3179bc6",
+  "previousMigrationsBaselined": 97,
+  "migration": "20261117100000_multi_outlet_core",
+  "prismaDeploy": "Prisma schema loaded from prisma\\schema.prisma\nDatasource \"db\": PostgreSQL database \"voya_outlet_deploy\", schema \"public\" at \"127.0.0.1:55439\"\n\n98 migrations found in prisma/migrations\n\nApplying migration `20261117100000_multi_outlet_core`\n\nThe following migration(s) have been applied:\n\nmigrations/\n  └─ 20261117100000_multi_outlet_core/\n    └─ migration.sql\n      \nAll migrations have been successfully applied.\n",
+  "firstBackfill": "{\n  \"mode\": \"apply\",\n  \"vendors\": 1,\n  \"outletsToCreate\": 1,\n  \"unassignedProducts\": 1,\n  \"eligibleBookings\": 0,\n  \"unassignedResources\": 0,\n  \"bookingLinkedEvents\": 1,\n  \"nonOwnerUsers\": 1\n}\n{\n  \"completed\": true,\n  \"productsWithoutOutlet\": 0,\n  \"eligibleBookingsWithoutOutlet\": 0,\n  \"bookingEventsWithoutOutlet\": 0,\n  \"mixedOrUnattributedBatchesForReview\": 0\n}\n",
+  "secondBackfill": "{\n  \"mode\": \"apply\",\n  \"vendors\": 1,\n  \"outletsToCreate\": 0,\n  \"unassignedProducts\": 0,\n  \"eligibleBookings\": 0,\n  \"unassignedResources\": 0,\n  \"bookingLinkedEvents\": 0,\n  \"nonOwnerUsers\": 1\n}\n{\n  \"completed\": true,\n  \"productsWithoutOutlet\": 0,\n  \"eligibleBookingsWithoutOutlet\": 0,\n  \"bookingEventsWithoutOutlet\": 0,\n  \"mixedOrUnattributedBatchesForReview\": 0\n}\n",
+  "legacyEconomicRowsPreserved": 1,
+  "database": "127.0.0.1:55439/voya_outlet_deploy",
+  "historicalFreshInstallBlocker": "20260914110000_phase11_1_demand_integrity references DemandTargetStatus before its defining migration; historical migrations were not edited."
+}

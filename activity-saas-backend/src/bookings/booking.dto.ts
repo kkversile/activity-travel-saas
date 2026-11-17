@@ -40,6 +40,7 @@ export class BookingCreateDto extends BookingPreviewDto {
 }
 
 export class BookingListQueryDto {
+  @IsOptional() @IsUUID() outletId?: string;
   @IsOptional() @IsEnum(BookingStatus) status?: BookingStatus;
   @IsOptional() @IsIn(['REJECTED']) statusGroup?: 'REJECTED';
   @IsOptional() @IsEnum(BookingRecordType) recordType?: BookingRecordType;

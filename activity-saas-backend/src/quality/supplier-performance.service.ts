@@ -14,29 +14,30 @@ function localEndOfDay(date: Date, timezone: string) { const key = dateKey(date,
 export class SupplierPerformanceService {
   constructor(private readonly prisma: PrismaService, private readonly evaluator: SupplierQualityEvaluator) {}
 
-  async computeCurrent(vendorTenantId: string, now = new Date(), windowStartOverride?: Date) {
+  async computeCurrent(vendorTenantId: string, now = new Date(), windowStartOverride?: Date, outletIds?: string[] | null) {
     const vendor = this.prisma.tenant?.findUnique ? await this.prisma.tenant.findUnique({ where: { id: vendorTenantId }, select: { kind: true } }) : { kind: 'VENDOR' as const };
     if (!vendor || vendor.kind !== 'VENDOR') throw new NotFoundException('Vendor tenant not found');
     const policy = await this.prisma.supplierQualityPolicy.findFirst({ where: { status: SupplierQualityPolicyStatus.ACTIVE }, include: { metricRules: { where: { enabled: true }, orderBy: { rank: 'asc' } }, tierRules: true } });
     const windowEnd = now;
     const windowStart = windowStartOverride ?? new Date(now.getTime() - (policy?.measurementWindowDays ?? 30) * DAY);
-    const raw = await this.rawMetrics(vendorTenantId, windowStart, windowEnd, policy?.shortNoticeDays ?? 0, policy?.lastMinuteStopSellDays ?? 0);
+    const raw = await this.rawMetrics(vendorTenantId, windowStart, windowEnd, policy?.shortNoticeDays ?? 0, policy?.lastMinuteStopSellDays ?? 0, outletIds);
     const metrics = raw.map((m) => this.evaluator.assess(m, policy?.metricRules.find((r) => r.metricCode === m.metricCode)));
     const overallScore = policy ? this.evaluator.score(metrics, policy.metricRules) : null;
     const [currentAssignment, latestSnapshotOverall, latestSnapshotForCurrentPolicy, openIssues] = await Promise.all([
       this.prisma.supplierTierAssignment.findFirst({ where: { vendorTenantId, effectiveTo: null }, orderBy: { effectiveFrom: 'desc' } }),
-      this.prisma.supplierQualitySnapshot.findFirst({ where: { vendorTenantId }, orderBy: { generatedAt: 'desc' }, include: { metricSnapshots: true } }),
-      policy ? this.prisma.supplierQualitySnapshot.findFirst({ where: { vendorTenantId, policyId: policy.id }, orderBy: { generatedAt: 'desc' }, include: { metricSnapshots: true } }) : null,
-      this.prisma.supplierQualityIssue.findMany({ where: { vendorTenantId, status: { in: ['OPEN', 'ACKNOWLEDGED'] } }, orderBy: { openedAt: 'desc' } }),
+      outletIds ? null : this.prisma.supplierQualitySnapshot.findFirst({ where: { vendorTenantId }, orderBy: { generatedAt: 'desc' }, include: { metricSnapshots: true } }),
+      !outletIds && policy ? this.prisma.supplierQualitySnapshot.findFirst({ where: { vendorTenantId, policyId: policy.id }, orderBy: { generatedAt: 'desc' }, include: { metricSnapshots: true } }) : null,
+      outletIds ? [] : this.prisma.supplierQualityIssue.findMany({ where: { vendorTenantId, status: { in: ['OPEN', 'ACKNOWLEDGED'] } }, orderBy: { openedAt: 'desc' } }),
     ]);
     return { vendorTenantId, windowStart, windowEnd, policy: policy ? { id: policy.id, versionNumber: policy.versionNumber, name: policy.name, measurementWindowDays: policy.measurementWindowDays, shortNoticeDays: policy.shortNoticeDays, lastMinuteStopSellDays: policy.lastMinuteStopSellDays, metricRules: policy.metricRules, tierRules: policy.tierRules } : null, metrics, overallScore, recommendedTier: policy ? this.evaluator.recommendedTier(overallScore, policy) : null, currentTier: currentAssignment?.tier ?? null, latestSnapshot: latestSnapshotOverall, latestSnapshotOverall, latestSnapshotForCurrentPolicy, openIssues };
   }
 
-  private async rawMetrics(vendorTenantId: string, start: Date, end: Date, shortNoticeDays: number, lastMinuteStopSellDays: number): Promise<MetricResult[]> {
-    const slaBookings = await this.prisma.booking.findMany({ where: { recordType: 'CANONICAL', vendorTenantId, bookingMode: BookingMode.VENDOR_CONFIRMATION, createdAt: { gte: start, lt: end } }, select: { createdAt: true, confirmationDueAt: true, confirmedAt: true, rejectedAt: true, expiredAt: true, status: true } });
+  private async rawMetrics(vendorTenantId: string, start: Date, end: Date, shortNoticeDays: number, lastMinuteStopSellDays: number, outletIds?: string[] | null): Promise<MetricResult[]> {
+    const scope = outletIds ? { outletId: { in: outletIds } } : {};
+    const slaBookings = await this.prisma.booking.findMany({ where: { recordType: 'CANONICAL', vendorTenantId, ...scope, bookingMode: BookingMode.VENDOR_CONFIRMATION, createdAt: { gte: start, lt: end } }, select: { createdAt: true, confirmationDueAt: true, confirmedAt: true, rejectedAt: true, expiredAt: true, status: true } });
     const serviceStart = new Date(`${start.toISOString().slice(0, 10)}T00:00:00.000Z`);
     const serviceEnd = new Date(`${end.toISOString().slice(0, 10)}T23:59:59.999Z`);
-    const serviceBookings = await this.prisma.booking.findMany({ where: { recordType: 'CANONICAL', vendorTenantId, bookingMode: { in: [BookingMode.INSTANT, BookingMode.VENDOR_CONFIRMATION, BookingMode.MANUAL_ON_REQUEST] }, confirmedAt: { not: null }, serviceDate: { gte: serviceStart, lte: serviceEnd } }, select: { id: true, status: true, createdAt: true, confirmedAt: true, serviceDate: true, serviceTimezone: true, operationalSnapshot: { select: { sessionSnapshot: true } }, fulfilment: { select: { vouchers: { select: { generatedAt: true, status: true, voidedAt: true } } } }, cancellation: { select: { initiator: true, daysBeforeService: true, cancelledAt: true } } } });
+    const serviceBookings = await this.prisma.booking.findMany({ where: { recordType: 'CANONICAL', vendorTenantId, ...scope, bookingMode: { in: [BookingMode.INSTANT, BookingMode.VENDOR_CONFIRMATION, BookingMode.MANUAL_ON_REQUEST] }, confirmedAt: { not: null }, serviceDate: { gte: serviceStart, lte: serviceEnd } }, select: { id: true, status: true, createdAt: true, confirmedAt: true, serviceDate: true, serviceTimezone: true, operationalSnapshot: { select: { sessionSnapshot: true } }, fulfilment: { select: { vouchers: { select: { generatedAt: true, status: true, voidedAt: true } } } }, cancellation: { select: { initiator: true, daysBeforeService: true, cancelledAt: true } } } });
     const observable = slaBookings.filter((b) => Boolean(b.confirmationDueAt && (b.confirmationDueAt <= end || b.confirmedAt || b.rejectedAt || b.expiredAt)));
     const responded = observable.filter((b) => Boolean(b.confirmedAt || b.rejectedAt));
     const responseTimes = responded.map((b) => ((b.confirmedAt || b.rejectedAt)!.getTime() - b.createdAt.getTime()) / 60000).filter((n) => n >= 0);
@@ -56,11 +57,11 @@ export class SupplierPerformanceService {
     const validVoucherAt = (booking: ServiceBooking) => { const versions = booking.fulfilment?.vouchers.filter((v) => v.status !== 'VOID' && !v.voidedAt).map((v) => v.generatedAt).sort((a, b) => a.getTime() - b.getTime()) ?? []; return versions[0] ?? null; };
     const voucherReady = fulfilmentExpectedBookings.filter((b) => { const readyAt = validVoucherAt(b); return Boolean(readyAt && readyAt <= serviceBoundary(b)); });
     const turnarounds = fulfilmentExpectedBookings.map((b) => { const readyAt = validVoucherAt(b); return readyAt && b.confirmedAt ? (readyAt.getTime() - b.confirmedAt.getTime()) / 60000 : null; }).filter((n): n is number => n !== null && n >= 0);
-    const productRows = await this.prisma.product.findMany({ where: { tenantId: vendorTenantId, status: ProductStatus.LIVE }, select: { currentRevision: { select: { status: true, media: { where: { kind: MediaKind.IMAGE, archivedAt: null }, select: { id: true } } } } } });
+    const productRows = await this.prisma.product.findMany({ where: { tenantId: vendorTenantId, ...scope, status: ProductStatus.LIVE }, select: { currentRevision: { select: { status: true, media: { where: { kind: MediaKind.IMAGE, archivedAt: null }, select: { id: true } } } } } });
     const imageDenominator = productRows.filter((p) => p.currentRevision?.status === ProductRevisionStatus.PUBLISHED).length;
     const imageNumerator = productRows.filter((p) => p.currentRevision?.status === ProductRevisionStatus.PUBLISHED && Boolean(p.currentRevision.media.length)).length;
-    const sessions = this.prisma.serviceSession?.findMany ? await this.prisma.serviceSession.findMany({ where: { serviceDate: { gte: serviceStart, lte: serviceEnd }, status: { not: SessionStatus.ARCHIVED }, scheduleTemplate: { variant: { product: { tenantId: vendorTenantId } } } }, select: { id: true, scheduleTemplateId: true, slotTemplateId: true, serviceDate: true } }) : [];
-    const exceptions = this.prisma.scheduleException?.findMany ? await this.prisma.scheduleException.findMany({ where: { type: { in: [ScheduleExceptionType.BLACKOUT, ScheduleExceptionType.CLOSED] }, archivedAt: null, serviceDate: { gte: serviceStart, lte: serviceEnd }, scheduleTemplate: { variant: { product: { tenantId: vendorTenantId } } } }, select: { scheduleTemplateId: true, slotTemplateId: true, serviceDate: true, createdAt: true, scheduleTemplate: { select: { timezone: true } } } }) : [];
+    const sessions = this.prisma.serviceSession?.findMany ? await this.prisma.serviceSession.findMany({ where: { serviceDate: { gte: serviceStart, lte: serviceEnd }, status: { not: SessionStatus.ARCHIVED }, scheduleTemplate: { variant: { product: { tenantId: vendorTenantId, ...scope } } } }, select: { id: true, scheduleTemplateId: true, slotTemplateId: true, serviceDate: true } }) : [];
+    const exceptions = this.prisma.scheduleException?.findMany ? await this.prisma.scheduleException.findMany({ where: { type: { in: [ScheduleExceptionType.BLACKOUT, ScheduleExceptionType.CLOSED] }, archivedAt: null, serviceDate: { gte: serviceStart, lte: serviceEnd }, scheduleTemplate: { variant: { product: { tenantId: vendorTenantId, ...scope } } } }, select: { scheduleTemplateId: true, slotTemplateId: true, serviceDate: true, createdAt: true, scheduleTemplate: { select: { timezone: true } } } }) : [];
     const affectedSessions = new Set<string>();
     for (const exception of exceptions) { const days = calendarDaysBetween(exception.serviceDate, exception.createdAt, exception.scheduleTemplate.timezone); if (days < 0 || days > lastMinuteStopSellDays) continue; for (const session of sessions) if (session.scheduleTemplateId === exception.scheduleTemplateId && session.serviceDate.getTime() === exception.serviceDate.getTime() && (!exception.slotTemplateId || session.slotTemplateId === exception.slotTemplateId)) affectedSessions.add(session.id); }
     return [

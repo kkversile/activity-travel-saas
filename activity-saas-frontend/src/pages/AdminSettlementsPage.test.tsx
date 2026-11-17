@@ -171,7 +171,8 @@ describe('Payout reconciliation feedback', () => {
     expect(amount).toHaveAttribute('aria-invalid', 'true');
     fireEvent.change(amount, { target: { value: '2997' } });
     fireEvent.click(dialog.getByRole('button', { name: 'Submit reconciliation' }));
-    expect(await dialog.findByRole('alert')).toHaveFocus();
+    const alert = await dialog.findByRole('alert');
+    await waitFor(() => expect(alert).toHaveFocus());
     expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(dialog.getByRole('textbox', { name: 'Reconciliation reference' })).toHaveValue('DEMO-REF');
     fireEvent.change(amount, { target: { value: '2998' } });

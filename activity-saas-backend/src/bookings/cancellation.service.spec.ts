@@ -42,6 +42,7 @@ describe('CancellationService authorization and invariants', () => {
     const tx: any = { $queryRawUnsafe: jest.fn().mockResolvedValue([{ id: 'booking-1' }]), booking: { findUniqueOrThrow: jest.fn().mockResolvedValue(booking('agent-a', 'vendor-a')) } };
     const prisma: any = { bookingCancellation: { findFirst: jest.fn().mockResolvedValue(null) }, $transaction: jest.fn((callback: any) => callback(tx)) };
     const service = new CancellationService(prisma, {} as any, {} as any, {} as any);
+    (service as any).outletAccess = { resolve: jest.fn().mockResolvedValue({ tenantId: 'vendor-b', outletIds: ['outlet-b'], aggregate: false }) };
     await expect(service.operationalCancel(user('vendor-b', UserRole.VENDOR), 'booking-1', { reasonCategory: 'WEATHER', reason: 'test' }, CancellationInitiator.VENDOR)).rejects.toThrow('Booking not found');
   });
 

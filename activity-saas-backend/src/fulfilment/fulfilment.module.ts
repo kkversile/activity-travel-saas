@@ -10,6 +10,7 @@ import { FulfilmentReadinessService } from './fulfilment-readiness.service';
 import { FulfilmentService } from './fulfilment.service';
 import { VoucherGenerationService } from './voucher-generation.service';
 import { VoucherGenerationWorker } from './voucher-generation.worker';
+import { VendorOutletsModule } from '../vendor-outlets/vendor-outlets.module';
 
-@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, BookingsModule], controllers: [VendorFulfilmentController, AgentVoucherController, AdminFulfilmentController, ManifestController], providers: [FulfilmentReadinessService, VoucherGenerationService, FulfilmentService, VoucherGenerationWorker], exports: [FulfilmentService, FulfilmentReadinessService, VoucherGenerationService] })
+@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, BookingsModule, VendorOutletsModule], controllers: [VendorFulfilmentController, AgentVoucherController, AdminFulfilmentController, ManifestController], providers: [FulfilmentReadinessService, VoucherGenerationService, FulfilmentService, VoucherGenerationWorker], exports: [FulfilmentService, FulfilmentReadinessService, VoucherGenerationService] })
 export class FulfilmentModule {}

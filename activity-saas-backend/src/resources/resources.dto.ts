@@ -1,8 +1,9 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min, IsUUID } from 'class-validator';
 import { ResourceAllocationMode, ResourceType } from '@prisma/client';
 
 export class ResourceDto {
+  @IsOptional() @IsUUID() outletId?: string;
   @IsString() resourceCode!: string;
   @IsString() name!: string;
   @IsEnum(ResourceType) type!: ResourceType;

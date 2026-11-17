@@ -1,0 +1,55 @@
+{
+  "mode": "apply",
+  "vendors": 3,
+  "outletsToCreate": 0,
+  "unassignedProducts": 0,
+  "eligibleBookings": 0,
+  "unassignedResources": 0,
+  "bookingLinkedEvents": 0,
+  "nonOwnerUsers": 11
+}
+{
+  "completed": true,
+  "productsWithoutOutlet": 0,
+  "eligibleBookingsWithoutOutlet": 0,
+  "bookingEventsWithoutOutlet": 0,
+  "mixedOrUnattributedBatchesForReview": 0
+}
+
+{
+  "mode": "apply",
+  "vendors": 3,
+  "outletsToCreate": 0,
+  "unassignedProducts": 0,
+  "eligibleBookings": 0,
+  "unassignedResources": 0,
+  "bookingLinkedEvents": 0,
+  "nonOwnerUsers": 11
+}
+{
+  "completed": true,
+  "productsWithoutOutlet": 0,
+  "eligibleBookingsWithoutOutlet": 0,
+  "bookingEventsWithoutOutlet": 0,
+  "mixedOrUnattributedBatchesForReview": 0
+}
+
+PASS pre-migration legacy IDs, amounts, ledger snapshots and grants survive expansion
+PASS legacy single-outlet finance login retains historical paid payout access
+PASS owner can aggregate and employee sees only assigned outlets
+PASS A cannot list B resources or read/confirm/export B bookings
+PASS A cannot mutate B product revisions or guessed resource IDs
+PASS A cannot read or mutate B commercial pricing, private files, or reviews
+PASS selected query scope drives resource creation and inventory preview/apply
+PASS owner access controls expose checked grants and revoke/regrant through APIs
+PASS live membership revocation overrides previously signed JWT
+PASS invitation acceptance commits requested grants and cannot self-upgrade
+PASS bank proof upload creates a pending account without exposing account secrets
+PASS shared verified bank assignment and cross-tenant rejection
+PASS different outlets settle separately in same week with shared banks
+PASS bank reassignment preserves issued payout snapshot and revoked bank blocks release
+PASS deactivation preserves existing booking history
+PASS cancellation liability keeps outlet attribution and reduces future settlement
+PASS bank revocation between maker request and checker approval blocks release
+PASS concurrent deactivation retains exactly one active/default outlet
+PASS two concurrent same-outlet batch requests preserve one weekly payout

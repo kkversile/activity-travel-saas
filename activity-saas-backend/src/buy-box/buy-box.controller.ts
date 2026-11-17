@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthUser } from '../common/auth.types';
@@ -28,7 +28,7 @@ export class BuyBoxAdminController {
 @Roles(UserRole.VENDOR)
 export class BuyBoxVendorController {
   constructor(private readonly service: BuyBoxService) {}
-  @Get('opportunities') @Permissions('buybox.vendor.view') opportunities(@CurrentUser() user: AuthUser) { return this.service.vendorOpportunities(user); }
-  @Get(':id') @Permissions('buybox.vendor.view') detail(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.vendorDetail(user, id); }
-  @Post(':id/bids') @Permissions('buybox.vendor.bid') submit(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: SubmitBuyBoxBidDto) { return this.service.submitBid(user, id, dto); }
+  @Get('opportunities') @Permissions('buybox.vendor.view') opportunities(@CurrentUser() user: AuthUser, @Query('outletId') outletId?: string) { return this.service.vendorOpportunities(user, outletId); }
+  @Get(':id') @Permissions('buybox.vendor.view') detail(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('outletId') outletId?: string) { return this.service.vendorDetail(user, id, outletId); }
+  @Post(':id/bids') @Permissions('buybox.vendor.bid') submit(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: SubmitBuyBoxBidDto, @Query('outletId') outletId?: string) { return this.service.submitBid(user, id, dto, outletId); }
 }

@@ -7,10 +7,12 @@ describe('email-first vendor access', () => {
   it('accepts a single-use team invitation and attaches the user to the existing vendor tenant', async () => {
     const token = 'A'.repeat(43);
     const invitedUser = { id: 'member-1', email: 'ops@example.com', fullName: 'Operations Member', role: UserRole.VENDOR, tenantId: 'tenant-existing', organizationRole: OrganizationRole.OPERATIONS, active: true, mustChangePassword: false };
-    const invitation = { id: 'invite-1', tenantId: 'tenant-existing', email: 'ops@example.com', role: OrganizationRole.OPERATIONS, status: 'INVITED', expiresAt: new Date(Date.now() + 60_000) };
+    const invitation = { id: 'invite-1', tenantId: 'tenant-existing', email: 'ops@example.com', role: OrganizationRole.OPERATIONS, status: 'INVITED', expiresAt: new Date(Date.now() + 60_000), outletAssignments: [{ outletId: 'outlet-a' }, { outletId: 'outlet-c' }] };
     const tx: any = {
       $queryRawUnsafe: jest.fn().mockResolvedValue([{ id: 'invite-1' }]),
       vendorTeamInvitation: { findFirst: jest.fn().mockResolvedValue(invitation), update: jest.fn().mockResolvedValue({}) },
+      userOutletAccess: { createMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      vendorOutlet: { findMany: jest.fn().mockResolvedValue([{ id: 'outlet-a' }, { id: 'outlet-c' }]) },
       user: { create: jest.fn().mockResolvedValue(invitedUser) },
       publicIdentifierSequence: { upsert: jest.fn().mockResolvedValue({ lastValue: 2 }) },
     };
@@ -22,6 +24,7 @@ describe('email-first vendor access', () => {
 
     expect(tx.user.create).toHaveBeenCalledWith({ data: expect.objectContaining({ tenantId: 'tenant-existing', email: 'ops@example.com', organizationRole: OrganizationRole.OPERATIONS, role: UserRole.VENDOR }) });
     expect(tx.vendorTeamInvitation.update).toHaveBeenCalledWith({ where: { id: 'invite-1' }, data: { status: 'ACCEPTED', acceptedAt: expect.any(Date), tokenHash: null } });
+    expect(tx.userOutletAccess.createMany).toHaveBeenCalledWith({ data: [{ tenantId: 'tenant-existing', userId: 'member-1', outletId: 'outlet-a', active: true }, { tenantId: 'tenant-existing', userId: 'member-1', outletId: 'outlet-c', active: true }], skipDuplicates: true });
     expect(tx.tenant).toBeUndefined();
     expect(result).toMatchObject({ accessToken: 'member-token', user: { tenantId: 'tenant-existing', organizationRole: OrganizationRole.OPERATIONS } });
   });
@@ -39,6 +42,7 @@ describe('email-first vendor access', () => {
       user: { create: jest.fn().mockResolvedValue(user), update: jest.fn().mockResolvedValue(user) },
       vendorTrustedDevice: { create: jest.fn().mockResolvedValue({ id: 'trusted-device-1' }), upsert: jest.fn().mockResolvedValue({ id: 'trusted-device-1' }), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
       vendorProfile: { create: jest.fn().mockResolvedValue({ id: 'profile-1' }) },
+      vendorOutlet: { create: jest.fn().mockResolvedValue({ id: 'outlet-main' }) },
       publicIdentifierSequence: { upsert: jest.fn().mockResolvedValue({ lastValue: 1 }) },
     };
     const prisma = {

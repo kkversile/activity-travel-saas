@@ -8,6 +8,7 @@ import { Permissions } from '../common/permissions.decorator';
 import { PermissionsGuard } from '../common/permissions.guard';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
+import { VendorOutletAccessService } from '../vendor-outlets/vendor-outlet-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CaptureSnapshotDto, IssueReasonDto, QualityVendorQueryDto, SupplierQualityPolicyDto, TierAssignmentDto, UpdateSupplierQualityPolicyDto } from './supplier-quality.dto';
 import { SupplierPerformanceService } from './supplier-performance.service';
@@ -18,10 +19,11 @@ import { SupplierQualityIssueService, SupplierQualityPolicyService, SupplierQual
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles(UserRole.VENDOR)
 export class VendorQualityController {
-  constructor(private readonly performance: SupplierPerformanceService, private readonly prisma: PrismaService) {}
-  @Get('performance') @Permissions('supplier.quality.view.own') performanceView(@CurrentUser() user: AuthUser) { return this.performance.computeCurrent(user.tenantId!); }
-  @Get('performance/history') @Permissions('supplier.quality.view.own') history(@CurrentUser() user: AuthUser) { return this.prisma.supplierQualitySnapshot.findMany({ where: { vendorTenantId: user.tenantId! }, orderBy: { generatedAt: 'desc' }, take: 24, include: { metricSnapshots: true, policy: { select: { id: true, versionNumber: true, name: true } } } }); }
-  @Get('performance/issues') @Permissions('supplier.quality.view.own') issues(@CurrentUser() user: AuthUser) { return this.prisma.supplierQualityIssue.findMany({ where: { vendorTenantId: user.tenantId!, status: { in: [SupplierQualityIssueStatus.OPEN, SupplierQualityIssueStatus.ACKNOWLEDGED] } }, orderBy: { openedAt: 'desc' } }); }
+  constructor(private readonly performance: SupplierPerformanceService, private readonly prisma: PrismaService, private readonly access: VendorOutletAccessService) {}
+  @Get('performance') @Permissions('supplier.quality.view.own') async performanceView(@CurrentUser() user: AuthUser, @Query('outletId') outletId?: string) { const scope = await this.access.resolve(user, outletId, { aggregateRead: true }); return this.performance.computeCurrent(user.tenantId!, new Date(), undefined, scope.outletIds); }
+  @Get('performance/history') @Permissions('supplier.quality.view.own') async history(@CurrentUser() user: AuthUser, @Query('outletId') outletId?: string) { const scope = await this.access.resolve(user, outletId, { aggregateRead: true }); if (!scope.aggregate) return []; return this.prisma.supplierQualitySnapshot.findMany({ where: { vendorTenantId: user.tenantId! }, orderBy: { generatedAt: 'desc' }, take: 24, include: { metricSnapshots: true, policy: { select: { id: true, versionNumber: true, name: true } } } }); }
+  @Get('performance/issues') @Permissions('supplier.quality.view.own') async issues(@CurrentUser() user: AuthUser, @Query('outletId') outletId?: string) { const scope = await this.access.resolve(user, outletId, { aggregateRead: true }); if (!scope.aggregate) return []; return this.prisma.supplierQualityIssue.findMany({ where: { vendorTenantId: user.tenantId!, status: { in: [SupplierQualityIssueStatus.OPEN, SupplierQualityIssueStatus.ACKNOWLEDGED] } }, orderBy: { openedAt: 'desc' } }); }
+
 }
 
 @Controller('admin/quality')

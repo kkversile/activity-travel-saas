@@ -1,0 +1,8 @@
+{
+  "capturedAt": "2026-11-17T03:09:56.294391+00:00",
+  "source": "live demo / activity_saas / PostgreSQL 15.20",
+  "method": "pg_dump15 custom format under postgres OS identity, default_transaction_read_only=on, no owner/ACL",
+  "bytes": 2571383,
+  "sha256": "af0fba4c97d88059e1a5518ab60f26dbee480199cc7ce932de830b8a37be6694",
+  "sourceWrites": false
+}

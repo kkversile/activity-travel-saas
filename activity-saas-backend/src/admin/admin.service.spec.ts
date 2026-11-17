@@ -204,7 +204,7 @@ describe('AdminService governance', () => {
 
   it('creates a vendor account with a random password and returns an invite requirement, never the password', async () => {
     const user = { id: 'vendor-user', email: 'vendor@example.com', fullName: 'Demo Vendor', role: UserRole.VENDOR, tenantId: 'tenant-1', active: true };
-    const tx: any = { tenant: { create: jest.fn().mockResolvedValue({ id: 'tenant-1' }) }, user: { create: jest.fn().mockResolvedValue(user) }, vendorProfile: { create: jest.fn().mockResolvedValue({}) }, publicIdentifierSequence: { upsert: jest.fn().mockResolvedValue({ lastValue: 1 }) } };
+    const tx: any = { tenant: { create: jest.fn().mockResolvedValue({ id: 'tenant-1' }) }, vendorOutlet: { create: jest.fn().mockResolvedValue({ id: 'outlet-1' }) }, user: { create: jest.fn().mockResolvedValue(user) }, vendorProfile: { create: jest.fn().mockResolvedValue({}) }, publicIdentifierSequence: { upsert: jest.fn().mockResolvedValue({ lastValue: 1 }) } };
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(null) }, $transaction: jest.fn((callback: any) => callback(tx)) };
     const service = new AdminService(prisma, { write: jest.fn() } as any, { enqueue: jest.fn() } as any);
     const result = await service.createVendor(actor, { vendorName: 'Demo Vendor', ownerName: 'Demo Owner', cityName: 'Malvan', mobile: '+919422018833', supplierType: 'DIRECT_OPERATOR', email: 'Vendor@example.com', commercialModel: 'COMMISSIONABLE', commissionPercent: 18, accountManagerName: 'Ops One' });

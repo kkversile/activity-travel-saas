@@ -1,0 +1,41 @@
+warn The configuration property `package.json#prisma` is deprecated and will be removed in Prisma 7. Please migrate to a Prisma config file (e.g., `prisma.config.ts`).
+For more information, see: https://pris.ly/prisma-config
+
+warn The configuration property `package.json#prisma` is deprecated and will be removed in Prisma 7. Please migrate to a Prisma config file (e.g., `prisma.config.ts`).
+For more information, see: https://pris.ly/prisma-config
+
+Environment variables loaded from .env
+warn The configuration property `package.json#prisma` is deprecated and will be removed in Prisma 7. Please migrate to a Prisma config file (e.g., `prisma.config.ts`).
+For more information, see: https://pris.ly/prisma-config
+
+{
+  "originalTablesVerified": 121,
+  "originalDataUnchanged": true,
+  "remaining": {
+    "products": 0,
+    "bookings": 0,
+    "resources": 0,
+    "batches": 0,
+    "payouts": 0,
+    "exports": 0,
+    "booking_events": 0,
+    "invalid_defaults": 0
+  },
+  "repeatCounts": {
+    "outlets": 11,
+    "banks": 1,
+    "grants": 0,
+    "invitation_grants": 0
+  },
+  "financial": {
+    "booking_amount": "70174.70",
+    "payout_amount": "358396.0000",
+    "event_vendor_amount": "29328.0000",
+    "unpaid_canonical_without_beneficiary": 0,
+    "assigned_beneficiaries": 1,
+    "explicit_vendor_wide_adjustments": 3
+  },
+  "historicalChecksumDifferences": [
+    "20261031120000_partner_hub_gap_models"
+  ]
+}

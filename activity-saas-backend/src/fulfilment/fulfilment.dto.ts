@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import { IsBoolean, IsDateString, IsEmail, IsEnum, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class FulfilmentQueryDto {
+  @IsOptional() @IsString() outletId?: string;
   @IsOptional() @IsEnum(BookingFulfilmentStatus) status?: BookingFulfilmentStatus;
   @IsOptional() @IsEnum(VoucherGenerationStatus) generationStatus?: VoucherGenerationStatus;
   @IsOptional() @IsEnum(FulfilmentMode) mode?: FulfilmentMode;

@@ -7,10 +7,11 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
+import { VendorOutletAccessService, OutletScope } from '../vendor-outlets/vendor-outlet-access.service';
 
 type ReportFormat = 'CSV' | 'XLSX' | 'PDF';
 type ReportSnapshot = { id: string; name: string; type: string; format: ReportFormat; createdAt: string; status: 'READY'; rows: string[][] };
-type ReportExportRequest = { type: string; from?: string; to?: string; format?: string };
+type ReportExportRequest = { type: string; from?: string; to?: string; format?: string; outletId?: string };
 type LocationCandidate = { id: string; name: string; address: string; lat: number; lon: number; provider: string; providerPlaceId?: string; sourceUrl?: string };
 const REPORT_TYPES = ['BOOKINGS', 'GUEST_MANIFEST', 'PAYOUTS', 'COMMISSION_INVOICES', 'TDS_TCS_CERTIFICATES', 'PRODUCTS', 'PRODUCT_PERFORMANCE', 'REVIEWS', 'CANCELLATIONS'] as const;
 const VENDOR_NOTIFICATION_PREFERENCE_KEYS = ['bookingEmail', 'bookingWhatsapp', 'bookingSms', 'cancellationEmail', 'cancellationWhatsapp', 'cancellationSms', 'payoutEmail', 'payoutWhatsapp', 'payoutSms', 'documentExpiryEmail', 'documentExpiryWhatsapp', 'documentExpirySms', 'reviewEmail', 'reviewWhatsapp', 'reviewSms'] as const;
@@ -27,7 +28,13 @@ const DEFAULT_TAXONOMY = [
 
 @Injectable()
 export class VendorToolsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly outletAccess?: VendorOutletAccessService) {}
+
+  private async resolveOutlet(user: AuthUser, outletId?: string, aggregateRead = false): Promise<OutletScope> {
+    if (this.outletAccess) return this.outletAccess.resolve(user, outletId, { aggregateRead, mutation: !aggregateRead });
+    const tenantId = requireTenant(user);
+    return { tenantId, outletIds: outletId ? [outletId] : null, aggregate: !outletId };
+  }
 
   private requireVendorOwner(user: AuthUser) {
     const tenantId = requireTenant(user);
@@ -68,25 +75,25 @@ export class VendorToolsService {
     return payload.flatMap((item) => { const lat = Number(item.lat); const lon = Number(item.lon); return Number.isFinite(lat) && Number.isFinite(lon) ? [{ id: String(item.place_id), name: item.display_name.split(',')[0], address: item.display_name, lat, lon, provider: 'OPENSTREETMAP_NOMINATIM', sourceUrl: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=18/${lat}/${lon}` }] : []; });
   }
 
-  async saveLocation(user: AuthUser, input: Record<string, unknown>) {
-    const tenantId = requireTenant(user); const revisionId = String(input.productRevisionId || '');
-    const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } }, select: { id: true } });
+  async saveLocation(user: AuthUser, input: Record<string, unknown>, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId); const revisionId = String(input.productRevisionId || '');
+    const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId: scope.tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) } }, select: { id: true } });
     if (!revision) throw new NotFoundException('Product revision not found in this vendor workspace.');
     const lat = input.lat == null || input.lat === '' ? null : Number(input.lat); const lon = input.lon == null || input.lon === '' ? null : Number(input.lon);
     if ((lat !== null && !Number.isFinite(lat)) || (lon !== null && !Number.isFinite(lon))) throw new BadRequestException('Latitude and longitude must be valid numbers.');
     return this.prisma.productLocationVerification.upsert({ where: { productRevisionId: revisionId }, update: { address: String(input.address || '') || null, lat, lon, meetingPoint: String(input.meetingPoint || '') || null, provider: String(input.provider || '') || null, providerPlaceId: String(input.providerPlaceId || '') || null, sourceUrl: String(input.sourceUrl || '') || null, verifiedAt: input.verifiedAt ? new Date(String(input.verifiedAt)) : new Date() }, create: { productRevisionId: revisionId, address: String(input.address || '') || null, lat, lon, meetingPoint: String(input.meetingPoint || '') || null, provider: String(input.provider || '') || null, providerPlaceId: String(input.providerPlaceId || '') || null, sourceUrl: String(input.sourceUrl || '') || null, verifiedAt: input.verifiedAt ? new Date(String(input.verifiedAt)) : new Date() } });
   }
 
-  async listItinerary(user: AuthUser, revisionId: string) {
-    const tenantId = requireTenant(user);
-    const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } }, select: { id: true } });
+  async listItinerary(user: AuthUser, revisionId: string, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId, true);
+    const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId: scope.tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) } }, select: { id: true } });
     if (!revision) throw new NotFoundException('Product revision not found in this vendor workspace.');
     return this.prisma.itineraryStop.findMany({ where: { productRevisionId: revisionId }, orderBy: { sequence: 'asc' } });
   }
 
-  async replaceItinerary(user: AuthUser, revisionId: string, input: Record<string, unknown>) {
-    const tenantId = requireTenant(user);
-    const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId } }, select: { id: true } });
+  async replaceItinerary(user: AuthUser, revisionId: string, input: Record<string, unknown>, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId); const tenantId = scope.tenantId;
+    const revision = await this.prisma.productRevision.findFirst({ where: { id: revisionId, product: { tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) } }, select: { id: true } });
     if (!revision) throw new NotFoundException('Product revision not found in this vendor workspace.');
     const rawStops = Array.isArray(input.stops) ? input.stops : [];
     const stops = rawStops.map((raw, index) => {
@@ -99,12 +106,12 @@ export class VendorToolsService {
     });
     if (stops.some((stop) => (stop.stayDurationMinutes !== null && !Number.isFinite(stop.stayDurationMinutes)) || (stop.travelTimeToNextMinutes !== null && !Number.isFinite(stop.travelTimeToNextMinutes)))) throw new BadRequestException('Itinerary durations must be valid numbers.');
     await this.prisma.$transaction([this.prisma.itineraryStop.deleteMany({ where: { productRevisionId: revisionId } }), ...(stops.length ? [this.prisma.itineraryStop.createMany({ data: stops })] : [])]);
-    return this.listItinerary(user, revisionId);
+    return this.listItinerary(user, revisionId, outletId);
   }
 
   async listTeam(user: AuthUser) {
     const tenantId = requireTenant(user);
-    const [members, invitations] = await Promise.all([this.prisma.user.findMany({ where: { tenantId, role: 'VENDOR' }, select: { id: true, email: true, fullName: true, organizationRole: true, active: true, lastLoginAt: true, createdAt: true } }), this.prisma.vendorTeamInvitation.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } })]);
+    const [members, invitations] = await Promise.all([this.prisma.user.findMany({ where: { tenantId, role: 'VENDOR' }, select: { id: true, email: true, fullName: true, organizationRole: true, active: true, lastLoginAt: true, createdAt: true, outletAccess: { where: { active: true }, select: { outletId: true, active: true, outlet: { select: { outletCode: true, name: true, status: true } } } } } }), this.prisma.vendorTeamInvitation.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' }, include: { outletAssignments: { include: { outlet: { select: { id: true, outletCode: true, name: true } } } } } })]);
     return { members, invitations };
   }
 
@@ -118,22 +125,55 @@ export class VendorToolsService {
       if (id === user.sub) throw new BadRequestException('You cannot change your own workspace role.');
       updates.organizationRole = role;
     }
-    if (updates.active === undefined && updates.organizationRole === undefined) throw new BadRequestException('Provide active or organizationRole.');
+    const outletIds = Array.isArray(input.outletIds) ? [...new Set(input.outletIds.map((value) => String(value)))] : undefined;
+    if (updates.active === undefined && updates.organizationRole === undefined && outletIds === undefined) throw new BadRequestException('Provide active, organizationRole, or outletIds.');
     if (id === user.sub && updates.active === false) throw new BadRequestException('You cannot deactivate your own account.');
     const member = await this.prisma.user.findFirst({ where: { id, tenantId, role: 'VENDOR' }, select: { id: true } });
     if (!member) throw new NotFoundException('Team member not found in this vendor workspace.');
-    return this.prisma.user.update({ where: { id }, data: updates, select: { id: true, email: true, fullName: true, organizationRole: true, active: true, lastLoginAt: true, createdAt: true } });
+    if (outletIds && updates.organizationRole === 'OWNER') throw new BadRequestException('Owner access is automatic and cannot be represented as outlet assignments.');
+    if (outletIds) {
+      const valid = await this.prisma.vendorOutlet.findMany({ where: { tenantId, id: { in: outletIds }, status: 'ACTIVE' }, select: { id: true } });
+      if (valid.length !== outletIds.length || !outletIds.length) throw new BadRequestException('Choose one or more active outlets in this vendor workspace.');
+    }
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = Object.keys(updates).length
+        ? await tx.user.update({ where: { id }, data: updates, select: { id: true, email: true, fullName: true, organizationRole: true, active: true, lastLoginAt: true, createdAt: true } })
+        : await tx.user.findFirst({ where: { id, tenantId }, select: { id: true, email: true, fullName: true, organizationRole: true, active: true, lastLoginAt: true, createdAt: true } });
+      if (outletIds) {
+        await tx.userOutletAccess.deleteMany({ where: { tenantId, userId: id } });
+        await tx.userOutletAccess.createMany({ data: outletIds.map((outletId) => ({ tenantId, userId: id, outletId, active: true })) });
+      } else if (updates.organizationRole === 'OWNER') {
+        await tx.userOutletAccess.updateMany({ where: { tenantId, userId: id }, data: { active: false } });
+      }
+      await tx.auditLog.create({ data: { tenantId, actorId: user.sub, actorRole: user.role, action: 'VENDOR_TEAM_MEMBER_UPDATED', entityType: 'User', entityId: id, afterState: { ...updates, ...(outletIds ? { outletIds } : {}) } } });
+      return updated;
+    });
+    return result;
   }
 
   async inviteTeamMember(user: AuthUser, input: Record<string, unknown>) {
-    const tenantId = this.requireVendorOwner(user); const email = String(input.email || '').trim().toLowerCase(); const role = String(input.role || 'VIEWER').toUpperCase();
+    const tenantId = this.requireVendorOwner(user);
+    const email = String(input.email || '').trim().toLowerCase();
+    const role = String(input.role || 'VIEWER').toUpperCase();
     if (!/^\S+@\S+\.\S+$/.test(email) || !['OWNER', 'CATALOGUE', 'OPERATIONS', 'FINANCE', 'VIEWER'].includes(role)) throw new BadRequestException('Provide a valid email and organization role.');
-    const existing = await this.prisma.user.findFirst({ where: { tenantId, email }, select: { id: true } });
-    if (existing) throw new BadRequestException('That email already belongs to this workspace.');
     const inviteToken = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(inviteToken).digest('hex');
-    const invitation = await this.prisma.vendorTeamInvitation.upsert({ where: { tenantId_email: { tenantId, email } }, update: { role: role as any, status: 'INVITED', tokenHash, acceptedAt: null, expiresAt: new Date(Date.now() + 7 * 86400000) }, create: { tenantId, email, role: role as any, tokenHash, expiresAt: new Date(Date.now() + 7 * 86400000) } });
-    return { ...invitation, inviteToken };
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT "id" FROM "Tenant" WHERE "id" = $1 FOR UPDATE', tenantId);
+      if (await tx.user.findUnique({ where: { email }, select: { id: true } })) throw new BadRequestException('That email already belongs to an account.');
+      let outletIds = Array.isArray(input.outletIds) ? [...new Set(input.outletIds.map(String))] : [];
+      if (role === 'OWNER' && outletIds.length) throw new BadRequestException('Owner access is automatic.');
+      if (role !== 'OWNER') {
+        const outlets = await tx.vendorOutlet.findMany({ where: { tenantId, status: 'ACTIVE' }, select: { id: true, name: true, outletCode: true } });
+        if (!outletIds.length && outlets.length === 1) outletIds = [outlets[0].id];
+        if (!outletIds.length || outletIds.some((id) => !outlets.some((outlet) => outlet.id === id))) throw new BadRequestException('Choose one or more active outlets in this vendor workspace.');
+      }
+      const invitation = await tx.vendorTeamInvitation.upsert({ where: { tenantId_email: { tenantId, email } }, update: { role: role as any, status: 'INVITED', tokenHash, acceptedAt: null, expiresAt: new Date(Date.now() + 7 * 86400000) }, create: { tenantId, email, role: role as any, tokenHash, expiresAt: new Date(Date.now() + 7 * 86400000) } });
+      await tx.vendorTeamInvitationOutlet.deleteMany({ where: { tenantId, invitationId: invitation.id } });
+      if (outletIds.length) await tx.vendorTeamInvitationOutlet.createMany({ data: outletIds.map((outletId) => ({ tenantId, invitationId: invitation.id, outletId })) });
+      await tx.auditLog.create({ data: { tenantId, actorId: user.sub, actorRole: user.role, action: 'VENDOR_TEAM_INVITED', entityType: 'VendorTeamInvitation', entityId: invitation.id, afterState: { email, role, outletIds } } });
+      return { ...invitation, outletAssignments: outletIds.map((id) => ({ id })), inviteToken };
+    });
   }
 
   async updateTeamInvitation(user: AuthUser, id: string, input: Record<string, unknown>) {
@@ -164,21 +204,22 @@ export class VendorToolsService {
     return value;
   }
 
-  async listReportSchedules(user: AuthUser) {
-    const items = await this.prisma.reportSchedule.findMany({ where: { tenantId: requireTenant(user) }, orderBy: { createdAt: 'desc' } });
+  async listReportSchedules(user: AuthUser, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId, true);
+    const items = await this.prisma.reportSchedule.findMany({ where: { tenantId: scope.tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, orderBy: { createdAt: 'desc' } });
     return { items, deliveryAvailable: this.reportDeliveryAvailable() };
   }
 
-  async listReports(user: AuthUser) {
-    const tenantId = requireTenant(user);
-    const rows = await this.prisma.vendorReportExport.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' }, take: 20 });
+  async listReports(user: AuthUser, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId, true); const tenantId = scope.tenantId;
+    const rows = await this.prisma.vendorReportExport.findMany({ where: { tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, orderBy: { createdAt: 'desc' }, take: 20 });
     if (rows.length) return rows.map(({ rows: _data, ...report }) => ({ ...report, downloadUrl: `/api/vendor/reports/${report.id}/download` }));
     // Read pre-migration exports until tenants have generated their first normalized export.
-    return (await this.readReports(tenantId)).map(({ rows: _data, ...report }) => ({ ...report, downloadUrl: `/api/vendor/reports/${report.id}/download` }));
+    return (scope.aggregate ? await this.readReports(tenantId) : []).map(({ rows: _data, ...report }) => ({ ...report, downloadUrl: `/api/vendor/reports/${report.id}/download` }));
   }
 
   async enqueueReport(user: AuthUser, input: ReportExportRequest) {
-    const tenantId = requireTenant(user);
+    const scope = await this.resolveOutlet(user, input.outletId, true); const tenantId = scope.tenantId;
     const normalized = String(input.type || '').toUpperCase();
     if (!REPORT_TYPES.includes(normalized as typeof REPORT_TYPES[number])) throw new BadRequestException('Unsupported report type.');
     const format = String(input.format || 'CSV').toUpperCase();
@@ -188,7 +229,7 @@ export class VendorToolsService {
     if (toDate && /^\d{4}-\d{2}-\d{2}$/.test(String(input.to))) toDate.setUTCHours(23, 59, 59, 999);
     if ((fromDate && Number.isNaN(fromDate.getTime())) || (toDate && Number.isNaN(toDate.getTime())) || (fromDate && toDate && toDate < fromDate)) throw new BadRequestException('Report date range is invalid.');
     const name = normalized === 'COMMISSION_INVOICES' ? 'Commission and settlement report' : `${normalized[0] + normalized.slice(1).toLowerCase()} report`;
-    const report = await this.prisma.vendorReportExport.create({ data: { tenantId, name, type: normalized, format, fromDate, toDate, status: 'PENDING' } });
+    const report = await this.prisma.vendorReportExport.create({ data: { tenantId, outletId: scope.outletIds?.[0] || null, name, type: normalized, format, fromDate, toDate, status: 'PENDING' } });
     void this.processReportExport(report.id, tenantId).catch(() => undefined);
     const { rows: _rows, error: _error, ...publicReport } = report;
     return { ...publicReport, downloadUrl: `/api/vendor/reports/${report.id}/download` };
@@ -204,10 +245,10 @@ export class VendorToolsService {
     const claim = await this.prisma.vendorReportExport.updateMany({ where: { id, tenantId, status: 'PENDING' }, data: { status: 'PROCESSING', startedAt: new Date(), error: null } });
     if (!claim.count) return;
     try {
-      const queued = await this.prisma.vendorReportExport.findFirst({ where: { id, tenantId }, select: { type: true, format: true, fromDate: true, toDate: true } });
+      const queued = await this.prisma.vendorReportExport.findFirst({ where: { id, tenantId }, select: { type: true, format: true, fromDate: true, toDate: true, outletId: true } });
       if (!queued) return;
-      const workerUser = { tenantId, sub: 'report-export-worker', role: 'VENDOR' } as AuthUser;
-      const snapshot = await this.createReport(workerUser, { type: queued.type, format: queued.format, from: queued.fromDate?.toISOString(), to: queued.toDate?.toISOString() });
+      const workerUser = { tenantId, sub: 'report-export-worker', role: 'VENDOR', organizationRole: 'OWNER' } as AuthUser;
+      const snapshot = await this.createReport(workerUser, { type: queued.type, format: queued.format, from: queued.fromDate?.toISOString(), to: queued.toDate?.toISOString(), outletId: queued.outletId || undefined });
       await this.prisma.vendorReportExport.update({ where: { id }, data: { status: 'READY', rows: snapshot.rows, completedAt: new Date() } });
     } catch {
       await this.prisma.vendorReportExport.update({ where: { id }, data: { status: 'FAILED', error: 'Report generation failed. Please retry.', completedAt: new Date() } });
@@ -215,9 +256,9 @@ export class VendorToolsService {
   }
 
   async createReportSchedule(user: AuthUser, input: Record<string, unknown>) {
-    const tenantId = requireTenant(user); const reportName = String(input.reportName || '').trim(); const reportType = String(input.reportType || '').toUpperCase(); const frequency = String(input.frequency || '').toUpperCase(); const recipient = String(input.recipient || '').trim(); const runTime = String(input.runTime || '').trim();
+    const scope = await this.resolveOutlet(user, input.outletId ? String(input.outletId) : undefined); const tenantId = scope.tenantId; const reportName = String(input.reportName || '').trim(); const reportType = String(input.reportType || '').toUpperCase(); const frequency = String(input.frequency || '').toUpperCase(); const recipient = String(input.recipient || '').trim(); const runTime = String(input.runTime || '').trim();
     if (!reportName || !REPORT_TYPES.includes(reportType as typeof REPORT_TYPES[number]) || !['DAILY', 'WEEKLY', 'MONTHLY'].includes(frequency) || !/^\S+@\S+\.\S+$/.test(recipient) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(runTime)) throw new BadRequestException('Provide a valid report name, type, frequency, email recipient and 24-hour run time.');
-    return this.prisma.reportSchedule.create({ data: { tenantId, reportName, reportType, frequency, recipient, runTime, status: this.reportDeliveryAvailable() ? 'ACTIVE' : 'PAUSED' } });
+    return this.prisma.reportSchedule.create({ data: { tenantId, outletId: scope.outletIds?.[0] || null, reportName, reportType, frequency, recipient, runTime, status: this.reportDeliveryAvailable() ? 'ACTIVE' : 'PAUSED' } });
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -239,11 +280,11 @@ export class VendorToolsService {
       }
       try {
         const from = new Date(now); from.setUTCDate(from.getUTCDate() - (schedule.frequency === 'DAILY' ? 1 : schedule.frequency === 'WEEKLY' ? 7 : 30));
-        const workerUser = { tenantId: schedule.tenantId, sub: 'scheduled-report-worker', role: 'VENDOR' } as AuthUser;
-        const report = await this.createReport(workerUser, { type: schedule.reportType, from: from.toISOString(), to: now.toISOString(), format: 'CSV' });
+        const workerUser = { tenantId: schedule.tenantId, sub: 'scheduled-report-worker', role: 'VENDOR', organizationRole: 'OWNER' } as AuthUser;
+        const report = await this.createReport(workerUser, { type: schedule.reportType, from: from.toISOString(), to: now.toISOString(), format: 'CSV', outletId: schedule.outletId || undefined });
         await this.prisma.vendorReportExport.upsert({
           where: { id: report.id },
-          create: { id: report.id, tenantId: schedule.tenantId, name: report.name, type: report.type, format: report.format, fromDate: from, toDate: now, status: 'READY', rows: report.rows, startedAt: now, completedAt: now },
+          create: { id: report.id, tenantId: schedule.tenantId, outletId: schedule.outletId, name: report.name, type: report.type, format: report.format, fromDate: from, toDate: now, status: 'READY', rows: report.rows, startedAt: now, completedAt: now },
           update: { status: 'READY', rows: report.rows, error: null, completedAt: now },
         });
         const attachment = await this.downloadReport(workerUser, report.id);
@@ -255,24 +296,24 @@ export class VendorToolsService {
     }
   }
 
-  async updateReportSchedule(user: AuthUser, id: string, input: Record<string, unknown>) {
-    const tenantId = requireTenant(user); const schedule = await this.prisma.reportSchedule.findFirst({ where: { id, tenantId }, select: { id: true } }); if (!schedule) throw new NotFoundException('Report schedule not found.');
+  async updateReportSchedule(user: AuthUser, id: string, input: Record<string, unknown>, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId, true); const tenantId = scope.tenantId; const schedule = await this.prisma.reportSchedule.findFirst({ where: { id, tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, select: { id: true } }); if (!schedule) throw new NotFoundException('Report schedule not found.');
     const status = String(input.status || '').toUpperCase(); if (!['ACTIVE', 'PAUSED'].includes(status)) throw new BadRequestException('Invalid report schedule status.');
     if (status === 'ACTIVE' && !this.reportDeliveryAvailable()) throw new ServiceUnavailableException('Scheduled report delivery is unavailable until the scheduler and email delivery are configured.');
     return this.prisma.reportSchedule.update({ where: { id }, data: { status } });
   }
 
-  async listPromotions(user: AuthUser) {
-    const tenantId = requireTenant(user);
-    const rows = await this.prisma.promotion.findMany({ where: { product: { tenantId } }, include: { product: { include: { currentRevision: { select: { productName: true } } } } }, orderBy: [{ active: 'desc' }, { startsAt: 'desc' }] });
+  async listPromotions(user: AuthUser, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId, true); const tenantId = scope.tenantId;
+    const rows = await this.prisma.promotion.findMany({ where: { product: { tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) } }, include: { product: { include: { currentRevision: { select: { productName: true } } } } }, orderBy: [{ active: 'desc' }, { startsAt: 'desc' }] });
     return Promise.all(rows.map(async (row) => {
       const impact = await this.prisma.$queryRaw<Array<{ bookings: bigint | number; sales: string | number | null }>>`SELECT COUNT(*)::bigint AS "bookings", COALESCE(SUM(s."finalAmount"), 0)::text AS "sales" FROM "BookingEconomicsSnapshot" s JOIN "Booking" b ON b."id" = s."bookingId" WHERE s."promotionContext"->>'vendorPromotionId' = ${row.id} AND b."productId" = ${row.productId}`;
       return { id: row.id, name: row.name, productId: row.productId, productName: row.product.currentRevision?.productName || row.product.productCode, promotionType: row.promotionType, discountPercent: Number(row.discountPercent), discountAmount: row.discountAmount == null ? null : Number(row.discountAmount), conditionValue: row.conditionValue, startsAt: row.startsAt, endsAt: row.endsAt, bookingStartsAt: row.bookingStartsAt, bookingEndsAt: row.bookingEndsAt, validWeekdays: row.validWeekdays, stackWithPlatform: row.stackWithPlatform, fundingOwner: row.fundingOwner, maxDiscountedBookings: row.maxDiscountedBookings, bookings: Number(impact[0]?.bookings || 0), sales: Number(impact[0]?.sales || 0), impactTrackingAvailable: true, active: row.active, draft: row.draft };
     }));
   }
 
-  async createPromotion(user: AuthUser, input: Record<string, unknown>) {
-    const tenantId = requireTenant(user);
+  async createPromotion(user: AuthUser, input: Record<string, unknown>, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId); const tenantId = scope.tenantId;
     const productIds = Array.isArray(input.productIds) ? [...new Set(input.productIds.map(String).filter(Boolean))] : input.productId ? [String(input.productId)] : [];
     const draft = Boolean(input.draft);
     const name = String(input.name || '').trim() || (draft ? 'Untitled promotion' : '');
@@ -300,7 +341,7 @@ export class VendorToolsService {
     const datesInvalid = (startsAt && Number.isNaN(startsAt.getTime())) || (endsAt && Number.isNaN(endsAt.getTime())) || (startsAt && endsAt && endsAt <= startsAt);
     const conditionInvalid = requiresCondition && (draft ? conditionValue != null && (!Number.isInteger(conditionValue) || conditionValue < 1) : (!Number.isInteger(conditionValue) || (conditionValue as number) < 1));
     if (!productIds.length || !supportedType || invalidDiscount || datesInvalid || (!draft && (!name || !startsAt || !endsAt)) || conditionInvalid || (maxDiscountedBookings != null && (!Number.isInteger(maxDiscountedBookings) || maxDiscountedBookings < 1)) || (bookingStartsAt && Number.isNaN(bookingStartsAt.getTime())) || (bookingEndsAt && Number.isNaN(bookingEndsAt.getTime())) || (bookingStartsAt && bookingEndsAt && bookingEndsAt <= bookingStartsAt) || validWeekdays.some((day) => !['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].includes(day))) throw new BadRequestException('Choose a product and provide valid promotion details. Published promotions require a discount and activity date range.');
-    const products = await this.prisma.product.findMany({ where: { id: { in: productIds }, tenantId }, select: { id: true } });
+    const products = await this.prisma.product.findMany({ where: { id: { in: productIds }, tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, select: { id: true } });
     if (products.length !== productIds.length) throw new NotFoundException('One or more products were not found in this vendor workspace.');
     const overlap = draft || !startsAt || !endsAt ? null : await this.prisma.promotion.findFirst({ where: { productId: { in: productIds }, active: true, draft: false, startsAt: { lt: endsAt }, endsAt: { gt: startsAt } }, select: { id: true } });
     if (overlap) throw new BadRequestException('An active promotion already overlaps this product and activity window.');
@@ -308,9 +349,9 @@ export class VendorToolsService {
     return { ids: rows.map((row) => row.id) };
   }
 
-  async updatePromotion(user: AuthUser, id: string, input: Record<string, unknown>) {
-    const tenantId = requireTenant(user);
-    const existing = await this.prisma.promotion.findFirst({ where: { id, product: { tenantId } }, select: { id: true, productId: true, draft: true, startsAt: true, endsAt: true } });
+  async updatePromotion(user: AuthUser, id: string, input: Record<string, unknown>, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId); const tenantId = scope.tenantId;
+    const existing = await this.prisma.promotion.findFirst({ where: { id, product: { tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) } }, select: { id: true, productId: true, draft: true, startsAt: true, endsAt: true } });
     if (!existing) throw new NotFoundException('Promotion not found.');
     if (typeof input.active === 'boolean') {
       if (input.active && existing.draft) throw new BadRequestException('Edit and complete the promotion draft before publishing it.');
@@ -363,8 +404,8 @@ export class VendorToolsService {
     return this.prisma.globalSetting.create({ data: { tenantId, key: 'vendor_reports', value: { reports } } });
   }
 
-  async createReport(user: AuthUser, input: { type: string; from?: string; to?: string; format?: string }) {
-    const tenantId = requireTenant(user); const normalized = String(input.type || '').toUpperCase();
+  async createReport(user: AuthUser, input: { type: string; from?: string; to?: string; format?: string; outletId?: string }) {
+    const scope = await this.resolveOutlet(user, input.outletId, true); const tenantId = scope.tenantId; const normalized = String(input.type || '').toUpperCase();
     if (!REPORT_TYPES.includes(normalized as typeof REPORT_TYPES[number])) throw new BadRequestException('Unsupported report type.');
     const format = String(input.format || 'CSV').toUpperCase();
     if (!['CSV', 'XLSX', 'PDF'].includes(format)) throw new BadRequestException('Unsupported report format.');
@@ -374,29 +415,30 @@ export class VendorToolsService {
     if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime())) || (from && to && to < from)) throw new BadRequestException('Report date range is invalid.');
     const serviceDate = from || to ? { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } : undefined;
     const rows: string[][] = [];
+    const outletWhere = scope.outletIds ? { outletId: { in: scope.outletIds } } : {};
     if (normalized === 'BOOKINGS') {
-      const bookings = await this.prisma.booking.findMany({ where: { vendorTenantId: tenantId, ...(serviceDate ? { serviceDate } : {}) }, orderBy: { serviceDate: 'desc' }, take: 500, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } } } });
+      const bookings = await this.prisma.booking.findMany({ where: { vendorTenantId: tenantId, ...outletWhere, ...(serviceDate ? { serviceDate } : {}) }, orderBy: { serviceDate: 'desc' }, take: 500, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } } } });
       rows.push(['Booking', 'Product', 'Service date', 'Status', 'Pax', 'Amount']);
       for (const booking of bookings) rows.push([booking.bookingCode, booking.product.currentRevision?.productName || booking.product.productCode, booking.serviceDate.toISOString().slice(0, 10), booking.status, String(booking.pax), String(booking.amount)]);
     } else if (normalized === 'PRODUCTS') {
-      const products = await this.prisma.product.findMany({ where: { tenantId }, orderBy: { updatedAt: 'desc' }, include: { currentRevision: { select: { productName: true, cityName: true } } } });
+      const products = await this.prisma.product.findMany({ where: { tenantId, ...outletWhere }, orderBy: { updatedAt: 'desc' }, include: { currentRevision: { select: { productName: true, cityName: true } } } });
       rows.push(['Product code', 'Name', 'Destination', 'Status', 'Updated']);
       for (const product of products) rows.push([product.productCode, product.currentRevision?.productName || '', product.currentRevision?.cityName || '', product.status, product.updatedAt.toISOString()]);
     } else if (normalized === 'PAYOUTS') {
       const payoutProductInclude = { select: { productCode: true, currentRevision: { select: { productName: true } } } };
       const batches = await this.prisma.settlementBatch.findMany({
-        where: { vendorTenantId: tenantId, ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) },
+        where: { vendorTenantId: tenantId, ...outletWhere, ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) },
         orderBy: { createdAt: 'desc' }, take: 500,
         include: { lines: { include: { booking: { include: { product: payoutProductInclude } } } } },
       });
       rows.push(['Payout batch', 'Activity period', 'Booking', 'Product', 'Currency', 'Gross booking value', 'Adjustments', 'Net payout', 'Status']);
       for (const batch of batches) for (const line of batch.lines) rows.push([batch.batchCode, `${batch.periodFrom?.toISOString().slice(0, 10) || ''} – ${batch.periodTo?.toISOString().slice(0, 10) || ''}`, line.booking?.bookingCode || line.lineType, line.booking?.product.currentRevision?.productName || line.booking?.product.productCode || line.lineType, line.currency, String(line.grossBookingValue), String(line.adjustmentAmount), String(line.netVendorPayable), batch.status]);
     } else if (normalized === 'COMMISSION_INVOICES') {
-      const invoices = await this.prisma.commissionInvoice.findMany({ where: { vendorTenantId: tenantId, ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) }, orderBy: { createdAt: 'desc' }, take: 500, include: { settlementBatch: { select: { batchCode: true } } } });
+      const invoices = await this.prisma.commissionInvoice.findMany({ where: { vendorTenantId: tenantId, ...(scope.outletIds ? { settlementBatch: { outletId: { in: scope.outletIds } } } : {}), ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) }, orderBy: { createdAt: 'desc' }, take: 500, include: { settlementBatch: { select: { batchCode: true } } } });
       rows.push(['Invoice number', 'Financial year', 'Settlement batch', 'Period from', 'Period to', 'Currency', 'Commission subtotal', 'GST on commission', 'Invoice total', 'Status', 'Issued at']);
       for (const invoice of invoices) rows.push([invoice.invoiceNumber, invoice.financialYear, invoice.settlementBatch.batchCode, invoice.periodFrom?.toISOString().slice(0, 10) || '', invoice.periodTo?.toISOString().slice(0, 10) || '', invoice.currency, String(invoice.commissionSubtotal), String(invoice.gstOnCommissionAmount), String(invoice.totalAmount), invoice.status, invoice.issuedAt?.toISOString() || '']);
     } else if (normalized === 'TDS_TCS_CERTIFICATES') {
-      const batches = await this.prisma.settlementBatch.findMany({ where: { vendorTenantId: tenantId, ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) }, orderBy: { createdAt: 'desc' }, take: 500, include: { lines: { select: { currency: true, components: true, booking: { select: { bookingCode: true } } } } } });
+      const batches = await this.prisma.settlementBatch.findMany({ where: { vendorTenantId: tenantId, ...outletWhere, ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) }, orderBy: { createdAt: 'desc' }, take: 500, include: { lines: { select: { currency: true, components: true, booking: { select: { bookingCode: true } } } } } });
       rows.push(['Settlement batch', 'Booking', 'Currency', 'GST on commission', 'TDS 194-O', 'GST TCS', 'Status', 'Created']);
       for (const batch of batches) for (const line of batch.lines) {
         const components = line.components && typeof line.components === 'object' ? line.components as Record<string, unknown> : {};
@@ -405,11 +447,11 @@ export class VendorToolsService {
     } else if (normalized === 'PRODUCT_PERFORMANCE') {
       const viewCounts = await this.prisma.productViewEvent.groupBy({
         by: ['productId'],
-        where: { vendorTenantId: tenantId, ...(from || to ? { viewedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) },
+        where: { vendorTenantId: tenantId, ...(scope.outletIds ? { productId: { in: (await this.prisma.product.findMany({ where: { tenantId, ...outletWhere }, select: { id: true } })).map((item) => item.id) } } : {}), ...(from || to ? { viewedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) },
         _count: { _all: true },
       });
-      const viewedProducts = viewCounts.length ? await this.prisma.product.findMany({ where: { tenantId, id: { in: viewCounts.map((view) => view.productId) } }, select: { id: true, productCode: true, currentRevision: { select: { productName: true } } } }) : [];
-      const bookings = await this.prisma.booking.findMany({ where: { vendorTenantId: tenantId, ...(serviceDate ? { serviceDate } : {}) }, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } } } });
+      const viewedProducts = viewCounts.length ? await this.prisma.product.findMany({ where: { tenantId, ...outletWhere, id: { in: viewCounts.map((view) => view.productId) } }, select: { id: true, productCode: true, currentRevision: { select: { productName: true } } } }) : [];
+      const bookings = await this.prisma.booking.findMany({ where: { vendorTenantId: tenantId, ...outletWhere, ...(serviceDate ? { serviceDate } : {}) }, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } } } });
       const grouped = new Map<string, { name: string; views: number; bookings: number; guests: number; revenue: number }>();
       const viewedProductById = new Map(viewedProducts.map((product) => [product.id, product]));
       for (const view of viewCounts) {
@@ -425,7 +467,7 @@ export class VendorToolsService {
       for (const [code, item] of grouped) rows.push([code, item.name, String(item.views), String(item.bookings), String(item.guests), item.views ? `${((item.bookings / item.views) * 100).toFixed(2)}%` : '—', item.revenue.toFixed(2)]);
     } else if (normalized === 'REVIEWS') {
       const reviews = await this.prisma.vendorReview.findMany({
-        where: { tenantId, status: 'PUBLISHED', ...(from || to ? { reviewedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) },
+        where: { tenantId, ...(scope.outletIds ? { product: { outletId: { in: scope.outletIds } } } : {}), status: 'PUBLISHED', ...(from || to ? { reviewedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}) },
         orderBy: { reviewedAt: 'desc' }, take: 1000,
         include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } } },
       });
@@ -437,7 +479,7 @@ export class VendorToolsService {
         review.repliedAt?.toISOString().slice(0, 10) || '', review.source,
       ]);
     } else {
-      const bookings = await this.prisma.booking.findMany({ where: { vendorTenantId: tenantId, ...(serviceDate ? { serviceDate } : {}), ...(normalized === 'CANCELLATIONS' ? { status: 'CANCELLED' } : {}) }, orderBy: { serviceDate: 'desc' }, take: 500, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } }, travellers: { orderBy: { sequence: 'asc' } }, operationalSnapshot: true, cancellation: { include: { refund: true } } } });
+      const bookings = await this.prisma.booking.findMany({ where: { vendorTenantId: tenantId, ...outletWhere, ...(serviceDate ? { serviceDate } : {}), ...(normalized === 'CANCELLATIONS' ? { status: 'CANCELLED' } : {}) }, orderBy: { serviceDate: 'desc' }, take: 500, include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } }, travellers: { orderBy: { sequence: 'asc' } }, operationalSnapshot: true, cancellation: { include: { refund: true } } } });
       if (normalized === 'GUEST_MANIFEST') {
         rows.push(['Booking', 'Service date', 'Product', 'Guest name', 'Contact number', 'Guest count', 'Pickup details', 'Status']);
         for (const booking of bookings) {
@@ -457,10 +499,10 @@ export class VendorToolsService {
     const reports = [report, ...(await this.readReports(tenantId)).filter((item) => item.id !== report.id)].slice(0, 20); await this.writeReports(tenantId, reports); return { ...report, downloadUrl: `/api/vendor/reports/${report.id}/download` };
   }
 
-  async downloadReport(user: AuthUser, id: string) {
-    const tenantId = requireTenant(user);
-    const saved = await this.prisma.vendorReportExport.findFirst({ where: { id, tenantId } });
-    const legacy = saved ? null : (await this.readReports(tenantId)).find((item) => item.id === id);
+  async downloadReport(user: AuthUser, id: string, outletId?: string) {
+    const scope = await this.resolveOutlet(user, outletId, true); const tenantId = scope.tenantId;
+    const saved = await this.prisma.vendorReportExport.findFirst({ where: { id, tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) } });
+    const legacy = saved || !scope.aggregate ? null : (await this.readReports(tenantId)).find((item) => item.id === id);
     if (!saved && !legacy) throw new NotFoundException('Report not found.');
     if (saved && saved.status !== 'READY') throw new BadRequestException(saved.status === 'FAILED' ? 'This report could not be generated.' : 'This report is not ready to download yet.');
     const report = saved ? { ...saved, rows: Array.isArray(saved.rows) ? saved.rows as string[][] : [], createdAt: saved.createdAt.toISOString(), format: saved.format as ReportFormat } : legacy!;

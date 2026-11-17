@@ -3,6 +3,7 @@ import { IsArray, IsDateString, IsEnum, IsInt, IsOptional, IsString, Min, Valida
 import { SessionStatus } from '@prisma/client';
 
 export class InventoryQueryDto {
+  @IsOptional() @IsString() outletId?: string;
   @IsOptional() @IsString() productId?: string;
   @IsOptional() @IsString() variantId?: string;
   @IsOptional() @IsString() ratePlanId?: string;
@@ -12,6 +13,7 @@ export class InventoryQueryDto {
 }
 
 export class InventoryBulkFilterDto {
+  @IsOptional() @IsString() outletId?: string;
   @IsString() scheduleTemplateId!: string;
   @IsDateString() dateFrom!: string;
   @IsDateString() dateTo!: string;
@@ -35,6 +37,7 @@ export class InventoryBulkApplyRowDto extends InventoryBulkProposalDto {
 }
 
 export class InventoryBulkApplyDto {
+  @IsOptional() @IsString() outletId?: string;
   @IsString() scheduleTemplateId!: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) expectedScheduleVersion?: number;
   @IsArray() @ValidateNested({ each: true }) @Type(() => InventoryBulkApplyRowDto) rows!: InventoryBulkApplyRowDto[];

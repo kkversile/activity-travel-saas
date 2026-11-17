@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { VendorOutletAccessService } from '../vendor-outlets/vendor-outlet-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
@@ -7,7 +8,7 @@ import { IngestVendorReviewDto } from './vendor-review.dto';
 
 @Injectable()
 export class VendorReviewsService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outletAccess?: VendorOutletAccessService) {}
 
   async ingest(actor: AuthUser, tenantId: string, dto: IngestVendorReviewDto) {
     const product = await this.prisma.product.findFirst({ where: { id: dto.productId, tenantId }, select: { id: true } });
@@ -46,10 +47,11 @@ export class VendorReviewsService {
     return review;
   }
 
-  async list(user: AuthUser) {
+  async list(user: AuthUser, outletId?: string) {
     const tenantId = requireTenant(user);
+    const scope = this.outletAccess ? await this.outletAccess.resolve(user, outletId, { aggregateRead: true }) : null;
     const rows = await this.prisma.vendorReview.findMany({
-      where: { tenantId, status: 'PUBLISHED' },
+      where: { tenantId, status: 'PUBLISHED', ...(scope?.outletIds ? { product: { outletId: { in: scope.outletIds } } } : {}) },
       orderBy: [{ vendorReply: 'asc' }, { reviewedAt: 'desc' }],
       take: 200,
       include: { product: { select: { productCode: true, currentRevision: { select: { productName: true } } } } },
@@ -62,8 +64,9 @@ export class VendorReviewsService {
     const vendorReply = input.trim();
     if (!vendorReply) throw new BadRequestException('Reply cannot be empty.');
     return this.prisma.$transaction(async (tx) => {
-      const review = await tx.vendorReview.findFirst({ where: { id, tenantId, status: 'PUBLISHED' }, select: { id: true, vendorReply: true } });
+      const review = await tx.vendorReview.findFirst({ where: { id, tenantId, status: 'PUBLISHED' }, select: { id: true, vendorReply: true, product: { select: { outletId: true } } } });
       if (!review) throw new NotFoundException('Review not found in this vendor workspace.');
+      if (this.outletAccess) await this.outletAccess.resolve(user, review.product.outletId);
       const updated = await tx.vendorReview.update({ where: { id }, data: { vendorReply, repliedAt: new Date() } });
       await this.audit.write(tx, { actor: user, tenantId, action: 'VENDOR_REVIEW_REPLIED', entityType: 'VendorReview', entityId: id, beforeState: { vendorReply: review.vendorReply }, afterState: { vendorReply } });
       return updated;

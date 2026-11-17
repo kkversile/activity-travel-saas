@@ -240,7 +240,7 @@ describe('Partner Hub notification preferences', () => {
     const inviteLink = await screen.findByRole('textbox', { name: 'Team invitation link' });
     expect((inviteLink as HTMLInputElement).value).toContain(`/register?teamInvite=${inviteToken}`);
     expect(screen.queryByLabelText('Team member email')).not.toBeInTheDocument();
-    expect(request).toHaveBeenCalledWith('/vendor/team/invitations', expect.objectContaining({ method: 'POST', body: JSON.stringify({ email: 'ops@example.com', role: 'VIEWER' }) }));
+    expect(request).toHaveBeenCalledWith('/vendor/team/invitations', expect.objectContaining({ method: 'POST', body: JSON.stringify({ email: 'ops@example.com', role: 'VIEWER', outletIds: [] }) }));
   });
 
   it('lets an owner save delivery preferences while showing disconnected provider status', async () => {

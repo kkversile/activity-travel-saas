@@ -34,6 +34,7 @@ import { ActivityAiModule } from './activity-ai/activity-ai.module';
 import { VendorToolsModule } from './vendor-tools/vendor-tools.module';
 import { VendorReviewsModule } from './vendor-reviews/vendor-reviews.module';
 import { AgentPortalModule } from './agent-portal/agent-portal.module';
+import { VendorOutletsModule } from './vendor-outlets/vendor-outlets.module';
 
 function validateEnvironment(config: Record<string, unknown>) {
   const databaseUrl = String(config.DATABASE_URL ?? '');
@@ -82,6 +83,7 @@ function validateEnvironment(config: Record<string, unknown>) {
     VendorToolsModule,
     VendorReviewsModule,
     AgentPortalModule,
+    VendorOutletsModule,
   ],
   controllers: [AppController],
   providers: [CorrelationIdMiddleware],

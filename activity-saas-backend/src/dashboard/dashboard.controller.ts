@@ -16,17 +16,17 @@ export class DashboardController {
   constructor(private readonly service: DashboardService) {}
 
   @Get('summary')
-  summary(@CurrentUser() user: AuthUser) {
-    return this.service.summary(user);
+  summary(@CurrentUser() user: AuthUser, @Query('outletId') outletId?: string) {
+    return this.service.summary(user, outletId);
   }
 
   @Get('departures')
-  departures(@CurrentUser() user: AuthUser) {
-    return this.service.summary(user).then((data) => ({ departures: data.todayDepartures || [] }));
+  departures(@CurrentUser() user: AuthUser, @Query('outletId') outletId?: string) {
+    return this.service.summary(user, outletId).then((data) => ({ departures: data.todayDepartures || [] }));
   }
 
   @Get('bookings-trend')
-  bookingTrend(@CurrentUser() user: AuthUser, @Query('from') from?: string, @Query('to') to?: string) {
-    return this.service.bookingTrend(user, from, to);
+  bookingTrend(@CurrentUser() user: AuthUser, @Query('from') from?: string, @Query('to') to?: string, @Query('outletId') outletId?: string) {
+    return this.service.bookingTrend(user, from, to, outletId);
   }
 }

@@ -200,6 +200,7 @@ export class BookingQuestionDto {
 export class UpdateBookingQuestionDto extends PartialType(BookingQuestionDto) {}
 
 export class ProductQueryDto {
+  @IsOptional() @IsString() outletId?: string;
   @IsOptional() @IsEnum(ProductRevisionStatus) revisionStatus?: ProductRevisionStatus;
   @IsOptional() @IsString() search?: string;
 }
@@ -207,6 +208,7 @@ export class ProductQueryDto {
 export type ListingStatusFilter = 'LIVE' | 'REVIEW' | 'DRAFT' | 'SUSPENDED' | 'ARCHIVED';
 
 export class ProductListingQueryDto {
+  @IsOptional() @IsString() outletId?: string;
   @IsOptional() @IsString() search?: string;
   @IsOptional() @IsEnum(['LIVE', 'REVIEW', 'DRAFT', 'SUSPENDED', 'ARCHIVED'] as const) status?: ListingStatusFilter;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;

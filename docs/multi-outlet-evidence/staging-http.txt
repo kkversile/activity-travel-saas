@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-11-17T03:18:36.062Z",
+  "databaseRole": "Explicit local staging writer: existing onboarding GET may normalize supplemental data",
+  "immutableFinanceUnchanged": true,
+  "externalJobsDisabled": true,
+  "liveWrites": false,
+  "existingActiveUsersChecked": 13,
+  "existingVendorsChecked": 10,
+  "successfulHttpChecks": 150,
+  "readyReportsDownloaded": 3,
+  "failures": []
+}

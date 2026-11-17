@@ -13,6 +13,6 @@ export class CorrelationIdMiddleware implements NestMiddleware {
     const correlationId = request.header('x-correlation-id')?.slice(0, 128) || randomUUID();
     request.correlationId = correlationId;
     response.setHeader('x-correlation-id', correlationId);
-    this.context.run(correlationId, next);
+    this.context.run(correlationId, next, request.query.outletId);
   }
 }

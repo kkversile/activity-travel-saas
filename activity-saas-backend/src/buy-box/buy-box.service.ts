@@ -3,6 +3,7 @@ import { BuyBoxBidStatus, BuyBoxOfferStatus, BuyBoxSelectionPolicy, BuyBoxStatus
 import { randomUUID } from 'crypto';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/auth.types';
+import { VendorOutletAccessService } from '../vendor-outlets/vendor-outlet-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddBuyBoxOfferDto, SubmitBuyBoxBidDto, UpdateBuyBoxDto, UpsertBuyBoxDto } from './buy-box.dto';
 
@@ -10,7 +11,7 @@ const vendorSelect = { id: true, name: true, vendorProfile: { select: { legalBus
 
 @Injectable()
 export class BuyBoxService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly access?: VendorOutletAccessService) {}
 
   private isOpen(box: any, now = new Date()) {
     return box?.status === BuyBoxStatus.OPEN && (!box.startsAt || box.startsAt <= now) && (!box.endsAt || box.endsAt > now);
@@ -96,32 +97,34 @@ export class BuyBoxService {
     return this.adminDetail(boxId);
   }
 
-  async vendorOpportunities(user: AuthUser) {
+  async vendorOpportunities(user: AuthUser, outletId?: string) {
+    const scope = this.access ? await this.access.resolve(user, outletId, { aggregateRead: true }) : null;
     if (!user.tenantId) throw new ForbiddenException('Vendor tenant is required');
     const boxes: any[] = await this.prisma.buyBox.findMany({ where: { status: BuyBoxStatus.OPEN, offers: { some: { vendorId: user.tenantId, status: BuyBoxOfferStatus.ACTIVE } } }, include: { experienceMaster: true, offers: { where: { status: BuyBoxOfferStatus.ACTIVE }, include: { product: { include: { currentRevision: true, tenant: { select: vendorSelect } } }, vendor: { select: vendorSelect }, bids: { where: { status: BuyBoxBidStatus.ACTIVE }, orderBy: { submittedAt: 'desc' } } } } } });
     return boxes
       .filter((box) => this.isOpen(box) && box.offers.filter((offer: any) => this.productState(offer.product).eligible).length > 1)
-      .map((box) => this.vendorOpportunity(box, user.tenantId as string))
+      .map((box) => this.vendorOpportunity(box, user.tenantId as string, scope?.outletIds))
       .filter(Boolean);
   }
 
-  private vendorOpportunity(box: any, vendorId: string) {
+  private vendorOpportunity(box: any, vendorId: string, outletIds?: string[] | null) {
     const eligible = box.offers.filter((offer: any) => this.productState(offer.product).eligible);
-    const own = eligible.find((offer: any) => offer.vendorId === vendorId);
+    const own = eligible.find((offer: any) => offer.vendorId === vendorId && (!outletIds || outletIds.includes(offer.product.outletId)));
     if (!own) return null;
     const allBids = eligible.map((offer: any) => this.currentBid(offer)).filter(Boolean).sort((a: any, b: any) => Number(b.amount) - Number(a.amount));
     const ownBid = own ? this.currentBid(own) : null;
     return { id: box.id, experienceMasterId: box.experienceMasterId, canonicalName: box.experienceMaster.canonicalName, displayMode: box.displayMode, selectionPolicy: box.selectionPolicy, currency: box.currency, status: box.status, startsAt: box.startsAt, endsAt: box.endsAt, product: { id: own.productId, name: own.product.currentRevision?.productName || own.product.productCode, productCode: own.product.productCode }, otherOfferCount: Math.max(0, eligible.length - 1), currentBid: ownBid ? { amount: Number(ownBid.amount), currency: ownBid.currency, submittedAt: ownBid.submittedAt, endsAt: ownBid.endsAt } : null, currentRank: ownBid ? allBids.findIndex((bid: any) => bid.id === ownBid.id) + 1 : null, minimumBidAmount: box.minimumBidAmount == null ? 0 : Number(box.minimumBidAmount), minimumBidIncrement: box.minimumBidIncrement == null ? 1 : Number(box.minimumBidIncrement) };
   }
 
-  async vendorDetail(user: AuthUser, boxId: string) {
-    const items = await this.vendorOpportunities(user); const found = items.find((item) => item && item.id === boxId); if (!found) throw new NotFoundException('Buy Box opportunity not found'); return found;
+  async vendorDetail(user: AuthUser, boxId: string, outletId?: string) {
+    const items = await this.vendorOpportunities(user, outletId); const found = items.find((item) => item && item.id === boxId); if (!found) throw new NotFoundException('Buy Box opportunity not found'); return found;
   }
 
-  async submitBid(user: AuthUser, boxId: string, dto: SubmitBuyBoxBidDto) {
+  async submitBid(user: AuthUser, boxId: string, dto: SubmitBuyBoxBidDto, outletId?: string) {
+    const scope = this.access ? await this.access.resolve(user, outletId, { mutation: true }) : null;
     if (!user.tenantId) throw new ForbiddenException('Vendor tenant is required');
     const box = await this.getBox(boxId); if (!this.isOpen(box)) throw new ConflictException('Buy Box bidding is closed');
-    const offer: any = box.offers.find((item: any) => item.vendorId === user.tenantId && item.status === BuyBoxOfferStatus.ACTIVE);
+    const offer: any = box.offers.find((item: any) => item.vendorId === user.tenantId && item.status === BuyBoxOfferStatus.ACTIVE && (!scope?.outletIds || scope.outletIds.includes(item.product.outletId)));
     if (!offer) throw new ForbiddenException('Your product is not assigned to this Buy Box');
     if (!this.productState(offer.product).eligible) throw new ConflictException('Your product is not eligible to bid');
     const amount = Number(dto.amount); const minimum = Number(box.minimumBidAmount || 0); const increment = Number(box.minimumBidIncrement || 0);
@@ -132,7 +135,7 @@ export class BuyBoxService {
     if (!Number.isFinite(amount) || amount < required) throw new ConflictException(`Bid must be at least ${required.toFixed(2)} ${box.currency}`);
     const bid = await this.prisma.$transaction(async (tx) => { await tx.buyBoxBid.updateMany({ where: { buyBoxOfferId: offer.id, status: BuyBoxBidStatus.ACTIVE }, data: { status: BuyBoxBidStatus.OUTBID } }); return tx.buyBoxBid.create({ data: { id: randomUUID(), buyBoxOfferId: offer.id, vendorId: user.tenantId as string, amount, currency: box.currency, startsAt: dto.startsAt ? new Date(dto.startsAt) : null, endsAt: dto.endsAt ? new Date(dto.endsAt) : box.endsAt } }); });
     await this.audit.write(this.prisma, { actor: user, action: 'BUY_BOX_BID_SUBMITTED', entityType: 'BuyBoxBid', entityId: bid.id, afterState: { buyBoxId: boxId, vendorId: user.tenantId, amount, currency: box.currency } });
-    return this.vendorDetail(user, boxId);
+    return this.vendorDetail(user, boxId, outletId);
   }
 
   activeBidAmount(master: any, productId: string, now = new Date()) {

@@ -4,9 +4,10 @@ import { RolesGuard } from '../common/roles.guard';
 import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
 import { QualityModule } from '../quality/quality.module';
+import { VendorOutletsModule } from '../vendor-outlets/vendor-outlets.module';
 
 @Module({
-  imports: [AuthModule, QualityModule],
+  imports: [AuthModule, QualityModule, VendorOutletsModule],
   controllers: [DashboardController],
   providers: [DashboardService, RolesGuard],
 })

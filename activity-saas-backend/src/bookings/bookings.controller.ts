@@ -20,17 +20,17 @@ export class BookingsController {
   @Get()
   @ApiQuery({ name: 'status', enum: BookingStatus, required: false, description: 'Filter bookings by lifecycle status.' })
   @Permissions('booking.view')
-  list(@CurrentUser() user: AuthUser, @Query('status', new ParseEnumPipe(BookingStatus, { optional: true })) status?: BookingStatus) { return this.service.list(user, status); }
+  list(@CurrentUser() user: AuthUser, @Query('status', new ParseEnumPipe(BookingStatus, { optional: true })) status?: BookingStatus, @Query('outletId') outletId?: string) { return this.service.list(user, status, outletId); }
 
   @Post(':id/confirm')
   @Permissions('booking.confirm')
-  confirm(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.confirm(user, id); }
+  confirm(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('outletId') outletId?: string) { return this.service.confirm(user, id, outletId); }
 
   @Post(':id/cancel')
   @Permissions('booking.cancel')
-  cancel(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.cancel(user, id); }
+  cancel(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('outletId') outletId?: string) { return this.service.cancel(user, id, outletId); }
 
   @Get(':id/voucher')
   @Permissions('booking.view')
-  voucher(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.voucher(user, id); }
+  voucher(@CurrentUser() user: AuthUser, @Param('id') id: string, @Query('outletId') outletId?: string) { return this.service.voucher(user, id, outletId); }
 }

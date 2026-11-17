@@ -2,12 +2,13 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { FilePurpose, FileVisibility, FulfilmentEvidenceStatus, UserRole, VoucherVersionStatus } from '@prisma/client';
 import { AuthUser } from '../common/auth.types';
 import { hasPermission } from '../common/permissions';
+import { VendorOutletAccessService } from '../vendor-outlets/vendor-outlet-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 
 @Injectable()
 export class FilesService {
-  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService) {}
+  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService, private readonly outletAccess?: VendorOutletAccessService) {}
 
   async content(user: AuthUser | undefined, id: string, publicOnly = false) {
     const asset: any = await this.prisma.fileAsset.findUnique({ where: { id } });
@@ -24,8 +25,9 @@ export class FilesService {
     if (asset.purpose === FilePurpose.OTHER && asset.entityType === 'ProductRateProof' && asset.entityId) {
       if (!hasPermission(user, 'product.view')) throw new ForbiddenException('You cannot access this rate proof');
       if (!user.tenantId) throw new ForbiddenException('You cannot access this rate proof');
-      const revision = await this.prisma.productRevision.findFirst({ where: { id: asset.entityId, product: { tenantId: user.tenantId } }, select: { id: true } });
+      const revision = await this.prisma.productRevision.findFirst({ where: { id: asset.entityId, product: { tenantId: user.tenantId } }, select: { id: true, product: { select: { outletId: true } } } });
       if (!revision) throw new ForbiddenException('You cannot access this rate proof');
+      if (user.role === 'VENDOR' && this.outletAccess) await this.outletAccess.resolve(user, revision.product.outletId);
       return;
     }
     if (asset.purpose === FilePurpose.VENDOR_DOCUMENT) {
@@ -38,7 +40,7 @@ export class FilesService {
       const voucher: any = await this.prisma.voucherVersion.findUnique({ where: { id: asset.entityId }, include: { booking: true } });
       if (!voucher) throw new ForbiddenException('Voucher relationship is invalid');
       if (([UserRole.SUPER_ADMIN, UserRole.ADMIN] as UserRole[]).includes(user.role)) { if (!hasPermission(user, 'fulfilment.view.admin')) throw new ForbiddenException('You do not have permission to access this voucher'); return; }
-      if (user.role === UserRole.VENDOR) { if (!hasPermission(user, 'fulfilment.view.vendor') || voucher.booking.vendorTenantId !== user.tenantId) throw new ForbiddenException('You cannot access this voucher'); return; }
+      if (user.role === UserRole.VENDOR) { if (!hasPermission(user, 'fulfilment.view.vendor') || voucher.booking.vendorTenantId !== user.tenantId) throw new ForbiddenException('You cannot access this voucher'); if (this.outletAccess) await this.outletAccess.resolve(user, voucher.booking.outletId); return; }
       if (user.role === UserRole.TRAVEL_AGENT) { if (!hasPermission(user, 'fulfilment.view.agent') || voucher.booking.agentTenantId !== user.tenantId || voucher.status !== VoucherVersionStatus.CURRENT || voucher.booking.status === 'CANCELLED') throw new ForbiddenException('You cannot access this voucher'); return; }
       throw new ForbiddenException('You cannot access this voucher');
     }
@@ -48,7 +50,7 @@ export class FilesService {
       if (!evidence) throw new ForbiddenException('Fulfilment evidence relationship is invalid');
       const booking = evidence.fulfilment.booking;
       if (([UserRole.SUPER_ADMIN, UserRole.ADMIN] as UserRole[]).includes(user.role)) { if (!hasPermission(user, 'fulfilment.view.admin')) throw new ForbiddenException('You do not have permission to access this evidence'); return; }
-      if (user.role === UserRole.VENDOR) { if (!hasPermission(user, 'fulfilment.view.vendor') || booking.vendorTenantId !== user.tenantId) throw new ForbiddenException('You cannot access this evidence'); return; }
+      if (user.role === UserRole.VENDOR) { if (!hasPermission(user, 'fulfilment.view.vendor') || booking.vendorTenantId !== user.tenantId) throw new ForbiddenException('You cannot access this evidence'); if (this.outletAccess) await this.outletAccess.resolve(user, booking.outletId); return; }
       if (user.role === UserRole.TRAVEL_AGENT) { if (!hasPermission(user, 'fulfilment.view.agent') || booking.agentTenantId !== user.tenantId || evidence.status !== FulfilmentEvidenceStatus.CURRENT || !evidence.travellerVisible) throw new ForbiddenException('You cannot access this evidence'); return; }
       throw new ForbiddenException('You cannot access this evidence');
     }

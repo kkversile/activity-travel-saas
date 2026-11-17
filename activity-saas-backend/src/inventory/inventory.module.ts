@@ -8,6 +8,7 @@ import { SchedulesModule } from '../schedules/schedules.module';
 import { InventoryController } from './inventory.controller';
 import { InventoryReservationService } from './inventory-reservation.service';
 import { InventoryService } from './inventory.service';
+import { VendorOutletsModule } from '../vendor-outlets/vendor-outlets.module';
 
-@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, ResourcesModule, SchedulesModule], controllers: [InventoryController], providers: [InventoryService, InventoryReservationService], exports: [InventoryService, InventoryReservationService] })
+@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, ResourcesModule, SchedulesModule, VendorOutletsModule], controllers: [InventoryController], providers: [InventoryService, InventoryReservationService], exports: [InventoryService, InventoryReservationService] })
 export class InventoryModule {}

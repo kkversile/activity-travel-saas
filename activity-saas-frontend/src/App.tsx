@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { api, type User, type VendorProfile } from './api';
+import { api, type User, type VendorOutlet, type VendorOutletList, type VendorProfile } from './api';
 import Dashboard from './pages/Dashboard';
 import Onboarding from './pages/Onboarding';
 import Products from './pages/Products';
@@ -74,16 +74,38 @@ function adminPageFromPath(pathname: string): AdminPage { const normalized = rou
 export function adminPageForRole(pathname: string, role: User['role']): AdminPage { const requested = adminPageFromPath(pathname); return (requested === 'users' || requested === 'settings') && role !== 'SUPER_ADMIN' ? 'dashboard' : requested; }
 
 export default function App() {
-    const [user, setUser] = useState<User | null>(null); const [page, setPage] = useState<VendorPage>(() => vendorPageFromPath(window.location.pathname)); const [profile, setProfile] = useState<VendorProfile | null>(null); const [onboardingStatus, setOnboardingStatus] = useState<string | null>(null); const [hubCounts, setHubCounts] = useState<{ bookings: number; products: number; kyc: number }>({ bookings: 0, products: 0, kyc: 0 }); const [checking, setChecking] = useState(Boolean(api.token)); const [changePasswordOpen, setChangePasswordOpen] = useState(false); const [publicRoute, setPublicRoute] = useState(() => routePath(window.location.pathname));
+    const [user, setUser] = useState<User | null>(null); const [page, setPage] = useState<VendorPage>(() => vendorPageFromPath(window.location.pathname)); const [profile, setProfile] = useState<VendorProfile | null>(null); const [onboardingStatus, setOnboardingStatus] = useState<string | null>(null); const [hubCounts, setHubCounts] = useState<{ bookings: number; products: number; kyc: number }>({ bookings: 0, products: 0, kyc: 0 }); const [checking, setChecking] = useState(Boolean(api.token)); const [changePasswordOpen, setChangePasswordOpen] = useState(false); const [publicRoute, setPublicRoute] = useState(() => routePath(window.location.pathname)); const [scopeReady, setScopeReady] = useState(false); const [outlets, setOutlets] = useState<VendorOutlet[]>([]); const [outletAccess, setOutletAccess] = useState<'ALL' | 'ASSIGNED' | null>(null); const [activeOutletId, setActiveOutletId] = useState<string | null>(null);
   useEffect(() => { if (!api.token) { setChecking(false); return; } api.request<User>('/auth/me').then((nextUser) => { setUser(nextUser); if (nextUser.mustChangePassword) { setChangePasswordOpen(true); if (nextUser.role === 'VENDOR') { setPage('onboarding'); window.history.replaceState({}, '', appPath(vendorPaths.onboarding)); } } }).catch(() => api.setToken(null)).finally(() => setChecking(false)); }, []);
   useEffect(() => { const onPopState = () => setPublicRoute(routePath(window.location.pathname)); window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState); }, []);
-  useEffect(() => { if (user?.role !== 'VENDOR' || user.mustChangePassword) { setProfile(null); setOnboardingStatus(null); setHubCounts({ bookings: 0, products: 0, kyc: 0 }); return; } api.request<VendorProfile>('/vendor/profile').then(setProfile).catch(() => setProfile(null)); api.request<{ status: string }>('/vendor/onboarding').then((application) => setOnboardingStatus(application.status)).catch(() => setOnboardingStatus('PENDING')); api.request<{ vendorActionRequiredBookings?: number; pendingBookings?: number; draftListings?: number; expiredDocuments?: number; documentsExpiring?: number }>('/dashboard/summary').then((summary) => setHubCounts(partnerHubCountsFromDashboard(summary))).catch(() => setHubCounts({ bookings: 0, products: 0, kyc: 0 })); }, [user?.tenantId, user?.role, user?.mustChangePassword]);
+  useEffect(() => {
+    let cancelled = false;
+    setScopeReady(false);
+    if (user?.role !== 'VENDOR' || user.mustChangePassword) { setProfile(null); setOnboardingStatus(null); setHubCounts({ bookings: 0, products: 0, kyc: 0 }); setOutlets([]); setOutletAccess(null); setActiveOutletId(null); api.setActiveOutletId(null); return; }
+    async function loadScope() {
+      try {
+        const result = await api.request<VendorOutletList>('/vendor/outlets');
+        if (cancelled) return;
+        setOutlets(result.outlets); setOutletAccess(result.access);
+        const requested = new URLSearchParams(window.location.search).get('outletId');
+        const selected = requested && result.outlets.some((outlet) => outlet.id === requested) ? requested : result.access === 'ALL' ? null : result.outlets[0]?.id || null;
+        api.setActiveOutletId(selected); setActiveOutletId(selected); setScopeReady(true);
+      } catch { if (!cancelled) { setOutlets([]); setOutletAccess(null); setScopeReady(true); } }
+    }
+    void loadScope();
+    window.addEventListener('voya:outlets-changed', loadScope);
+    window.addEventListener('popstate', loadScope);
+    api.request<VendorProfile>('/vendor/profile').then((value) => { if (!cancelled) setProfile(value); }).catch(() => { if (!cancelled) setProfile(null); });
+    api.request<{ status: string }>('/vendor/onboarding').then((value) => { if (!cancelled) setOnboardingStatus(value.status); }).catch(() => { if (!cancelled) setOnboardingStatus('PENDING'); });
+    return () => { cancelled = true; window.removeEventListener('voya:outlets-changed', loadScope); window.removeEventListener('popstate', loadScope); };
+  }, [user?.id, user?.tenantId, user?.role, user?.mustChangePassword]);
+  useEffect(() => { if (user?.role !== 'VENDOR' || !scopeReady) return; let cancelled = false; api.request<any>('/dashboard/summary').then((summary) => { if (!cancelled) setHubCounts(partnerHubCountsFromDashboard(summary)); }).catch(() => { if (!cancelled) setHubCounts({ bookings: 0, products: 0, kyc: 0 }); }); return () => { cancelled = true; }; }, [user?.id, activeOutletId, scopeReady]);
+
   useEffect(() => { if (user?.role !== 'VENDOR' || user.mustChangePassword) return; const requested = vendorPageFromPath(window.location.pathname); if (!routePath(window.location.pathname).startsWith('/vendor/')) { window.history.replaceState({}, '', appPath(vendorPaths.dashboard)); setPage('dashboard'); return; } setPage(requested); const onPopState = () => setPage(vendorPageFromPath(window.location.pathname)); window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState); }, [user?.role, user?.mustChangePassword]);
   useLayoutEffect(() => { if (user?.role === 'VENDOR') window.scrollTo(0, 0); }, [page, user?.role]);
-  function navigateVendor(next: VendorPage) { setPage(next); const nextPath = appPath(vendorPaths[next]); if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath); }
-  function logout() { api.setToken(null); sessionStorage.removeItem('voya_impersonation_original_token'); setUser(null); setProfile(null); setOnboardingStatus(null); setHubCounts({ bookings: 0, products: 0, kyc: 0 }); setChangePasswordOpen(false); }
+  function navigateVendor(next: VendorPage) { setPage(next); const nextPath = appPath(vendorPaths[next]) + (activeOutletId ? `?outletId=${encodeURIComponent(activeOutletId)}` : ''); if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath); }
+  function logout() { const url = new URL(window.location.href); url.searchParams.delete('outletId'); window.history.replaceState({}, '', url); api.setToken(null); api.setActiveOutletId(null); sessionStorage.removeItem('voya_impersonation_original_token'); setUser(null); setProfile(null); setOnboardingStatus(null); setHubCounts({ bookings: 0, products: 0, kyc: 0 }); setOutlets([]); setOutletAccess(null); setActiveOutletId(null); setChangePasswordOpen(false); }
   function navigatePublic(path: string) { window.history.pushState({}, '', appPath(path)); setPublicRoute(path); }
-  if (checking) return <div className={`boot${routePath(window.location.pathname).startsWith('/vendor/') ? ' vendor-theme-scope' : /^\/(admin|agent)\//.test(routePath(window.location.pathname)) ? ' console-theme-scope' : ''}`}>Loading Voya...</div>;
+  if (checking || (user?.role === 'VENDOR' && !user.mustChangePassword && !scopeReady)) return <div className={`boot${routePath(window.location.pathname).startsWith('/vendor/') ? ' vendor-theme-scope' : /^\/(admin|agent)\//.test(routePath(window.location.pathname)) ? ' console-theme-scope' : ''}`}>Loading Voya...</div>;
   async function handleLogin(nextUser: User) {
     setUser(nextUser);
     if (nextUser.mustChangePassword) {
@@ -136,7 +158,7 @@ export default function App() {
     else if (page === 'developer-notes') content = <DeveloperNotesPage />;
     else content = <div className="partner-legacy-page"><LegacyComponent /></div>;
     const hubNav = partnerHubNavigation.map((item) => ({ ...item, ...(item.key === 'bookings' ? { count: hubCounts.bookings } : item.key === 'onboarding' ? { count: hubCounts.kyc } : {}) }));
-    app = <VendorShell onboardingStatus={onboardingStatus} activeKey={page} navItems={hubNav} vendorName={vendorName} vendorLocation={[profile?.operatingCity, profile?.operatingRegion].filter(Boolean).join(', ') || user.email} statusLabel={statusLabel} onNavigate={(key) => navigateVendor(key as VendorPage)} onSignOut={logout} onChangePassword={() => setChangePasswordOpen(true)}>{content}</VendorShell>;
+    app = <VendorShell key={activeOutletId || 'all-outlets'} onboardingStatus={onboardingStatus} activeKey={page} navItems={hubNav} vendorName={vendorName} vendorLocation={[profile?.operatingCity, profile?.operatingRegion].filter(Boolean).join(', ') || user.email} statusLabel={statusLabel} outlets={outlets} outletAccess={outletAccess || undefined} activeOutletId={activeOutletId} onOutletChange={(id) => { setActiveOutletId(id); api.setActiveOutletId(id); const url = new URL(window.location.href); if (id) url.searchParams.set('outletId', id); else url.searchParams.delete('outletId'); window.history.pushState({}, '', url); }} onNavigate={(key) => navigateVendor(key as VendorPage)} onSignOut={logout} onChangePassword={() => setChangePasswordOpen(true)}>{content}</VendorShell>;
   }
   const passwordDialog = user && changePasswordOpen ? <ChangePasswordDialog key={`${user.id || user.sub || user.email}-${Boolean(user.mustChangePassword)}`} theme={user.role === 'VENDOR' ? 'vendor' : 'console'} required={Boolean(user.mustChangePassword)} onClose={() => setChangePasswordOpen(false)} onChanged={() => setUser((current) => current ? { ...current, mustChangePassword: false } : current)} /> : null;
   return user.isImpersonating ? <><ImpersonationBanner user={user} onEnded={() => { setUser(null); window.location.assign(import.meta.env.BASE_URL); }} />{app}{passwordDialog}</> : <>{app}{passwordDialog}</>;

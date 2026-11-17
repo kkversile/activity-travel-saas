@@ -2,6 +2,7 @@ import { validate } from 'class-validator';
 import { ProductRevisionStatus, ProductStatus, ProductType, UserRole, VariantStatus } from '@prisma/client';
 import { ArchiveVariantDto, CreateProductDraftDto, CreateProductRevisionDto, ProductRevisionDto, UpdateVariantDto } from './catalogue.dto';
 import { CatalogueService, sourcePayloadForRole } from './catalogue.service';
+import { attachCatalogueTestOutletAccess } from './catalogue-test-outlet-access';
 
 const vendor = { sub: 'u1', email: 'vendor@test', role: UserRole.VENDOR, tenantId: 't1' } as any;
 const admin = { sub: 'a1', email: 'admin@test', role: UserRole.SUPER_ADMIN, tenantId: null } as any;
@@ -12,7 +13,8 @@ function make() {
   const prisma: any = { productRevision: { findFirst: jest.fn(), findFirstOrThrow: jest.fn() }, productMedia: { create: jest.fn() }, fileAsset: { findFirst: jest.fn() }, productVariant: { findFirst: jest.fn() }, product: { findFirst: jest.fn().mockResolvedValue({ id: 'p1', tenantId: 't1' }) }, $transaction: jest.fn((cb: any) => cb(tx)) };
   const storage: any = { save: jest.fn().mockResolvedValue({ storageKey: 'product-media/x.jpg', sizeBytes: 10 }), remove: jest.fn() };
   const audit: any = { write: jest.fn() }; const outbox: any = { enqueue: jest.fn() }; const catalogueEmail: any = { notifyAdminEdited: jest.fn().mockResolvedValue(undefined) };
-  return { service: new CatalogueService(prisma, audit, outbox, storage, undefined, undefined, undefined, undefined, undefined, undefined, catalogueEmail), prisma, tx, storage, audit, outbox, catalogueEmail };
+  const catalogue = attachCatalogueTestOutletAccess(new CatalogueService(prisma, audit, outbox, storage, undefined, undefined, undefined, undefined, undefined, undefined, catalogueEmail));
+  return { service: catalogue, prisma, tx, storage, audit, outbox, catalogueEmail };
 }
 
 describe('Phase 2.2 revision and media immutability', () => {

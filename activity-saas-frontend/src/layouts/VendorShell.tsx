@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import type { VendorOutlet } from '../api';
 
 export type VendorShellNavItem = {
   key: string;
@@ -17,6 +18,10 @@ type Props = {
   onNavigate: (key: string) => void;
   onSignOut: () => void;
   onChangePassword: () => void;
+  outlets?: VendorOutlet[];
+  outletAccess?: 'ALL' | 'ASSIGNED';
+  activeOutletId?: string | null;
+  onOutletChange?: (id: string | null) => void;
   children: ReactNode;
 };
 
@@ -36,11 +41,19 @@ export default function VendorShell({
   onNavigate,
   onSignOut,
   onChangePassword,
+  outlets = [],
+  outletAccess,
+  activeOutletId = null,
+  onOutletChange,
   children,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const awaitingApproval = onboardingStatus !== undefined && onboardingStatus !== "APPROVED";
   const initials = vendorName.trim().split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'V';
+  const activeOutlets = outlets;
+  const showOutletSelector = activeOutlets.length > 1 || (outletAccess === 'ALL' && activeOutlets.length > 0);
+  const activeOutlet = activeOutlets.find((outlet) => outlet.id === activeOutletId);
+  const outletLabel = activeOutlet?.name || (outletAccess === 'ASSIGNED' ? activeOutlets[0]?.name || 'No outlet assigned' : 'All outlets');
 
   return <div className={`partner-app-shell${activeKey === 'onboarding' ? ' partner-onboarding-shell' : ''}${activeKey === 'add-product' || activeKey === 'edit-product' ? ' partner-product-builder-shell' : ''}`}>
     <a className="partner-skip-link" href="#partner-page-content">Skip to main content</a>
@@ -93,6 +106,9 @@ export default function VendorShell({
           <button type="button" className="partner-link-button" onClick={onSignOut}>Sign out</button>
         </div>
       </header>
+      <div className="partner-scope-bar">          {showOutletSelector && onOutletChange && <label className="partner-outlet-switcher"><span>Outlet</span><select aria-label="Current outlet" value={outletAccess === 'ALL' ? (activeOutletId || '') : (activeOutletId || activeOutlets[0]?.id || '')} onChange={(event) => onOutletChange(event.target.value || null)}>{outletAccess === 'ALL' && <option value="">All outlets</option>}{activeOutlets.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}{outlet.status === 'INACTIVE' ? ' (inactive)' : ''}</option>)}</select></label>}
+          <span className="partner-outlet-scope" aria-live="polite">{outletLabel}</span>
+</div>
       <div className="partner-content" id="partner-page-content" tabIndex={-1}>{children}</div>
     </main>
   </div>;

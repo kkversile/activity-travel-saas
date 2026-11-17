@@ -4,7 +4,8 @@ import { VendorToolsService } from './vendor-tools.service';
 describe('VendorToolsService persistence and ownership', () => {
   it('stores only a hashed team invitation token and returns the one-time join token', async () => {
     const upsert = jest.fn().mockImplementation(({ create }) => Promise.resolve({ id: 'invite-1', ...create }));
-    const service = new VendorToolsService({ user: { findFirst: jest.fn().mockResolvedValue(null) }, vendorTeamInvitation: { upsert } } as any);
+    const tx: any = { $queryRawUnsafe: jest.fn(), user: { findUnique: jest.fn().mockResolvedValue(null) }, vendorOutlet: { findMany: jest.fn().mockResolvedValue([{ id: 'outlet-1' }]) }, vendorTeamInvitation: { upsert }, vendorTeamInvitationOutlet: { deleteMany: jest.fn(), createMany: jest.fn() }, auditLog: { create: jest.fn() } };
+    const service = new VendorToolsService({ $transaction: (work: any) => work(tx) } as any);
 
     const result = await service.inviteTeamMember(owner, { email: 'ops@example.com', role: 'OPERATIONS' });
 

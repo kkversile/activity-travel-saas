@@ -5,6 +5,7 @@ import { requireTenant } from '../common/tenant';
 import { PublicEntity, allocatePublicCode, ensurePublicIdentifier, publicIdentifierMap } from '../common/public-identifiers';
 import { AuditService } from '../audit/audit.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { VendorOutletAccessService } from '../vendor-outlets/vendor-outlet-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentGroupMemberDto, CreateAgentGroupDto, CreateCommercialRuleDto, CreateCommercialRuleVersionDto, CreateCommercialRuleWithVersionDto, CreateCommercialVersionDto, QuoteDto, UpdateCommercialVersionDto } from './commercial.dto';
 import { getQaOnlyEligibilityOverride } from '../qa/qa-only-eligibility';
@@ -25,13 +26,14 @@ const localDayCode = (date: Date, timezone?: string) => {
 
 @Injectable()
 export class CommercialService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly calculator: CommercialCalculatorService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly outbox: OutboxService, private readonly calculator: CommercialCalculatorService, private readonly outletAccess?: VendorOutletAccessService) {}
 
   private tenantId(user: AuthUser) { return requireTenant(user); }
   private async ownedRatePlan(user: AuthUser, id: string, client: any = this.prisma) {
     const tenantId = this.tenantId(user);
     const plan = await client.ratePlan.findFirst({ where: { id, variant: { product: { tenantId } } }, include: { variant: { include: { product: true } }, travellerRules: true } });
     if (!plan) throw new NotFoundException('Rate plan not found');
+    if (user.role === 'VENDOR' && this.outletAccess) await this.outletAccess.resolve(user, plan.variant.product.outletId);
     return plan;
   }
 
@@ -112,6 +114,7 @@ export class CommercialService {
   async updateVersion(user: AuthUser, id: string, dto: UpdateCommercialVersionDto) {
     const version = await this.prisma.ratePlanCommercialVersion.findFirst({ where: { id, ratePlan: { variant: { product: { tenantId: this.tenantId(user) } } } }, include: { ratePlan: true } });
     if (!version) throw new NotFoundException('Commercial version not found');
+    if (this.outletAccess) await this.ownedRatePlan(user, version.ratePlanId);
     const from = dto.effectiveFrom ? new Date(dto.effectiveFrom) : version.effectiveFrom; const to = dto.effectiveTo ? new Date(dto.effectiveTo) : version.effectiveTo;
     if (to && to <= from) throw new ConflictException('effectiveTo must be after effectiveFrom');
     return this.prisma.$transaction(async (tx) => {
@@ -143,6 +146,7 @@ export class CommercialService {
   async activateVersion(user: AuthUser, id: string) {
     const version = await this.prisma.ratePlanCommercialVersion.findFirst({ where: { id, ratePlan: { variant: { product: { tenantId: this.tenantId(user) } } } }, include: { travellerPrices: true } });
     if (!version) throw new NotFoundException('Commercial version not found');
+    if (this.outletAccess) await this.ownedRatePlan(user, version.ratePlanId);
     if (version.status !== CommercialVersionStatus.DRAFT) throw new ConflictException('Only draft commercial versions can be activated');
     this.validateActivation(version);
     return this.prisma.$transaction(async (tx) => {

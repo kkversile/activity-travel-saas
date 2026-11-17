@@ -27,8 +27,8 @@ export class CatalogueController {
   @Post('products/:id/deactivate') @Permissions('product.edit') deactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.deactivate(user, id); }
   @Post('products/:id/archive') @Permissions('product.edit') archive(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.archive(user, id); }
   @Post('products/:id/reactivate') @Permissions('product.edit') reactivate(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.service.reactivate(user, id); }
-  @Post('products') @ApiBody({ description: 'Creates a product and its first draft revision.', schema: { type: 'object', example: swaggerExamples.catalogue.createProduct } }) @Permissions('product.edit') create(@CurrentUser() user: AuthUser, @Body() dto: CreateProductDto) { return this.service.create(user, dto); }
-  @Post('products/drafts') @Permissions('product.edit') createDraft(@CurrentUser() user: AuthUser, @Body() dto: CreateProductDraftDto) { return this.service.createDraft(user, dto); }
+  @Post('products') @ApiBody({ description: 'Creates a product and its first draft revision.', schema: { type: 'object', example: swaggerExamples.catalogue.createProduct } }) @Permissions('product.edit') create(@CurrentUser() user: AuthUser, @Body() dto: CreateProductDto, @Query('outletId') outletId?: string) { return this.service.create(user, dto, outletId); }
+  @Post('products/drafts') @Permissions('product.edit') createDraft(@CurrentUser() user: AuthUser, @Body() dto: CreateProductDraftDto, @Query('outletId') outletId?: string) { return this.service.createDraft(user, dto, undefined, outletId); }
   @Post('products/import/json')
   @ApiHeader({ name: 'Idempotency-Key', required: false, description: 'Optional stable key for safe retries. Reusing it with a different payload returns a conflict.' })
   @ApiBody({
@@ -52,14 +52,14 @@ export class CatalogueController {
     },
   })
   @Permissions('product.edit')
-  importJson(@CurrentUser() user: AuthUser, @Headers('idempotency-key') idempotencyKey: string | undefined, @Body() dto: ImportProductJsonDto) { return this.service.importJson(user, dto, idempotencyKey); }
+  importJson(@CurrentUser() user: AuthUser, @Headers('idempotency-key') idempotencyKey: string | undefined, @Body() dto: ImportProductJsonDto, @Query('outletId') outletId?: string) { return this.service.importJson(user, dto, idempotencyKey, false, outletId); }
   @Post('products/import/batch')
   @ApiBody({ description: 'Creates multiple draft products after validating every product import in the batch. The payload is limited to 2,000 section rows and 200 products; existing products are rejected by this create-only endpoint.', schema: { type: 'object', required: ['products'], properties: { products: { type: 'array', maxItems: 200, items: { type: 'object', additionalProperties: true } } } } })
   @Permissions('product.edit')
-  importBatch(@CurrentUser() user: AuthUser, @Body() dto: ImportProductBatchDto) { return this.service.importBatch(user, dto); }
+  importBatch(@CurrentUser() user: AuthUser, @Body() dto: ImportProductBatchDto, @Query('outletId') outletId?: string) { return this.service.importBatch(user, dto, false, outletId); }
   @Post('products/import/batch/validate')
   @Permissions('product.edit')
-  validateImportBatch(@CurrentUser() user: AuthUser, @Body() dto: ImportProductBatchDto) { return this.service.importBatch(user, dto, true); }
+  validateImportBatch(@CurrentUser() user: AuthUser, @Body() dto: ImportProductBatchDto, @Query('outletId') outletId?: string) { return this.service.importBatch(user, dto, true, outletId); }
   @Post('products/rates/import/batch/validate')
   @Permissions('product.edit')
   validateRateImportBatch(@CurrentUser() user: AuthUser, @Body() dto: VendorBulkRateUpdateDto) { return this.service.importRateBatch(user, dto, true); }

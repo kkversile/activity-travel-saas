@@ -109,6 +109,17 @@ enum UserRole {
   TRAVEL_AGENT
 }
 
+enum VendorOutletStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BankAccountVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
 enum EmailAuthChallengePurpose {
   ACTIVATE_VENDOR
   RESET_VENDOR_PASSWORD
@@ -827,9 +838,13 @@ model Tenant {
   reportSchedules                ReportSchedule[]
   reportExports                  VendorReportExport[]
   products                       Product[]
+  outlets                        VendorOutlet[]
+  bankAccounts                   VendorBankAccount[]
+  outletAccess                   UserOutletAccess[]
+  invitationOutletAssignments    VendorTeamInvitationOutlet[]
   reviews                        VendorReview[]
-  productViewsAsVendor           ProductViewEvent[]                         @relation("ProductViewVendor")
-  productViewsAsViewer           ProductViewEvent[]                         @relation("ProductViewAgent")
+  productViewsAsVendor           ProductViewEvent[]                       @relation("ProductViewVendor")
+  productViewsAsViewer           ProductViewEvent[]                       @relation("ProductViewAgent")
   activityPriceApplyRequests     ActivityPriceApplyRequest[]
   buyBoxOffers                   BuyBoxOffer[]                            @relation("BuyBoxOfferVendor")
   buyBoxBids                     BuyBoxBid[]                              @relation("BuyBoxBidVendor")
@@ -850,6 +865,7 @@ model User {
   id                              String                             @id @default(uuid())
   tenantId                        String?
   tenant                          Tenant?                            @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  outletAccess                    UserOutletAccess[]
   email                           String                             @unique
   passwordHash                    String
   fullName                        String
@@ -906,7 +922,99 @@ model User {
   createdAt                       DateTime                           @default(now())
   updatedAt                       DateTime                           @updatedAt
 
+  @@unique([id, tenantId])
   @@index([tenantId, role])
+}
+
+model VendorOutlet {
+  id                    String                       @id @default(uuid())
+  tenantId              String
+  tenant                Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outletCode            String
+  name                  String
+  location              String?
+  contactName           String?
+  contactEmail          String?
+  contactPhone          String?
+  status                VendorOutletStatus           @default(ACTIVE)
+  isDefault             Boolean                      @default(false)
+  bankAccountId         String?
+  bankAccount           VendorBankAccount?           @relation(fields: [bankAccountId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  products              Product[]
+  resources             Resource[]
+  bookings              Booking[]
+  financialEvents       FinancialEvent[]
+  settlementBatches     SettlementBatch[]
+  payouts               Payout[]
+  reportSchedules       ReportSchedule[]
+  reportExports         VendorReportExport[]
+  userAccess            UserOutletAccess[]
+  invitationAssignments VendorTeamInvitationOutlet[]
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  @@unique([tenantId, outletCode])
+  @@unique([id, tenantId])
+  @@index([tenantId, status, name])
+  @@index([tenantId, isDefault])
+  @@index([bankAccountId, tenantId])
+}
+
+model VendorBankAccount {
+  id                      String                        @id @default(uuid())
+  tenantId                String
+  tenant                  Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  accountNumberCiphertext String
+  accountNumberMasked     String
+  bankName                String
+  ifsc                    String
+  accountHolder           String
+  accountType             String
+  currency                String                        @default("INR")
+  verificationStatus      BankAccountVerificationStatus @default(PENDING)
+  proofDocumentId         String?
+  verificationNote        String?
+  verifiedAt              DateTime?
+  verifiedById            String?
+  active                  Boolean                       @default(true)
+  outlets                 VendorOutlet[]
+  payouts                 Payout[]
+  createdAt               DateTime                      @default(now())
+  updatedAt               DateTime                      @updatedAt
+
+  @@unique([id, tenantId])
+  @@index([tenantId, active, verificationStatus])
+}
+
+model UserOutletAccess {
+  id        String       @id @default(uuid())
+  tenantId  String
+  userId    String
+  outletId  String
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  outlet    VendorOutlet @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  active    Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([userId, outletId])
+  @@index([tenantId, userId, active])
+  @@index([tenantId, outletId, active])
+}
+
+model VendorTeamInvitationOutlet {
+  id           String               @id @default(uuid())
+  tenantId     String
+  invitationId String
+  outletId     String
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitation   VendorTeamInvitation @relation(fields: [invitationId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  outlet       VendorOutlet         @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  createdAt    DateTime             @default(now())
+
+  @@unique([invitationId, outletId])
+  @@index([tenantId, outletId])
 }
 
 model GlobalSetting {
@@ -1240,6 +1348,8 @@ model Product {
   id                         String                      @id @default(uuid())
   tenantId                   String
   tenant                     Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outletId                   String?
+  outlet                     VendorOutlet?               @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
   productCode                String
   currency                   String                      @default("INR")
   sourceImportKey            String?
@@ -1273,7 +1383,9 @@ model Product {
   @@unique([tenantId, sourceImportKey])
   @@unique([tenantId, importFingerprint])
   @@unique([tenantId, importIdempotencyKey])
+  @@unique([id, tenantId])
   @@index([tenantId, status])
+  @@index([tenantId, outletId, status])
   @@index([tenantId, deletedAt])
   @@index([experienceMasterId])
 }
@@ -1311,23 +1423,23 @@ model ActivityPriceApplyRequest {
 }
 
 model VendorReview {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   tenantId       String
-  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   productId      String
-  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
   source         String
   sourceReviewId String
   reviewerName   String?
   rating         Int
   title          String?
   comment        String?
-  reviewedAt     DateTime @default(now())
+  reviewedAt     DateTime  @default(now())
   vendorReply    String?
   repliedAt      DateTime?
-  status         String   @default("PUBLISHED")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  status         String    @default("PUBLISHED")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@unique([source, sourceReviewId])
   @@index([tenantId, reviewedAt])
@@ -1715,55 +1827,61 @@ model ProductLocationVerification {
 }
 
 model VendorTeamInvitation {
-  id         String           @id @default(uuid())
-  tenantId   String
-  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  email      String
-  role       OrganizationRole @default(VIEWER)
-  status     String           @default("INVITED")
-  tokenHash  String?          @unique
-  expiresAt  DateTime
-  acceptedAt DateTime?
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  id                String                       @id @default(uuid())
+  tenantId          String
+  tenant            Tenant                       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email             String
+  role              OrganizationRole             @default(VIEWER)
+  status            String                       @default("INVITED")
+  tokenHash         String?                      @unique
+  expiresAt         DateTime
+  acceptedAt        DateTime?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  outletAssignments VendorTeamInvitationOutlet[]
 
   @@unique([tenantId, email])
+  @@unique([id, tenantId])
   @@index([tenantId, status])
 }
 
 model ReportSchedule {
-  id         String    @id @default(uuid())
+  id         String        @id @default(uuid())
   tenantId   String
-  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outletId   String?
+  outlet     VendorOutlet? @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
   reportName String
   reportType String
   frequency  String
   recipient  String
   runTime    String
-  status     String    @default("ACTIVE")
+  status     String        @default("ACTIVE")
   lastRunAt  DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
 
   @@index([tenantId, status])
 }
 
 model VendorReportExport {
-  id          String   @id @default(uuid())
+  id          String        @id @default(uuid())
   tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  outletId    String?
+  outlet      VendorOutlet? @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
   name        String
   type        String
   format      String
   fromDate    DateTime?
   toDate      DateTime?
-  status      String   @default("PENDING")
+  status      String        @default("PENDING")
   rows        Json?
   error       String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime      @default(now())
   startedAt   DateTime?
   completedAt DateTime?
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime      @updatedAt
 
   @@index([tenantId, createdAt])
   @@index([status, createdAt])
@@ -2401,6 +2519,8 @@ model InventoryAllocation {
 model Resource {
   id                 String                        @id @default(uuid())
   tenantId           String
+  outletId           String?
+  outlet             VendorOutlet?                 @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
   tenant             Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   resourceCode       String
   name               String
@@ -2416,8 +2536,8 @@ model Resource {
   createdAt          DateTime                      @default(now())
   updatedAt          DateTime                      @updatedAt
 
-  @@unique([tenantId, resourceCode])
-  @@index([tenantId, active, type])
+  @@unique([tenantId, outletId, resourceCode])
+  @@index([tenantId, outletId, active, type])
 }
 
 model ScheduleResourceRequirement {
@@ -2525,6 +2645,8 @@ model Booking {
   bookingCode                             String                                   @unique
   vendorTenantId                          String
   vendorTenant                            Tenant                                   @relation("BookingVendor", fields: [vendorTenantId], references: [id], onDelete: Restrict)
+  outletId                                String?
+  outlet                                  VendorOutlet?                            @relation(fields: [outletId, vendorTenantId], references: [id, tenantId], onDelete: Restrict)
   agentTenantId                           String?
   agentTenant                             Tenant?                                  @relation("BookingAgent", fields: [agentTenantId], references: [id], onDelete: Restrict)
   agentUserId                             String?
@@ -2581,7 +2703,9 @@ model Booking {
   updatedAt                               DateTime                                 @updatedAt
 
   @@unique([agentTenantId, idempotencyKey])
+  @@unique([id, vendorTenantId])
   @@index([vendorTenantId, status])
+  @@index([vendorTenantId, outletId, status])
   @@index([agentTenantId, status])
   @@index([sessionId, status])
   @@index([confirmationDueAt, status])
@@ -2869,6 +2993,8 @@ model FinancialEvent {
   booking                          Booking?                                @relation(fields: [bookingId], references: [id], onDelete: Restrict)
   vendorTenantId                   String
   vendorTenant                     Tenant                                  @relation(fields: [vendorTenantId], references: [id], onDelete: Restrict)
+  outletId                         String?
+  outlet                           VendorOutlet?                           @relation(fields: [outletId, vendorTenantId], references: [id, tenantId], onDelete: Restrict)
   agentTenantId                    String?
   settlementBatchId                String?
   settlementBatch                  SettlementBatch?                        @relation(fields: [settlementBatchId], references: [id], onDelete: Restrict)
@@ -2895,6 +3021,7 @@ model FinancialEvent {
 
   @@index([bookingId, occurredAt])
   @@index([vendorTenantId, occurredAt])
+  @@index([vendorTenantId, outletId, occurredAt])
   @@index([type, status, occurredAt])
 }
 
@@ -2902,6 +3029,11 @@ model Payout {
   id                      String                         @id @default(uuid())
   tenantId                String
   tenant                  Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  outletId                String?
+  outlet                  VendorOutlet?                  @relation(fields: [outletId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  bankAccountId           String?
+  bankAccount             VendorBankAccount?             @relation(fields: [bankAccountId, tenantId], references: [id, tenantId], onDelete: Restrict)
+  beneficiarySnapshot     Json?
   recordType              PayoutRecordType               @default(LEGACY)
   settlementBatchId       String?                        @unique
   settlementBatch         SettlementBatch?               @relation(fields: [settlementBatchId], references: [id], onDelete: Restrict)
@@ -2927,6 +3059,7 @@ model Payout {
   createdAt               DateTime                       @default(now())
 
   @@index([tenantId, status])
+  @@index([tenantId, outletId, status])
 }
 
 model PayoutReleaseApprovalRequest {
@@ -3037,6 +3170,8 @@ model SettlementBatch {
   batchCode          String                      @unique
   vendorTenantId     String
   vendorTenant       Tenant                      @relation(fields: [vendorTenantId], references: [id], onDelete: Restrict)
+  outletId           String?
+  outlet             VendorOutlet?               @relation(fields: [outletId, vendorTenantId], references: [id, tenantId], onDelete: Restrict)
   currency           String
   policySnapshot     Json
   periodFrom         DateTime?
@@ -3061,6 +3196,7 @@ model SettlementBatch {
   commissionInvoice  CommissionInvoice?
 
   @@index([vendorTenantId, status, createdAt])
+  @@index([vendorTenantId, outletId, status, createdAt])
 }
 
 model CommissionInvoice {

@@ -1,0 +1,67 @@
+{
+  "checkedAt": "2026-11-17T03:20:52.681Z",
+  "checks": [
+    "pre-migration legacy IDs, amounts, ledger snapshots and grants survive expansion",
+    "default outlet backfill twice preserves counts and legacy attribution",
+    "legacy single-outlet finance login retains historical paid payout access",
+    "owner can aggregate and employee sees only assigned outlets",
+    "A cannot list B resources or read/confirm/export B bookings",
+    "A cannot mutate B product revisions or guessed resource IDs",
+    "A cannot read or mutate B commercial pricing, private files, or reviews",
+    "selected query scope drives resource creation and inventory preview/apply",
+    "owner access controls expose checked grants and revoke/regrant through APIs",
+    "live membership revocation overrides previously signed JWT",
+    "invitation acceptance commits requested grants and cannot self-upgrade",
+    "bank proof upload creates a pending account without exposing account secrets",
+    "shared verified bank assignment and cross-tenant rejection",
+    "different outlets settle separately in same week with shared banks",
+    "bank reassignment preserves issued payout snapshot and revoked bank blocks release",
+    "deactivation preserves existing booking history",
+    "cancellation liability keeps outlet attribution and reduces future settlement",
+    "bank revocation between maker request and checker approval blocks release",
+    "concurrent deactivation retains exactly one active/default outlet",
+    "two concurrent same-outlet batch requests preserve one weekly payout"
+  ],
+  "vendorId": "27b5e0a7-a9a3-46af-8d80-549cfbff06fb",
+  "outlets": [
+    {
+      "id": "25b046ae-0409-42a3-a60f-930c1272a4c8",
+      "name": "Outlet A"
+    },
+    {
+      "id": "e671df87-2d54-4e89-9ad9-a00366d2b83c",
+      "name": "Outlet B"
+    },
+    {
+      "id": "b5506274-5dd3-49f8-ab21-8fe8ab5a2826",
+      "name": "Outlet C"
+    },
+    {
+      "id": "3746118f-8347-4e70-9f86-f203f991388e",
+      "name": "Outlet D"
+    }
+  ],
+  "bookings": [
+    {
+      "id": "34a4807e-731d-45b0-b48d-195c28e50307",
+      "code": "ABC-LOCAL-A"
+    },
+    {
+      "id": "fd6157ec-45c5-4ca5-b6b2-e4d54f6382bf",
+      "code": "ABC-LOCAL-B"
+    },
+    {
+      "id": "44e493e4-371b-4fd5-8040-53c18fbfed3a",
+      "code": "ABC-LOCAL-C"
+    },
+    {
+      "id": "a564391e-4607-4efc-b618-6e4f404a3b73",
+      "code": "ABC-LOCAL-D"
+    }
+  ],
+  "ownerEmail": "owner@abc.local",
+  "employeeEmail": "a@abc.local",
+  "password": "LocalOutlet@123",
+  "database": "127.0.0.1:55439/voya_outlet_baseline",
+  "note": "All accounts, documents and settlements are illustrative local records. No real transfers."
+}

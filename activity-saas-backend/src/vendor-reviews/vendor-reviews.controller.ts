@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -27,8 +27,8 @@ export class VendorReviewsController {
   @Get('vendor/reviews')
   @Roles(UserRole.VENDOR)
   @Permissions('product.view')
-  list(@CurrentUser() user: AuthUser) {
-    return this.service.list(user);
+  list(@CurrentUser() user: AuthUser, @Query('outletId') outletId?: string) {
+    return this.service.list(user, outletId);
   }
 
   @Patch('vendor/reviews/:id/reply')

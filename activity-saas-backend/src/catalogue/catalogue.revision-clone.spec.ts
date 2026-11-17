@@ -1,5 +1,6 @@
 import { ProductRevisionStatus, ProductStatus, ProductType, ScheduleStatus, UserRole } from '@prisma/client';
 import { CatalogueService } from './catalogue.service';
+import { attachCatalogueTestOutletAccess } from './catalogue-test-outlet-access';
 
 const vendor = { sub: 'u1', email: 'vendor@test', role: UserRole.VENDOR, tenantId: 't1' } as any;
 const timestamp = new Date('2026-11-01T00:00:00Z');
@@ -44,7 +45,7 @@ function setup(source: any = sourceRevision()) {
     $transaction: jest.fn(async (callback: any) => callback(tx)),
   };
   const audit = { write: jest.fn() };
-  const service = new CatalogueService(prisma as any, audit as any, { enqueue: jest.fn() } as any, {} as any);
+  const service = attachCatalogueTestOutletAccess(new CatalogueService(prisma as any, audit as any, { enqueue: jest.fn() } as any, {} as any));
   return { service, prisma, tx, audit };
 }
 

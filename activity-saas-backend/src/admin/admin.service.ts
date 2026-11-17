@@ -330,6 +330,7 @@ export class AdminService {
     const slugBase = vendorName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'vendor';
     const created = await this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({ data: { name: vendorName, slug: `${slugBase}-${Date.now().toString(36)}`, kind: TenantKind.VENDOR } });
+      await tx.vendorOutlet.create({ data: { tenantId: tenant.id, outletCode: 'MAIN', name: vendorName, isDefault: true } });
       await ensurePublicIdentifier(tx, PublicEntity.VENDOR, tenant.id, await allocatePublicCode(tx, PublicEntity.VENDOR, 'SUP-', 4));
       const user = await tx.user.create({ data: { tenantId: tenant.id, email, passwordHash, fullName: ownerName, role: UserRole.VENDOR, organizationRole: 'OWNER', active: true, mustChangePassword: true }, select: { id: true, email: true, fullName: true, role: true, tenantId: true, active: true } });
       await ensurePublicIdentifier(tx, PublicEntity.USER, user.id, await allocatePublicCode(tx, PublicEntity.USER, 'VU-', 5));
