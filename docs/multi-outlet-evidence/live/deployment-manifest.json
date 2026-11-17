@@ -1,0 +1,18 @@
+{
+  "revision": "be71cc32a6974df884b93a557373fbfd20daad6a",
+  "deployedAt": "2026-11-17T03:44:35.941067+00:00",
+  "backupDirectory": "/root/voya-backups/multi-outlet-be71cc3-20261117T034217Z",
+  "databaseBackupSha256": "f37eee7233dbcf61398c3e73c38bbeab270a1457c7499791f982a950a87b109d",
+  "databaseBackupBytes": 2571383,
+  "uploadBackupBytes": 32844505,
+  "originalTablesVerified": 121,
+  "originalBusinessDataUnchanged": true,
+  "themePreserved": true,
+  "migration": "20261117100000_multi_outlet_core",
+  "backfillRuns": 2,
+  "migrationOwnerExecution": true,
+  "initialAppRoleAttemptRolledBack": true,
+  "service": "voya-api-demo-be71cc3.service",
+  "health": "ok",
+  "maintenanceSeconds": 138.9
+}

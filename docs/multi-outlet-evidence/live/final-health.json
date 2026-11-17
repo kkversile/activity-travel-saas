@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-11-17T03:52:49.657531+00:00",
+  "publicHealthStatus": 200,
+  "service": [
+    "NRestarts=0",
+    "ActiveState=active",
+    "SubState=running"
+  ],
+  "database": {
+    "successfulMigrations": 98,
+    "rolledBackAttempts": 18,
+    "unfinishedMigrations": 0,
+    "vendors": 12,
+    "outlets": 15,
+    "unassignedProducts": 0,
+    "unassignedBookings": 0,
+    "bookings": 17,
+    "events": 61,
+    "payouts": 7,
+    "batches": 4,
+    "invalidOutletIndexes": 0
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "revision": "be71cc3",
+  "checkedAt": "2026-11-17T03:46:43.288Z",
+  "existingChecks": 151,
+  "newFlowChecks": [
+    "new vendor registration and password login create one legal tenant and default outlet",
+    "owner creates/edits four outlets and sees consolidated scope",
+    "invitation acceptance preserves roles and A / A+C assignments; multi-assignment requires selection",
+    "private draft catalogue aggregates/switches correctly; guessed IDs and mismatched selection are denied",
+    "resource creation carries selected outlet; another outlet employee cannot edit it",
+    "owner checked grants match API; revocation invalidates existing employee session access; regrant restores it",
+    "inactive outlet retains readable history and blocks new mutation; reactivation works",
+    "bank proof creates masked PENDING account; unverified assignment blocked; admin review list and outlet preview work"
+  ],
+  "failures": [],
+  "noFinancialWrites": true,
+  "noEmailsSent": true,
+  "existingAccounts": 13,
+  "financeFingerprintsUnchanged": true,
+  "demoVendor": {
+    "name": "Harbour Trails",
+    "ownerEmail": "owner@harbour-trails.example.com",
+    "outlets": [
+      {
+        "id": "ccdca530-afb3-4a2a-a4ff-77d064c7919e",
+        "name": "Fort Kochi"
+      },
+      {
+        "id": "af811e89-167b-4ea8-b9ac-b5a7023ea7ef",
+        "name": "Munnar"
+      },
+      {
+        "id": "be01ffe4-aa75-4408-a7db-0c9bb9d61d49",
+        "name": "Alleppey"
+      },
+      {
+        "id": "eb6fe441-aff0-42b8-bc2f-af3f99467247",
+        "name": "Wayanad"
+      }
+    ],
+    "draftProducts": 4,
+    "onboardingNotFalselyApproved": true,
+    "bankRemainsPending": true
+  }
+}

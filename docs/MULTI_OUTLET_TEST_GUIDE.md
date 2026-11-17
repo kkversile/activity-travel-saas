@@ -2,6 +2,10 @@
 
 Use the isolated local demo at http://127.0.0.1:3007/ first. These fixtures are not installed on the client-facing live demo. All banking records and proof documents are illustrative. Do not submit real transfers or alter client records while following this guide.
 
+## Live demo after deployment
+
+Live is deployed at https://demo.dhisoft.in/voya/ as `be71cc3`. Use your existing account, or the Harbour Trails owner session left open in Codex. That separate illustrative workspace has Fort Kochi/Munnar/Alleppey/Wayanad, four private drafts and A-only/A+C employees. Its bank account intentionally remains PENDING; do not approve the illustrative proof as real verification. Local `.local` accounts below are not live accounts. See `MULTI_OUTLET_LIVE_DEPLOYMENT.md` for backup locations, live results and private demo credential storage.
+
 ## Local accounts
 
 All accounts below use password `LocalOutlet@123`. Use Sign out between accounts, or separate browser profiles for owner and employee sessions. The app stores its session in localStorage, so ordinary tabs of the same browser share credentials.

@@ -115,6 +115,7 @@ activity-saas-frontend/src/pages/PartnerHubPages.tsx
 activity-saas-frontend/src/pages/Payouts.tsx
 docs/MULTI_OUTLET_IMPLEMENTATION_PLAN.md
 docs/MULTI_OUTLET_IMPLEMENTATION_REPORT.md
+docs/MULTI_OUTLET_LIVE_DEPLOYMENT.md
 docs/MULTI_OUTLET_REVIEW.md
 docs/MULTI_OUTLET_STAGING_REHEARSAL.md
 docs/MULTI_OUTLET_TEST_GUIDE.md
