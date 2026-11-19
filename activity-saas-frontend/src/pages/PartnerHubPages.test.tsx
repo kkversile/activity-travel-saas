@@ -156,14 +156,50 @@ describe('Partner Hub promotions prototype parity', () => {
 });
 
 describe('Partner Hub reports and persistence parity', () => {
+  it('hides finance exports, unauthorized history and recipient controls for operational access', async () => {
+    const request=vi.spyOn(api,'request').mockImplementation(async(path)=>{
+      if(path==='/vendor/report-capabilities')return {allowedTypes:['BOOKINGS','GUEST_MANIFEST','PRODUCTS','REVIEWS','CANCELLATIONS'],canSchedule:false,canReply:false} as never;
+      if(path==='/vendor/reports')return [{id:'restricted',type:'PAYOUTS',name:'Private finance report'}] as never;
+      if(path==='/vendor/reviews')return [{id:'review-1',reviewerName:'Maya',rating:5,comment:'Great',reviewedAt:'2026-11-19',productName:'Walk',source:'MARKETPLACE'}] as never;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<PartnerReportsPage />);
+    expect(await screen.findByRole('button',{name:/Guest manifest.*Generate report/})).toBeEnabled();
+    expect(screen.queryByRole('button',{name:/Payout statement.*Generate report/})).not.toBeInTheDocument();
+    expect(screen.queryByText('Private finance report')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Schedule report'})).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Reply to Maya')).toBeDisabled();
+    expect(request).not.toHaveBeenCalledWith('/vendor/report-schedules');
+  });
+  it('allows finance reports without requesting catalogue reviews or owner-only schedules',async()=>{
+    const request=vi.spyOn(api,'request').mockImplementation(async(path)=>{
+      if(path==='/vendor/report-capabilities')return {allowedTypes:['BOOKINGS','PAYOUTS','COMMISSION_INVOICES','TDS_TCS_CERTIFICATES','CANCELLATIONS'],canSchedule:false,canReply:false} as never;
+      if(path==='/vendor/reports')return [] as never;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<PartnerReportsPage />);
+    expect(await screen.findByRole('button',{name:/Payout statement.*Generate report/})).toBeEnabled();
+    expect(screen.queryByRole('button',{name:/Product report.*Generate report/})).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading',{name:'Reviews to reply to'})).not.toBeInTheDocument();
+    expect(request).not.toHaveBeenCalledWith('/vendor/reviews');
+    expect(request).not.toHaveBeenCalledWith('/vendor/report-schedules');
+  });
+  it('fails closed if report permissions cannot be loaded',async()=>{
+    vi.spyOn(api,'request').mockRejectedValue(new Error('Permissions unavailable'));
+    render(<PartnerReportsPage />);
+    expect(await screen.findByText('Permissions unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:/Generate report/})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Schedule report'})).not.toBeInTheDocument();
+  });
   it('keeps Admin support report generation read-only and explains existing download access', async () => {
     const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/vendor/report-capabilities') return { allowedTypes: ['BOOKINGS','GUEST_MANIFEST','PAYOUTS','COMMISSION_INVOICES','TDS_TCS_CERTIFICATES','PRODUCTS','PRODUCT_PERFORMANCE','REVIEWS','CANCELLATIONS'], canSchedule: true, canReply: true } as never;
       if (path === '/vendor/report-schedules') return { items: [], deliveryAvailable: false } as never;
       return [] as never;
     });
     render(<PartnerReportsPage readOnly />);
     expect(await screen.findByText(/Admin support sessions are read-only/)).toHaveAttribute('role', 'status');
-    expect(screen.getByRole('button', { name: /Payout statement.*Generate report/ })).toBeDisabled();
+    expect(await screen.findByRole('button', { name: /Payout statement.*Generate report/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Commission invoices.*Generate report/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Schedule report' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: /Payout statement.*Generate report/ }));
@@ -175,6 +211,7 @@ describe('Partner Hub reports and persistence parity', () => {
     const request = vi.spyOn(api, 'request').mockImplementation(async (path, options) => {
       if (path === '/vendor/reports' && options?.method === 'POST') return report as never;
       if (path === '/vendor/reports') return [report] as never;
+      if (path === '/vendor/report-capabilities') return { allowedTypes: ['BOOKINGS','GUEST_MANIFEST','PAYOUTS','COMMISSION_INVOICES','TDS_TCS_CERTIFICATES','PRODUCTS','PRODUCT_PERFORMANCE','REVIEWS','CANCELLATIONS'], canSchedule: true, canReply: true } as never;
       if (path === '/vendor/report-schedules') return { items: [], deliveryAvailable: false } as never;
       if (path === '/vendor/reviews') return [] as never;
       throw new Error(`Unexpected request: ${path}`);
@@ -199,6 +236,7 @@ describe('Partner Hub reports and persistence parity', () => {
   it('offers prototype report types and loads persisted review rows for replies', async () => {
     const request = vi.spyOn(api, 'request').mockImplementation(async (path) => {
       if (path === '/vendor/reports') return [] as never;
+      if (path === '/vendor/report-capabilities') return { allowedTypes: ['BOOKINGS','GUEST_MANIFEST','PAYOUTS','COMMISSION_INVOICES','TDS_TCS_CERTIFICATES','PRODUCTS','PRODUCT_PERFORMANCE','REVIEWS','CANCELLATIONS'], canSchedule: true, canReply: true } as never;
       if (path === '/vendor/report-schedules') return { items: [], deliveryAvailable: false } as never;
       if (path === '/vendor/reviews') return [{ id: 'review-1', reviewerName: 'Maya', rating: 5, comment: 'Wonderful guide', reviewedAt: '2026-11-03T10:00:00Z', productName: 'Sunrise Trek', source: 'MARKETPLACE', vendorReply: null }] as never;
       if (path === '/vendor/reviews/review-1/reply') return {} as never;

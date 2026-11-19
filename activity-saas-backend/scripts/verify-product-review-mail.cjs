@@ -89,8 +89,25 @@ async function main() {
   await prisma.outboxEvent.update({ where: { id: event.id }, data: { availableAt: new Date(0) } }); await worker.dispatch(); await processed(event); assert.equal(messages.length, 8);
   const exhausted = await enqueue(); await prisma.outboxEvent.update({ where: { id: exhausted.id }, data: { status: 'PROCESSING', attemptCount: 5, availableAt: new Date(0) } });
   await worker.dispatch(); await processed(exhausted, 'FAILED'); assert.equal(messages.length, 8); await processed(legacy, 'PENDING');
+  // Legacy status/edit notices must not select an earlier-created employee.
+  await prisma.user.update({ where: { id: editors[0].id }, data: { createdAt: new Date('2000-01-01') } });
+  const { OnboardingEmailService } = require('../dist/onboarding/onboarding-email.service');
+  const { CatalogueEmailService } = require('../dist/catalogue/catalogue-email.service');
+  await new OnboardingEmailService(prisma).notifyReview(owner.tenantId, 'APPROVED', 'APPROVED', 'Demonstration only');
+  await new CatalogueEmailService(prisma).notifyAdminEdited(approved.id, 'Demonstration administrator');
+  assert.equal(messages.length, 10); assert(messages.slice(8).every((message) => message.recipient === owner.email));
+  const { VendorToolsService } = require('../dist/vendor-tools/vendor-tools.service');
+  const { VendorOutletAccessService } = require('../dist/vendor-outlets/vendor-outlet-access.service');
+  process.env.VENDOR_REPORT_SCHEDULER_ENABLED = 'true';
+  const reports = new VendorToolsService(prisma, new VendorOutletAccessService(prisma));
+  const schedule = await reports.createReportSchedule({ sub: owner.id, tenantId: owner.tenantId, role: owner.role, organizationRole: owner.organizationRole }, { reportName: 'Demonstration concurrent report', reportType: 'BOOKINGS', frequency: 'DAILY', recipient: 'reports@fixture.invalid', runTime: '00:00', outletId: outlets[0].id });
+  await Promise.all([reports.dispatchScheduledReports(), reports.dispatchScheduledReports()]);
+  assert.equal(messages.length, 11, 'Concurrent workers send a due report once, including same-day catch-up');
+  assert(messages[10].raw.includes('Content-Disposition: attachment;'));
+  assert((await prisma.reportSchedule.findUniqueOrThrow({ where: { id: schedule.id } })).lastRunAt);
+  await reports.dispatchScheduledReports(); assert.equal(messages.length, 11, 'A recorded daily send is not repeated');
   assert.deepEqual(await fingerprint(), before, 'Finance, booking and asset records preserved');
-  const result = { checkedAt: new Date(), pass: true, database: target.pathname.slice(1), transport: 'Authenticated loopback SMTP sink; no external delivery', capturedMessages: messages.length, approval: true, rejectionNote: true, tenantOutletRoleIsolation: true, revokedGrantExcluded: true, optOut: true, mismatchedRevisionExcluded: true, concurrentClaim: true, partialRetryReceipts: true, expiredLeaseRecovery: true, attemptsBounded: true, historicalEventsUntouched: true, protectedTableHashesUnchanged: Object.keys(before).length };
+  const result = { checkedAt: new Date(), pass: true, database: target.pathname.slice(1), transport: 'Authenticated loopback SMTP sink; no external delivery', capturedMessages: messages.length, scheduledReportConcurrentSendSuppressed: true, sameDayScheduleCatchUp: true, scheduledReportAttachment: true, legacyOnboardingAndAdminEditOwnerIsolation: true, approval: true, rejectionNote: true, tenantOutletRoleIsolation: true, revokedGrantExcluded: true, optOut: true, mismatchedRevisionExcluded: true, concurrentClaim: true, partialRetryReceipts: true, expiredLeaseRecovery: true, attemptsBounded: true, historicalEventsUntouched: true, protectedTableHashesUnchanged: Object.keys(before).length };
   if (process.env.REVIEW_MAIL_EVIDENCE) fs.writeFileSync(process.env.REVIEW_MAIL_EVIDENCE, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
 }

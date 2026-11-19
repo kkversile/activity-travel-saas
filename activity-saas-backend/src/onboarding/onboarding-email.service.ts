@@ -9,7 +9,10 @@ export class OnboardingEmailService {
   constructor(private readonly prisma: PrismaService) {}
 
   async notifySubmitted(tenantId: string, vendorName?: string | null) {
-    const recipient = process.env.ONBOARDING_ADMIN_EMAIL?.trim() || 'dhisoftai@gmail.com';
+    const configured = (process.env.ONBOARDING_ADMIN_EMAIL || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
+    const admins = await this.prisma.user.findMany({ where: { role: { in: [UserRole.ADMIN, UserRole.SUPER_ADMIN] }, active: true }, select: { email: true } });
+    const recipient = [...new Set(configured.length ? configured : admins.map((admin) => admin.email.toLowerCase()))];
+    if (!recipient.length) throw new ServiceUnavailableException('No active administrator or configured onboarding notification recipient is available');
     const name = vendorName?.trim() || await this.vendorName(tenantId);
     await this.send(recipient, name, 'SUBMITTED', 'SUBMITTED', null, 'ADMIN');
   }
@@ -21,7 +24,7 @@ export class OnboardingEmailService {
   }
 
   private async vendorContact(tenantId: string) {
-    const tenant = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, select: { name: true, users: { where: { role: UserRole.VENDOR, active: true }, orderBy: { createdAt: 'asc' }, take: 1, select: { email: true, fullName: true } } } });
+    const tenant = await this.prisma.tenant.findFirst({ where: { id: tenantId, kind: TenantKind.VENDOR }, select: { name: true, users: { where: { role: UserRole.VENDOR, organizationRole: 'OWNER', active: true }, orderBy: { createdAt: 'asc' }, take: 1, select: { email: true, fullName: true } } } });
     const user = tenant?.users[0];
     return user ? { email: user.email, name: user.fullName || tenant.name } : null;
   }
@@ -31,14 +34,14 @@ export class OnboardingEmailService {
     return tenant?.name || 'Voya vendor';
   }
 
-  private async send(to: string, vendorName: string, kind: OnboardingEmailKind, status: string, reason?: string | null, audience: OnboardingEmailAudience = 'VENDOR') {
+  private async send(to: string | string[], vendorName: string, kind: OnboardingEmailKind, status: string, reason?: string | null, audience: OnboardingEmailAudience = 'VENDOR') {
     const smtpHost = process.env.SMTP_HOST?.trim();
     const smtpUser = process.env.SMTP_USER?.trim();
     const smtpPassword = process.env.SMTP_PASSWORD;
     if (!smtpHost || !smtpUser || !smtpPassword) throw new ServiceUnavailableException('Email delivery is not configured');
     const port = Number(process.env.SMTP_PORT || 587);
     const secure = String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465;
-    const transporter = nodemailer.createTransport({ host: smtpHost, port, secure, auth: { user: smtpUser, pass: smtpPassword } });
+    const transporter = nodemailer.createTransport({ host: smtpHost, port, secure, auth: { user: smtpUser, pass: smtpPassword }, connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 30000 });
     const copy = onboardingEmailCopy(kind);
     try {
       const greeting = audience === 'ADMIN' ? 'Hello Voya Admin Team,' : `Hello ${vendorName},`;

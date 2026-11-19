@@ -15,7 +15,7 @@ describe('VendorToolsService persistence and ownership', () => {
     expect(upsert.mock.calls[0][0].create.tokenHash).not.toBe(result.inviteToken);
   });
 
-  const owner = { tenantId: 'vendor-1', organizationRole: 'OWNER' } as any;
+  const owner = { role: 'VENDOR', tenantId: 'vendor-1', organizationRole: 'OWNER' } as any;
 
   it('returns promotion impact tied to the promotion ID in booking snapshots', async () => {
     const prisma: any = {

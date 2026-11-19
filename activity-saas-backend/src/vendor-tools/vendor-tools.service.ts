@@ -8,12 +8,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
 import { VendorOutletAccessService, OutletScope } from '../vendor-outlets/vendor-outlet-access.service';
+import { VENDOR_REPORT_TYPES, vendorReportTypesFor, canManageVendorReportSchedules } from '../common/vendor-report-permissions';
 
 type ReportFormat = 'CSV' | 'XLSX' | 'PDF';
 type ReportSnapshot = { id: string; name: string; type: string; format: ReportFormat; createdAt: string; status: 'READY'; rows: string[][] };
 type ReportExportRequest = { type: string; from?: string; to?: string; format?: string; outletId?: string };
 type LocationCandidate = { id: string; name: string; address: string; lat: number; lon: number; provider: string; providerPlaceId?: string; sourceUrl?: string };
-const REPORT_TYPES = ['BOOKINGS', 'GUEST_MANIFEST', 'PAYOUTS', 'COMMISSION_INVOICES', 'TDS_TCS_CERTIFICATES', 'PRODUCTS', 'PRODUCT_PERFORMANCE', 'REVIEWS', 'CANCELLATIONS'] as const;
+const REPORT_TYPES = VENDOR_REPORT_TYPES;
 const VENDOR_NOTIFICATION_PREFERENCE_KEYS = ['bookingEmail', 'bookingWhatsapp', 'bookingSms', 'cancellationEmail', 'cancellationWhatsapp', 'cancellationSms', 'payoutEmail', 'payoutWhatsapp', 'payoutSms', 'documentExpiryEmail', 'documentExpiryWhatsapp', 'documentExpirySms', 'reviewEmail', 'reviewWhatsapp', 'reviewSms'] as const;
 
 const DEFAULT_TAXONOMY = [
@@ -29,6 +30,16 @@ const DEFAULT_TAXONOMY = [
 @Injectable()
 export class VendorToolsService {
   constructor(private readonly prisma: PrismaService, private readonly outletAccess?: VendorOutletAccessService) {}
+
+  reportCapabilities(user: AuthUser) {
+    return { allowedTypes: vendorReportTypesFor(user), canSchedule: canManageVendorReportSchedules(user), canReply: user.role === 'VENDOR' && ['OWNER', 'CATALOGUE'].includes(user.organizationRole || '') };
+  }
+  private assertReportAllowed(user: AuthUser, type: string) {
+    if (!vendorReportTypesFor(user).includes(type)) throw new ForbiddenException('Your role cannot access this report type.');
+  }
+  private assertScheduleOwner(user: AuthUser) {
+    if (!canManageVendorReportSchedules(user)) throw new ForbiddenException('Only workspace owners can manage report recipients and schedules.');
+  }
 
   private async resolveOutlet(user: AuthUser, outletId?: string, aggregateRead = false): Promise<OutletScope> {
     if (this.outletAccess) return this.outletAccess.resolve(user, outletId, { aggregateRead, mutation: !aggregateRead });
@@ -205,6 +216,7 @@ export class VendorToolsService {
   }
 
   async listReportSchedules(user: AuthUser, outletId?: string) {
+    if (!canManageVendorReportSchedules(user)) return { items: [], deliveryAvailable: false };
     const scope = await this.resolveOutlet(user, outletId, true);
     const items = await this.prisma.reportSchedule.findMany({ where: { tenantId: scope.tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, orderBy: { createdAt: 'desc' } });
     return { items, deliveryAvailable: this.reportDeliveryAvailable() };
@@ -212,16 +224,18 @@ export class VendorToolsService {
 
   async listReports(user: AuthUser, outletId?: string) {
     const scope = await this.resolveOutlet(user, outletId, true); const tenantId = scope.tenantId;
-    const rows = await this.prisma.vendorReportExport.findMany({ where: { tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, orderBy: { createdAt: 'desc' }, take: 20 });
+    const allowed = vendorReportTypesFor(user);
+    const rows = await this.prisma.vendorReportExport.findMany({ where: { tenantId, type: { in: allowed }, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, orderBy: { createdAt: 'desc' }, take: 20 });
     if (rows.length) return rows.map(({ rows: _data, ...report }) => ({ ...report, downloadUrl: `/api/vendor/reports/${report.id}/download` }));
     // Read pre-migration exports until tenants have generated their first normalized export.
-    return (scope.aggregate ? await this.readReports(tenantId) : []).map(({ rows: _data, ...report }) => ({ ...report, downloadUrl: `/api/vendor/reports/${report.id}/download` }));
+    return (scope.aggregate ? await this.readReports(tenantId) : []).filter((report) => allowed.includes(report.type)).map(({ rows: _data, ...report }) => ({ ...report, downloadUrl: `/api/vendor/reports/${report.id}/download` }));
   }
 
   async enqueueReport(user: AuthUser, input: ReportExportRequest) {
     const scope = await this.resolveOutlet(user, input.outletId, true); const tenantId = scope.tenantId;
     const normalized = String(input.type || '').toUpperCase();
     if (!REPORT_TYPES.includes(normalized as typeof REPORT_TYPES[number])) throw new BadRequestException('Unsupported report type.');
+    this.assertReportAllowed(user, normalized);
     const format = String(input.format || 'CSV').toUpperCase();
     if (!['CSV', 'XLSX', 'PDF'].includes(format)) throw new BadRequestException('Unsupported report format.');
     const fromDate = input.from ? new Date(input.from) : null;
@@ -237,27 +251,33 @@ export class VendorToolsService {
 
   @Cron('*/10 * * * * *')
   async resumePendingReportExports() {
+    // Interrupted exports must reach an actionable terminal state instead of
+    // polling forever after a process restart. A fresh request can regenerate.
+    await this.prisma.vendorReportExport.updateMany({ where: { status: 'PROCESSING', OR: [{ startedAt: { lt: new Date(Date.now() - 15 * 60_000) } }, { startedAt: null }] }, data: { status: 'FAILED', error: 'Report generation was interrupted. Please generate the report again.', completedAt: new Date() } });
     const pending = await this.prisma.vendorReportExport.findMany({ where: { status: 'PENDING' }, select: { id: true, tenantId: true }, orderBy: { createdAt: 'asc' }, take: 10 });
     for (const report of pending) await this.processReportExport(report.id, report.tenantId);
   }
 
   private async processReportExport(id: string, tenantId: string) {
-    const claim = await this.prisma.vendorReportExport.updateMany({ where: { id, tenantId, status: 'PENDING' }, data: { status: 'PROCESSING', startedAt: new Date(), error: null } });
+    const startedAt = new Date();
+    const claim = await this.prisma.vendorReportExport.updateMany({ where: { id, tenantId, status: 'PENDING' }, data: { status: 'PROCESSING', startedAt, error: null } });
     if (!claim.count) return;
     try {
       const queued = await this.prisma.vendorReportExport.findFirst({ where: { id, tenantId }, select: { type: true, format: true, fromDate: true, toDate: true, outletId: true } });
       if (!queued) return;
       const workerUser = { tenantId, sub: 'report-export-worker', role: 'VENDOR', organizationRole: 'OWNER' } as AuthUser;
       const snapshot = await this.createReport(workerUser, { type: queued.type, format: queued.format, from: queued.fromDate?.toISOString(), to: queued.toDate?.toISOString(), outletId: queued.outletId || undefined });
-      await this.prisma.vendorReportExport.update({ where: { id }, data: { status: 'READY', rows: snapshot.rows, completedAt: new Date() } });
+      await this.prisma.vendorReportExport.updateMany({ where: { id, tenantId, status: 'PROCESSING', startedAt }, data: { status: 'READY', rows: snapshot.rows, completedAt: new Date() } });
     } catch {
-      await this.prisma.vendorReportExport.update({ where: { id }, data: { status: 'FAILED', error: 'Report generation failed. Please retry.', completedAt: new Date() } });
+      await this.prisma.vendorReportExport.updateMany({ where: { id, tenantId, status: 'PROCESSING', startedAt }, data: { status: 'FAILED', error: 'Report generation failed. Please retry.', completedAt: new Date() } });
     }
   }
 
   async createReportSchedule(user: AuthUser, input: Record<string, unknown>) {
+    this.assertScheduleOwner(user);
     const scope = await this.resolveOutlet(user, input.outletId ? String(input.outletId) : undefined); const tenantId = scope.tenantId; const reportName = String(input.reportName || '').trim(); const reportType = String(input.reportType || '').toUpperCase(); const frequency = String(input.frequency || '').toUpperCase(); const recipient = String(input.recipient || '').trim(); const runTime = String(input.runTime || '').trim();
     if (!reportName || !REPORT_TYPES.includes(reportType as typeof REPORT_TYPES[number]) || !['DAILY', 'WEEKLY', 'MONTHLY'].includes(frequency) || !/^\S+@\S+\.\S+$/.test(recipient) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(runTime)) throw new BadRequestException('Provide a valid report name, type, frequency, email recipient and 24-hour run time.');
+    this.assertReportAllowed(user, reportType);
     return this.prisma.reportSchedule.create({ data: { tenantId, outletId: scope.outletIds?.[0] || null, reportName, reportType, frequency, recipient, runTime, status: this.reportDeliveryAvailable() ? 'ACTIVE' : 'PAUSED' } });
   }
 
@@ -269,34 +289,46 @@ export class VendorToolsService {
     const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
     const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || '';
     const localDate = `${part('year')}-${part('month')}-${part('day')}`; const localTime = `${part('hour')}:${part('minute')}`; const weekday = part('weekday'); const dayOfMonth = Number(part('day'));
-    const schedules = await this.prisma.reportSchedule.findMany({ where: { status: 'ACTIVE', runTime: localTime }, orderBy: { createdAt: 'asc' } });
-    const transporter = nodemailer.createTransport({ host: smtpHost, port: Number(process.env.SMTP_PORT || 587), secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || Number(process.env.SMTP_PORT || 587) === 465, auth: { user: smtpUser, pass: smtpPassword } });
-    for (const schedule of schedules) {
-      if ((schedule.frequency === 'WEEKLY' && weekday !== 'Mon') || (schedule.frequency === 'MONTHLY' && dayOfMonth !== 1)) continue;
-      if (schedule.lastRunAt) {
-        const lastRunParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(schedule.lastRunAt);
-        const lastRunDate = `${lastRunParts.find((item) => item.type === 'year')?.value}-${lastRunParts.find((item) => item.type === 'month')?.value}-${lastRunParts.find((item) => item.type === 'day')?.value}`;
-        if (lastRunDate === localDate) continue;
-      }
+    const schedules = await this.prisma.reportSchedule.findMany({ where: { status: 'ACTIVE', runTime: { lte: localTime } }, orderBy: { createdAt: 'asc' } });
+    const transporter = nodemailer.createTransport({ host: smtpHost, port: Number(process.env.SMTP_PORT || 587), secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || Number(process.env.SMTP_PORT || 587) === 465, auth: { user: smtpUser, pass: smtpPassword }, connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 30000 });
+    for (const candidate of schedules) {
       try {
-        const from = new Date(now); from.setUTCDate(from.getUTCDate() - (schedule.frequency === 'DAILY' ? 1 : schedule.frequency === 'WEEKLY' ? 7 : 30));
-        const workerUser = { tenantId: schedule.tenantId, sub: 'scheduled-report-worker', role: 'VENDOR', organizationRole: 'OWNER' } as AuthUser;
-        const report = await this.createReport(workerUser, { type: schedule.reportType, from: from.toISOString(), to: now.toISOString(), format: 'CSV', outletId: schedule.outletId || undefined });
-        await this.prisma.vendorReportExport.upsert({
-          where: { id: report.id },
-          create: { id: report.id, tenantId: schedule.tenantId, outletId: schedule.outletId, name: report.name, type: report.type, format: report.format, fromDate: from, toDate: now, status: 'READY', rows: report.rows, startedAt: now, completedAt: now },
-          update: { status: 'READY', rows: report.rows, error: null, completedAt: now },
-        });
-        const attachment = await this.downloadReport(workerUser, report.id);
-        await transporter.sendMail({ from: { name: process.env.SMTP_FROM_NAME?.trim() || 'Voya', address: process.env.SMTP_FROM_EMAIL?.trim() || smtpUser }, to: schedule.recipient, subject: `${schedule.reportName} · ${localDate}`, text: `Your scheduled ${schedule.frequency.toLowerCase()} report is attached.`, attachments: [{ filename: attachment.filename, content: attachment.body, contentType: attachment.contentType }] });
-        await this.prisma.reportSchedule.update({ where: { id: schedule.id }, data: { lastRunAt: now } });
+        // A per-schedule database lock covers generation, SMTP acceptance and
+        // lastRunAt. Re-read after locking: another worker may just have sent it.
+        await this.prisma.$transaction(async (tx) => {
+          const [lock] = await tx.$queryRaw<Array<{ claimed: boolean }>>`SELECT pg_try_advisory_xact_lock(hashtextextended(${candidate.id}, 0)) AS claimed`;
+          if (!lock?.claimed) return;
+          const schedule = await tx.reportSchedule.findUnique({ where: { id: candidate.id } });
+          if (!schedule || schedule.status !== 'ACTIVE' || schedule.runTime > localTime) return;
+          if ((schedule.frequency === 'WEEKLY' && weekday !== 'Mon') || (schedule.frequency === 'MONTHLY' && dayOfMonth !== 1)) return;
+          if (schedule.lastRunAt) {
+            const lastRunParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(schedule.lastRunAt);
+            const lastRunDate = `${lastRunParts.find((item) => item.type === 'year')?.value}-${lastRunParts.find((item) => item.type === 'month')?.value}-${lastRunParts.find((item) => item.type === 'day')?.value}`;
+            if (lastRunDate === localDate) return;
+          }
+          const from = new Date(now); from.setUTCDate(from.getUTCDate() - (schedule.frequency === 'DAILY' ? 1 : schedule.frequency === 'WEEKLY' ? 7 : 30));
+          const workerUser = { tenantId: schedule.tenantId, sub: 'scheduled-report-worker', role: 'VENDOR', organizationRole: 'OWNER' } as AuthUser;
+          // Reuse this transaction's connection throughout generation/download,
+          // including when the configured application pool has only one slot.
+          const reportWorker = new VendorToolsService(tx as PrismaService, new VendorOutletAccessService(tx as PrismaService));
+          const report = await reportWorker.createReport(workerUser, { type: schedule.reportType, from: from.toISOString(), to: now.toISOString(), format: 'CSV', outletId: schedule.outletId || undefined });
+          await tx.vendorReportExport.upsert({
+            where: { id: report.id },
+            create: { id: report.id, tenantId: schedule.tenantId, outletId: schedule.outletId, name: report.name, type: report.type, format: report.format, fromDate: from, toDate: now, status: 'READY', rows: report.rows, startedAt: now, completedAt: now },
+            update: { status: 'READY', rows: report.rows, error: null, completedAt: now },
+          });
+          const attachment = await reportWorker.downloadReport(workerUser, report.id);
+          await transporter.sendMail({ from: { name: process.env.SMTP_FROM_NAME?.trim() || 'Voya', address: process.env.SMTP_FROM_EMAIL?.trim() || smtpUser }, to: schedule.recipient, subject: `${schedule.reportName} · ${localDate}`, text: `Your scheduled ${schedule.frequency.toLowerCase()} report is attached.`, attachments: [{ filename: attachment.filename, content: attachment.body, contentType: attachment.contentType }] });
+          await tx.reportSchedule.update({ where: { id: schedule.id }, data: { lastRunAt: now } });
+        }, { maxWait: 3000, timeout: 60000 });
       } catch (error) {
-        console.error('Scheduled vendor report delivery failed', { scheduleId: schedule.id, message: error instanceof Error ? error.message : String(error) });
+        console.error('Scheduled vendor report delivery failed', { scheduleId: candidate.id, message: error instanceof Error ? error.message : String(error) });
       }
     }
   }
 
   async updateReportSchedule(user: AuthUser, id: string, input: Record<string, unknown>, outletId?: string) {
+    this.assertScheduleOwner(user);
     const scope = await this.resolveOutlet(user, outletId, true); const tenantId = scope.tenantId; const schedule = await this.prisma.reportSchedule.findFirst({ where: { id, tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, select: { id: true } }); if (!schedule) throw new NotFoundException('Report schedule not found.');
     const status = String(input.status || '').toUpperCase(); if (!['ACTIVE', 'PAUSED'].includes(status)) throw new BadRequestException('Invalid report schedule status.');
     if (status === 'ACTIVE' && !this.reportDeliveryAvailable()) throw new ServiceUnavailableException('Scheduled report delivery is unavailable until the scheduler and email delivery are configured.');
@@ -407,6 +439,7 @@ export class VendorToolsService {
   async createReport(user: AuthUser, input: { type: string; from?: string; to?: string; format?: string; outletId?: string }) {
     const scope = await this.resolveOutlet(user, input.outletId, true); const tenantId = scope.tenantId; const normalized = String(input.type || '').toUpperCase();
     if (!REPORT_TYPES.includes(normalized as typeof REPORT_TYPES[number])) throw new BadRequestException('Unsupported report type.');
+    this.assertReportAllowed(user, normalized);
     const format = String(input.format || 'CSV').toUpperCase();
     if (!['CSV', 'XLSX', 'PDF'].includes(format)) throw new BadRequestException('Unsupported report format.');
     const from = input.from ? new Date(input.from) : null; const to = input.to ? new Date(input.to) : null;
@@ -501,8 +534,9 @@ export class VendorToolsService {
 
   async downloadReport(user: AuthUser, id: string, outletId?: string) {
     const scope = await this.resolveOutlet(user, outletId, true); const tenantId = scope.tenantId;
-    const saved = await this.prisma.vendorReportExport.findFirst({ where: { id, tenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) } });
-    const legacy = saved || !scope.aggregate ? null : (await this.readReports(tenantId)).find((item) => item.id === id);
+    const allowed = vendorReportTypesFor(user);
+    const saved = await this.prisma.vendorReportExport.findFirst({ where: { id, tenantId, type: { in: allowed }, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) } });
+    const legacy = saved || !scope.aggregate ? null : (await this.readReports(tenantId)).find((item) => item.id === id && allowed.includes(item.type));
     if (!saved && !legacy) throw new NotFoundException('Report not found.');
     if (saved && saved.status !== 'READY') throw new BadRequestException(saved.status === 'FAILED' ? 'This report could not be generated.' : 'This report is not ready to download yet.');
     const report = saved ? { ...saved, rows: Array.isArray(saved.rows) ? saved.rows as string[][] : [], createdAt: saved.createdAt.toISOString(), format: saved.format as ReportFormat } : legacy!;

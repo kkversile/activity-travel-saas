@@ -6,7 +6,7 @@ const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 const { spawnSync } = require('node:child_process');
 const url = new URL(process.env.DATABASE_URL || 'invalid:');
-assert(url.hostname === '127.0.0.1' && url.port === '55439' && url.pathname === '/voya_readiness_clean_20261119' && url.username === 'voya_local', 'Only the dedicated clean synthetic readiness template is allowed');
+assert(url.hostname === '127.0.0.1' && url.port === '55439' && (url.pathname === '/voya_readiness_clean_20261119' || /^\/voya_readiness_matrix_\d+$/.test(url.pathname)) && url.username === 'voya_local', 'Only a dedicated synthetic readiness template or its isolated matrix copy is allowed');
 Object.assign(process.env, { NODE_ENV: 'test', JWT_SECRET: 'readiness-isolated-development-secret-20261119', SECRET_ENCRYPTION_KEY: '45'.repeat(32),
   STORAGE_DRIVER: 'local', STORAGE_ROOT: path.join(os.tmpdir(),'voya-readiness-storage-20261119'), DISABLE_SCHEDULED_WORKERS: 'true',
   SMTP_HOST: '', SMTP_USER: '', SMTP_PASSWORD: '', EMAIL_OTP_WEBHOOK_URL: '', AI_ACTIVITY_ENABLED: 'false' });
@@ -28,7 +28,7 @@ for(const task of selected){
   const database = 'voya_readiness_phase_' + task.replace(/[^0-9a-z]/g, '_') + '_' + Date.now();
   const pg = process.env.VOYA_PG_BIN || 'C:/Program Files/PostgreSQL/16/bin';
   const pgEnv = { ...process.env, PGHOST: '127.0.0.1', PGPORT: '55439', PGUSER: 'voya_local', PGPASSWORD: '' };
-  execFileSync(path.join(pg, 'createdb.exe'), ['--template=voya_readiness_clean_20261119', database], { env: pgEnv, windowsHide: true });
+  execFileSync(path.join(pg, 'createdb.exe'), ['--template='+url.pathname.slice(1), database], { env: pgEnv, windowsHide: true });
   const isolatedUrl = new URL(url); isolatedUrl.pathname = '/' + database;
   const child=spawnSync(process.execPath,['-r',require.resolve('ts-node/register/transpile-only'),file],{env:{...process.env,DATABASE_URL:isolatedUrl.toString()},stdio:['ignore',fd,fd],timeout:180000,windowsHide:true});fs.closeSync(fd);
   const result={task,exitCode:child.status,seconds:(Date.now()-start)/1000,pass:child.status===0,error:child.error?.message};results.push(result);
