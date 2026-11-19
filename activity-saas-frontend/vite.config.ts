@@ -6,6 +6,12 @@ export default defineConfig(({ mode }) => {
   return {
     base: mode === 'production' ? '/voya/' : (env.VITE_BASE_PATH || '/'),
     plugins: [react()],
+    build: {
+      manifest: true,
+      rollupOptions: { output: { manualChunks(id) {
+        if (id.replace(/\\/g, '/').indexOf('/node_modules/xlsx/') !== -1) return 'spreadsheet';
+      } } },
+    },
     server: {
       port: 3007,
       proxy: {
@@ -14,6 +20,10 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       allowedHosts: true,
+      proxy: {
+        '/voya/api': { target: 'http://127.0.0.1:4007', rewrite: (requestPath: string) => requestPath.replace(/^\/voya/, '') },
+        '/api': 'http://127.0.0.1:4007',
+      },
     },
   };
 });

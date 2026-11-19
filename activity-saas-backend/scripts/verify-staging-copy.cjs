@@ -2,6 +2,7 @@
 // fixture insertion, external mail, bank transfers or live connections.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const { PrismaClient } = require('@prisma/client');
 const { NestFactory } = require('@nestjs/core');
@@ -71,7 +72,9 @@ async function main() {
   }
   assert.deepEqual(await immutableFinance(), financeBefore, 'HTTP reads changed financial records');
   const report = { checkedAt: new Date(), stagingPostgres: (await prisma.$queryRawUnsafe(`SELECT current_setting('server_version') AS version`))[0].version, databaseRole: allowStagingWrites ? 'Explicit isolated staging writer: existing onboarding GET may normalize supplemental data' : 'SELECT-only, default_transaction_read_only=on', immutableFinanceUnchanged: true, externalJobsDisabled: true, liveWrites: false, existingActiveUsersChecked: users.length, existingVendorsChecked: vendors, successfulHttpChecks: checks.length, readyReportsDownloaded, failures, checks };
-  fs.writeFileSync('../docs/multi-outlet-evidence/' + (pg15 ? 'staging-http-pg15-smoke.json' : 'staging-http-smoke.json'), JSON.stringify(report, null, 2));
+  const evidenceDirectory = process.env.VOYA_REHEARSAL_EVIDENCE_DIR || '../docs/multi-outlet-evidence';
+  fs.mkdirSync(evidenceDirectory, { recursive: true });
+  fs.writeFileSync(path.join(evidenceDirectory, pg15 ? 'staging-http-pg15-smoke.json' : 'staging-http-smoke.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ ...report, checks: undefined }, null, 2));
   assert.equal(failures.length, 0, 'Staging HTTP compatibility failures');
 }

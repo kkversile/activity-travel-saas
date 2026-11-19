@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
 import { OutboxService } from './outbox.service';
+import { hasPermission } from '../common/permissions';
 
 const BOOKING_EVENTS = [
   'BOOKING_CONFIRMED', 'BOOKING_CONFIRMED_AFTER_FAILOVER', 'BOOKING_CANCELLED_AGENT',
@@ -48,7 +49,7 @@ export class VendorNotificationWorker {
           await this.outbox.markProcessed(event.id);
           continue;
         }
-        const { tenantId, preferenceKey, label, reference, detail } = result;
+        const { tenantId, outletId, preferenceKey, label, reference, detail } = result;
         const setting = await this.prisma.globalSetting.findFirst({
           where: { tenantId, key: 'vendor_notification_preferences' },
           select: { value: true },
@@ -62,9 +63,12 @@ export class VendorNotificationWorker {
         }
 
         const recipients = await this.prisma.user.findMany({
-          where: { tenantId, role: 'VENDOR', active: true },
+          where: { tenantId, role: 'VENDOR', active: true, OR: [
+            { organizationRole: 'OWNER' },
+            ...(outletId ? [{ outletAccess: { some: { tenantId, outletId, active: true } } }] : []),
+          ] },
           orderBy: [{ organizationRole: 'asc' }, { createdAt: 'asc' }],
-          select: { email: true, fullName: true },
+          select: { email: true, fullName: true, organizationRole: true },
         });
         if (recipients.length) {
           const from = { name: process.env.SMTP_FROM_NAME?.trim() || 'Voya', address: process.env.SMTP_FROM_EMAIL?.trim() || user };
@@ -74,7 +78,8 @@ export class VendorNotificationWorker {
             `Reference: ${reference}`,
             `This notification was sent from your Voya vendor workspace.`,
           ].join('\n');
-          for (const recipient of recipients) {
+          const permission = preferenceKey === 'payoutEmail' ? 'payout.view' : preferenceKey === 'documentExpiryEmail' ? 'document.view' : 'booking.view.vendor';
+          for (const recipient of recipients.filter((recipient) => hasPermission({ role: 'VENDOR', organizationRole: recipient.organizationRole }, permission))) {
             await transporter.sendMail({ from, to: recipient.email, subject, text: `Hello ${recipient.fullName},\n\n${text}` });
           }
         }
@@ -95,6 +100,7 @@ export class VendorNotificationWorker {
       const days = Number(event.eventType.split('_').at(-1));
       return {
         tenantId: event.tenantId,
+        outletId: null,
         preferenceKey: 'documentExpiryEmail',
         label: `Document expires in ${days} days`,
         reference: version.vendorDocument.type.replaceAll('_', ' '),
@@ -104,7 +110,7 @@ export class VendorNotificationWorker {
     if (DOCUMENT_EVENTS.includes(event.eventType) && event.aggregateType === 'Product' && event.aggregateId && event.tenantId) {
       const product = await this.prisma.product.findFirst({
         where: { id: event.aggregateId, tenantId: event.tenantId },
-        select: { productCode: true, currentRevision: { select: { productName: true } } },
+        select: { outletId: true, productCode: true, currentRevision: { select: { productName: true } } },
       });
       if (!product) return null;
       const paused = event.eventType === 'PRODUCT_AUTO_PAUSED_DOCUMENT_EXPIRY';
@@ -112,6 +118,7 @@ export class VendorNotificationWorker {
       const documentTypes = Array.isArray(payload.documentTypes) ? payload.documentTypes.map((type) => String(type).replaceAll('_', ' ').toLowerCase()).join(', ') : 'required vendor documents';
       return {
         tenantId: event.tenantId,
+        outletId: product.outletId,
         preferenceKey: 'documentExpiryEmail',
         label: paused ? 'Product sales paused · documents need attention' : 'Product sales resumed · documents verified',
         reference: product.productCode,
@@ -121,13 +128,14 @@ export class VendorNotificationWorker {
     if (BOOKING_EVENTS.includes(event.eventType) && event.aggregateType === 'Booking' && event.aggregateId) {
       const booking = await this.prisma.booking.findUnique({
         where: { id: event.aggregateId },
-        select: { vendorTenantId: true, bookingCode: true, status: true, serviceDate: true },
+        select: { vendorTenantId: true, outletId: true, bookingCode: true, status: true, serviceDate: true },
       });
       if (!booking) return null;
       const isCancellation = event.eventType.includes('CANCEL');
       const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
       return {
         tenantId: booking.vendorTenantId,
+        outletId: booking.outletId,
         preferenceKey: isCancellation ? 'cancellationEmail' : 'bookingEmail',
         label: isCancellation ? 'Booking cancelled' : 'Booking update',
         reference: booking.bookingCode,
@@ -135,6 +143,11 @@ export class VendorNotificationWorker {
       };
     }
     if (PAYOUT_EVENTS.includes(event.eventType) && event.tenantId) {
+      const record = event.aggregateId && event.aggregateType === 'Payout'
+        ? await this.prisma.payout.findFirst({ where: { id: event.aggregateId, tenantId: event.tenantId }, select: { outletId: true } })
+        : event.aggregateId && event.aggregateType === 'SettlementBatch'
+          ? await this.prisma.settlementBatch.findFirst({ where: { id: event.aggregateId, vendorTenantId: event.tenantId }, select: { outletId: true } })
+          : null;
       const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
       const reference = event.aggregateId || String(payload.batchCode || payload.payoutId || 'payout');
       const label = event.eventType === 'PAYOUT_RELEASE_FAILED' || event.eventType === 'PAYOUT_RECONCILIATION_REQUIRED'
@@ -143,6 +156,7 @@ export class VendorNotificationWorker {
       const amount = payload.amount ?? payload.netPayable ?? payload.expectedAmount;
       return {
         tenantId: event.tenantId,
+        outletId: record?.outletId ?? null,
         preferenceKey: 'payoutEmail',
         label,
         reference,

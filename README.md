@@ -1,105 +1,21 @@
-# Activity Travel SaaS — Separate Frontend and Backend
+# VOYA Vendor Platform
 
-This starter contains two independent projects:
+NestJS 11, Prisma 6 and PostgreSQL backend in activity-saas-backend; React and Vite frontend in activity-saas-frontend. Use Node.js 22 or newer. PostgreSQL 15 and 16 are covered by release rehearsal.
 
-```text
-activity-travel-saas-separated/
-├── activity-travel-frontend/
-│   └── src/
-└── activity-travel-backend/
-    └── src/
-```
+## Local setup
 
-## Technology
+Install each project with npm ci. Copy each .env.example to .env and configure your local database, JWT and encryption secrets. Never point local setup, seeding or verifiers at the live demo.
 
-### Frontend
+From the backend, run npm run prisma:generate, then follow [the database bootstrap runbook](docs/RELEASE_READINESS_OPERATIONS.md) for a new empty database. The inherited historical chain cannot replay from empty in filename order. Do not reset an existing DB or edit applied migrations to work around it.
 
-- Next.js 15
-- React 19
-- TypeScript
-- App Router
-- Separate `src` directory
+For a disposable demonstration DB only, set NODE_ENV=development and DEMO_PASSWORD, then run npm run prisma:seed. Production provisioning does not use the demo seed. Start the backend with npm run start:dev (API http://localhost:4007/api, Swagger /api/docs), and frontend with npm run dev (http://localhost:3007). Frontend local configuration uses VITE_API_BASE_URL=http://localhost:4007/api.
 
-### Backend
+## Verification and handover
 
-- NestJS 11
-- TypeScript
-- PostgreSQL
-- Prisma
-- Swagger
-- Separate `src` directory
+- Backend: npm test, npm run build, npm run test:operations, npm audit.
+- Frontend: npm test, npm run build, node scripts/check-build-budget.mjs, npm audit.
+- [Operations, guarded staging commands, storage and recovery](docs/RELEASE_READINESS_OPERATIONS.md).
+- [Client UAT and acceptance worksheet](docs/RELEASE_READINESS_UAT.md).
+- [19 November implementation and verification report](docs/RELEASE_READINESS_REPORT_2026-11-19.md).
 
-## Local requirements
-
-- Node.js 22 LTS or newer
-- npm
-- PostgreSQL installed directly on Windows
-- No Docker required
-
-## Backend setup
-
-```bash
-cd activity-travel-backend
-cp .env.example .env
-npm install
-npm run db:generate
-npm run db:migrate
-npm run db:seed
-npm run start:dev
-```
-
-Backend URLs:
-
-- API: http://localhost:4006/api/v1
-- Swagger: http://localhost:4006/docs
-- Health: http://localhost:4006/api/v1/health
-
-## Frontend setup
-
-Open another Git Bash window:
-
-```bash
-cd activity-travel-frontend
-cp .env.example .env.local
-npm install
-npm run dev
-```
-
-Frontend:
-
-- http://localhost:3000
-
-## PostgreSQL
-
-Create the database first:
-
-```sql
-CREATE DATABASE activity_saas;
-```
-
-A dedicated user is recommended:
-
-```sql
-CREATE USER activity_user WITH PASSWORD 'activity_password';
-GRANT ALL PRIVILEGES ON DATABASE activity_saas TO activity_user;
-\c activity_saas
-GRANT ALL ON SCHEMA public TO activity_user;
-ALTER SCHEMA public OWNER TO activity_user;
-```
-
-Backend `.env`:
-
-```env
-DATABASE_URL="postgresql://activity_user:activity_password@localhost:5432/activity_saas?schema=public"
-```
-
-## Codex
-
-Run Codex from the parent folder so it can work on both repositories:
-
-```bash
-cd /c/wamp64/www/activity-travel-saas-separated
-codex
-```
-
-Then paste the prompt in `CODEX_MASTER_PROMPT.md`.
+Staging scripts have explicit loopback DB guards and create synthetic data. Deployment and live database changes require separate approval.

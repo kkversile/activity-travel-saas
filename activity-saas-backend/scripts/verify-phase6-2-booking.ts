@@ -76,18 +76,7 @@ async function main() {
     resources,
     new CutoffService(),
   );
-  const bookings = new BookingsService(
-    prisma,
-    new StorageService(),
-    audit,
-    outbox,
-    eligibility,
-    commercial,
-    inventory,
-    new CancellationPolicyService(),
-    new BookingSnapshotService(),
-    new BookingProjectionService(),
-  );
+  const bookings = app.get(BookingsService);
   const expiry = new BookingExpiryService(prisma, bookings);
   const createdKeys: string[] = [];
   const originalStates = new Map<string, any>();
@@ -820,6 +809,8 @@ async function main() {
     });
     const ids = fixtures.map((row) => row.id);
     if (ids.length) {
+      await prisma.voucherVersion.deleteMany({ where: { bookingId: { in: ids } } });
+      await prisma.bookingFulfilment.deleteMany({ where: { bookingId: { in: ids } } });
       await prisma.financialEvent.deleteMany({
         where: { bookingId: { in: ids } },
       });

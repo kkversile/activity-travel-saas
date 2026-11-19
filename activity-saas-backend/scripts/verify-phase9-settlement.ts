@@ -13,6 +13,7 @@ import { AuthUser } from "../src/common/auth.types";
 import { OutboxService } from "../src/outbox/outbox.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { FinanceService } from "../src/finance/finance.service";
+import { VendorOutletAccessService } from '../src/vendor-outlets/vendor-outlet-access.service';
 
 const prefix = `phase9-${randomUUID()}`;
 const assert = (value: unknown, message: string) => {
@@ -34,6 +35,7 @@ async function main() {
     prisma,
     new AuditService(new RequestContextService()),
     new OutboxService(prisma),
+    new VendorOutletAccessService(prisma),
   );
   const eventIds: string[] = [];
   const holdIds: string[] = [];
@@ -188,7 +190,7 @@ async function main() {
       signedAmount: "125.50",
       reason: prefix,
       reference: `${prefix}-adjustment`,
-      currency: "GBP",
+      currency: "INR",
     });
     eventIds.push(adjustment.id);
     const hold: any = await finance.createHold(admin, {
@@ -200,7 +202,7 @@ async function main() {
     holdIds.push(hold.id);
     const heldPreview: any = await finance.preview(admin, {
       vendorTenantId: vendorUser.tenantId!,
-      currency: "GBP",
+      currency: "INR",
     });
     assert(
       heldPreview.blocked.some(
@@ -213,7 +215,7 @@ async function main() {
     await finance.releaseHold(admin, hold.id, `${prefix}-released`);
     const releasedPreview: any = await finance.preview(admin, {
       vendorTenantId: vendorUser.tenantId!,
-      currency: "GBP",
+      currency: "INR",
     });
     assert(
       releasedPreview.eligibleLines.some((row: any) =>
@@ -259,22 +261,22 @@ async function main() {
       signedAmount: "50.00",
       reason: prefix,
       reference: `${prefix}-race`,
-      currency: "GBP",
+      currency: "INR",
     });
     eventIds.push(raceEvent.id);
     const racePreview: any = await finance.preview(admin, {
       vendorTenantId: vendorUser.tenantId!,
-      currency: "GBP",
+      currency: "INR",
     });
     const raceResults = await Promise.allSettled([
       finance.createBatch(admin, {
         vendorTenantId: vendorUser.tenantId!,
-        currency: "GBP",
+        currency: "INR",
         expectedPreviewFingerprint: racePreview.previewFingerprint,
       }),
       finance.createBatch(admin, {
         vendorTenantId: vendorUser.tenantId!,
-        currency: "GBP",
+        currency: "INR",
         expectedPreviewFingerprint: racePreview.previewFingerprint,
       }),
     ]);
@@ -286,81 +288,21 @@ async function main() {
     );
     const raceBatch: any = (successes[0] as any).value;
     batchIds.push(raceBatch.id);
-    const payoutEvent: any = await finance.adjustment(admin, {
-      vendorTenantId: vendorUser.tenantId!,
-      signedAmount: "75.00",
-      reason: prefix,
-      reference: `${prefix}-payout`,
-      currency: "GBP",
-    });
-    eventIds.push(payoutEvent.id);
-    const payoutPreview: any = await finance.preview(admin, {
-      vendorTenantId: vendorUser.tenantId!,
-      currency: "GBP",
-    });
-    const payoutBatch: any = await finance.createBatch(admin, {
-      vendorTenantId: vendorUser.tenantId!,
-      currency: "GBP",
-      expectedPreviewFingerprint: payoutPreview.previewFingerprint,
-    });
-    batchIds.push(payoutBatch.id);
-    const payout = await prisma.payout.findUniqueOrThrow({
-      where: { settlementBatchId: payoutBatch.id },
-    });
+    const payout = await prisma.payout.findUniqueOrThrow({ where: { settlementBatchId: raceBatch.id } });
     payoutIds.push(payout.id);
-    assert(
-      payout.status === PayoutStatus.READY_TO_RELEASE,
-      "VOYA_COLLECTS creates a ready canonical payout",
-    );
-    const released: any = await finance.recordRelease(admin, payout.id, {
-      externalReference: `${prefix}-bank-record`,
-    });
-    assert(
-      released.status === PayoutStatus.RELEASED,
-      "release is recorded without moving money",
-    );
-    const reconciled: any = await finance.reconcile(admin, payout.id, {
-      confirmedAmount: "75.00",
-      reconciliationReference: `${prefix}-reconcile`,
-    });
-    assert(
-      reconciled.status === PayoutStatus.RECONCILED,
-      "matching payout amount reconciles",
-    );
-    const retryEvent: any = await finance.adjustment(admin, {
-      vendorTenantId: vendorUser.tenantId!,
-      signedAmount: "80.00",
-      reason: prefix,
-      reference: `${prefix}-retry`,
-      currency: "GBP",
-    });
-    eventIds.push(retryEvent.id);
-    const retryPreview: any = await finance.preview(admin, {
-      vendorTenantId: vendorUser.tenantId!,
-      currency: "GBP",
-    });
-    const retryBatch: any = await finance.createBatch(admin, {
-      vendorTenantId: vendorUser.tenantId!,
-      currency: "GBP",
-      expectedPreviewFingerprint: retryPreview.previewFingerprint,
-    });
-    batchIds.push(retryBatch.id);
-    const retryPayout = await prisma.payout.findUniqueOrThrow({
-      where: { settlementBatchId: retryBatch.id },
-    });
-    payoutIds.push(retryPayout.id);
-    const failed: any = await finance.recordFailure(admin, retryPayout.id, {
-      failureReason: `${prefix}-provider-failure`,
-    });
-    assert(
-      failed.status === PayoutStatus.RELEASE_FAILED,
-      "payout failure is explicit",
-    );
-    const ready: any = await finance.retry(admin, retryPayout.id);
-    assert(
-      ready.status === PayoutStatus.READY_TO_RELEASE,
-      "failed payout can be retried",
-    );
+    assert(payout.status === PayoutStatus.READY_TO_RELEASE, 'verified matching outlet bank creates a ready payout');
+    const failed: any = await finance.recordFailure(admin, payout.id, { failureReason: prefix + '-provider-failure' });
+    assert(failed.status === PayoutStatus.RELEASE_FAILED, 'payout failure is explicit');
+    const ready: any = await finance.retry(admin, payout.id);
+    assert(ready.status === PayoutStatus.READY_TO_RELEASE, 'failed payout can be retried');
+    const request: any = await finance.recordRelease(admin, payout.id, { externalReference: prefix + '-bank-record', note: 'Isolated synthetic rehearsal; no real payment.' });
+    const selfApproval = await finance.approveRelease(admin, request.id).catch((error: any) => error);
+    assert(selfApproval.message.includes('MAKER_CANNOT_APPROVE'), 'maker cannot approve own release');
+    const checker = auth(await prisma.user.findUniqueOrThrow({ where: { email: 'admin@voya.demo' } }));
+    const released: any = await finance.approveRelease(checker, request.id);
+    assert(released.status === PayoutStatus.RELEASED, 'independent checker records release without moving money');
+    const reconciled: any = await finance.reconcile(checker, payout.id, { confirmedAmount: payout.amount.toString(), reconciliationReference: prefix + '-reconcile' });
+    assert(reconciled.status === PayoutStatus.RECONCILED, 'matching released amount reconciles');
     const zeroPreview: any = await finance.preview(admin, {
       vendorTenantId: vendorUser.tenantId!,
       currency: "EUR",

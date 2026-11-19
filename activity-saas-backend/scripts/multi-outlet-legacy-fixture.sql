@@ -1,6 +1,6 @@
 -- Insert into the pre-outlet schema only, in the dedicated disposable server.
 DO $$ BEGIN
-  IF current_database() NOT IN ('voya_outlet_baseline', 'voya_outlet_deploy') OR inet_server_port() <> 55439 THEN
+  IF current_database() NOT IN ('voya_outlet_baseline', 'voya_outlet_deploy') OR current_user <> 'voya_local' OR inet_server_port() NOT IN (55439, 5432) THEN
     RAISE EXCEPTION 'Legacy fixture is restricted to the disposable outlet database';
   END IF;
 END $$;

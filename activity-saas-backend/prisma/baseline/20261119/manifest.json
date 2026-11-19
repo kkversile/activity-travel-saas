@@ -1,0 +1,599 @@
+{
+  "version": 1,
+  "generatedAt": "2026-11-19",
+  "lastCoveredMigration": "20261117100000_multi_outlet_core",
+  "schemaSha256LF": "ac5ed3bb96c76b226accad3711bc61b3e4f152771b98a9b270e83f9f4fa37243",
+  "baselineSha256LF": "748512fb8d7a49608f30b3ee99c053704ddf33f6fd79b226db92c67cceb3bf4c",
+  "referenceDataSha256LF": "003a7eb1d61b4369f89381c19714c06607ff91481171b4703831db647afdbdcc",
+  "migrations": [
+    {
+      "name": "20260905032529_init",
+      "sha256LF": "31035d7356675333267a0f2b461e815a71373ab31b63a2ed1876c59abacbff1b"
+    },
+    {
+      "name": "20260911005000_phase1_foundation_security_audit_files",
+      "sha256LF": "b69184576e17446091447a381ee552026dfcfdbcc9069af75f4e1d6af1e9e7a4"
+    },
+    {
+      "name": "20260911110000_phase5_eligibility_search_core",
+      "sha256LF": "9c77f758e3f4890cb227513d564b062a22b4fb2fd297467e75abfd22c17d6609"
+    },
+    {
+      "name": "20260911113000_phase5_agent_profile_backfill",
+      "sha256LF": "904c71508cf9c37858707523ef1772d39c9f02b3ff3e06c1e610b5c129403d88"
+    },
+    {
+      "name": "20260911163152_phase7_cancellation_refund_core",
+      "sha256LF": "adfb4ea6db1606d447c5ea3f53a53cd45b92d343edeee876c613faeea253b39b"
+    },
+    {
+      "name": "20260912090000_phase2_catalogue_core_prepare",
+      "sha256LF": "9de075d370099090b1d2289570e517edbf67374f2175728676c08ecf8cdca0f2"
+    },
+    {
+      "name": "20260912100000_phase2_catalogue_core_finalize",
+      "sha256LF": "ac9f83d8cc740cfdea430b2bd275edfc97141a328d820c878607bbc960db0a2f"
+    },
+    {
+      "name": "20260912120000_phase2_1_catalogue_integrity",
+      "sha256LF": "43a768c454da1e5974f0e27a69aae698f058b8b5b1076dd2d595e1eca2464445"
+    },
+    {
+      "name": "20260913090000_phase3_commercial_core_prepare",
+      "sha256LF": "bba9eaf6a9a785e6ac26dd871c877588bdcadf696ad0c7c62a16bc0561080aba"
+    },
+    {
+      "name": "20260913100000_phase3_commercial_core_finalize",
+      "sha256LF": "2cf42f46209a5d2ecede083a42abed3cab0ed79b197407d5d79f8adb5fefe8bf"
+    },
+    {
+      "name": "20260913110000_phase3_1_commercial_correctness",
+      "sha256LF": "81778ea8e730974fb0af9407c618ee3e7903e1dad946ee1f2ea81152b2b671ef"
+    },
+    {
+      "name": "20260913120000_phase3_1_scope_integrity",
+      "sha256LF": "dd2d8b553a90a18cc27f68395335dcbc763707c56c0ad63369cb02a3a92aaaa8"
+    },
+    {
+      "name": "20260914090000_phase4_inventory_core_prepare",
+      "sha256LF": "73cf3823fe3da37faaa7968a7db00826b645c517c2f332efba880c6e3c9ec48c"
+    },
+    {
+      "name": "20260914100000_phase4_inventory_core_finalize",
+      "sha256LF": "d97ebbc2e681a1368bb534dd36c3e9c9b4244c034a61e3632c51101b4e79d326"
+    },
+    {
+      "name": "20260914110000_phase11_1_demand_integrity",
+      "sha256LF": "b972a41b841c3caf38da1b55ae7fec6df6a539f012133f5cb0d2c7065af23236"
+    },
+    {
+      "name": "20260915100000_phase4_1_inventory_integrity",
+      "sha256LF": "4461e22668488da09aaa5cc8f46df18e81d00cfa219bc217f42fdc87fbe2f7d9"
+    },
+    {
+      "name": "20260915130000_product_meeting_model",
+      "sha256LF": "0dfe8ed57ac86ce32a77e7cd17ff1d6721d4d2e98f4f77b4af0d41a9bb756405"
+    },
+    {
+      "name": "20260916100000_phase6_booking_core_prepare",
+      "sha256LF": "a21a2c3393296a67c5ec60c4afe8b496badbba58bcb245b17804bc9a5e0e11bf"
+    },
+    {
+      "name": "20260916110000_phase6_booking_core_finalize",
+      "sha256LF": "40a1762a9fc2e4da6fc67ff5647f6b145082f46ae9f78dd307c337fb50ced96b"
+    },
+    {
+      "name": "20260916120000_phase6_allow_transient_new_status",
+      "sha256LF": "80508437823e88041910c298c67a37f0612eab23e263299d6b4b0f224917cf0a"
+    },
+    {
+      "name": "20260917100000_phase7_1_financial_integrity",
+      "sha256LF": "aa081d8bc09c85a9137f5347b3f13d72f197a36cb80ea3e7c238790167ecbc8a"
+    },
+    {
+      "name": "20260918100000_phase8_fulfilment_core_prepare",
+      "sha256LF": "73caf2d64516ad70affe49200a59deeb2d61d1f21e9350cf4087aa71324aaf10"
+    },
+    {
+      "name": "20260918110000_phase8_fulfilment_core_finalize",
+      "sha256LF": "ec15acc0a7b5a0a508f2d06926287c7b5286b0df406ddb86fd076a7ee2101403"
+    },
+    {
+      "name": "20260919100000_phase8_1_fulfilment_runtime_integrity",
+      "sha256LF": "cb5fe4e1ff971237e21cfd6bedbfdf8a069717ea219498d6581fc3c26ba559e2"
+    },
+    {
+      "name": "20260920100000_phase9_settlement_ledger_prepare",
+      "sha256LF": "af453e895679bfd7f19d3386b5c837f7ab0159cd9c2aedbc92a777d49896f093"
+    },
+    {
+      "name": "20260920110000_phase9_settlement_ledger_finalize",
+      "sha256LF": "53ef686b0082f15b58c5dac487e0704fd6be9cc20e0aae766ba1fa09ec500110"
+    },
+    {
+      "name": "20260921100000_phase9_1_settlement_financial_integrity",
+      "sha256LF": "bc7822accbe8702fd4c292d125b6d3e93afe6726fc82de7a184dd2fe3ec81c85"
+    },
+    {
+      "name": "20260922100000_phase10_supplier_quality_prepare",
+      "sha256LF": "c4750c0195dcc0d27a1344896139a1c4f225ca5c8a0959e6db7adb95119fbc3a"
+    },
+    {
+      "name": "20260922110000_phase10_supplier_quality_finalize",
+      "sha256LF": "1c439021b7560dc91576bf464291e02673e8c8dfae3bf46f5b5ea23856c3c765"
+    },
+    {
+      "name": "20260923100000_phase10_1_quality_integrity",
+      "sha256LF": "e1a45ecea77b7db48b16d16fe9a24308a64d917b852beacf04b6b6cf2416cdbf"
+    },
+    {
+      "name": "20260924100000_phase11_demand_intelligence_core",
+      "sha256LF": "4b2ffb3f0712897eaad40bc69d3baa4412e1e410c112940c2b8cc324e362401a"
+    },
+    {
+      "name": "20260926100000_phase12_distribution_core_prepare",
+      "sha256LF": "2bcc43a764aa6b492d5b8d65fd2011a1acfa0ef3b8761af18ecc998114f66293"
+    },
+    {
+      "name": "20260926110000_phase12_distribution_core_finalize",
+      "sha256LF": "2a5ec16788bb3ab844a9b0551572ba8c0f21e47b272e272a43e52b41c37c4b07"
+    },
+    {
+      "name": "20260926120000_phase12_distribution_contract_guard",
+      "sha256LF": "e7a6eacdb8f752c1970194a80b13cf51d65e590fd1e70a66dde3cfcb9d2c66c4"
+    },
+    {
+      "name": "20260927100000_phase12_1_distribution_integrity",
+      "sha256LF": "88e77e576409d30969292c00bffdcac03ca749edf937495aaa5e646fb6038998"
+    },
+    {
+      "name": "20261014040000_vendor_onboarding",
+      "sha256LF": "cce98553125cbd803ee6dc88d99bbcd4caf4a1d263abc8c5f3d28db1f916199c"
+    },
+    {
+      "name": "20261014090000_rename_platform_admin_roles",
+      "sha256LF": "7379e6aad1353a0a0c128a46a9d7e65dab24c34e234a6d2c60b1cdfa0605e7c4"
+    },
+    {
+      "name": "20261014091000_rename_platform_role_emails",
+      "sha256LF": "c9fc0ff5455e9b308a0dacb25fc2e720099dc789cdf10dea67ec82e18060d9b5"
+    },
+    {
+      "name": "20261014100000_add_impersonation_sessions",
+      "sha256LF": "610ebf89ce3a56d70cd8f1d3733388e10129725da0c292ded5e5cbeaffeb740b"
+    },
+    {
+      "name": "20261014110000_vendor_email_access",
+      "sha256LF": "879fbe55dbdd5cc98fb8a92281bda4dc09d645e048688e98064ad66b946b1930"
+    },
+    {
+      "name": "20261017070000_add_must_change_password",
+      "sha256LF": "5ab701e9cc47b883c630d1969e3d0ecab72d73fd897b5895cc4f205091067063"
+    },
+    {
+      "name": "20261025090000_scope_variants_to_product_revisions",
+      "sha256LF": "70b29fec9c0dae1af4cbbeec3a660df51d88cf4f197c451136177057512a0ab0"
+    },
+    {
+      "name": "20261025100000_add_product_import_identity",
+      "sha256LF": "9c56fe95921db8c452f6536e2ef30bf16b548d1dfeef4eac2355f206a1eeb60e"
+    },
+    {
+      "name": "20261025113000_add_vendor_product_lifecycle_delete",
+      "sha256LF": "eb68211525a681c85d004586294abddf8b8d2addc6d563a705255173a58f2fa1"
+    },
+    {
+      "name": "20261025114500_add_vendor_global_settings",
+      "sha256LF": "c0e1ee0a6f61d9553271dcce184b8c5d8a1d1917a49d2d673930f77d64e66cab"
+    },
+    {
+      "name": "20261025130000_add_experience_matching",
+      "sha256LF": "e29b97b7d2f9068e46c8456394575b4ffc3e97492c2af6569a24c80e7a4022e6"
+    },
+    {
+      "name": "20261025140000_backfill_current_revision_links",
+      "sha256LF": "abcf0885c7d752f18646261985f74fbb87126be79362168443f1c3e92835fe88"
+    },
+    {
+      "name": "20261025150000_add_buy_box_bidding",
+      "sha256LF": "cb5113f84cdfea8ecacb53b8b5bb38251b6020bc84120bd27c1b30afdf6a4eb0"
+    },
+    {
+      "name": "20261027120000_add_activity_price_apply_requests",
+      "sha256LF": "f92136e6cf39f9fd71e0be232811b294de2c674a4ea47f09912764a2aa41845c"
+    },
+    {
+      "name": "20261027133000_add_product_currency",
+      "sha256LF": "6681cc4bf92af7794a2d492d4aa41f441fe732d75463b80b3fad1b9c4216fc34"
+    },
+    {
+      "name": "20261027150000_move_booking_rules_to_options",
+      "sha256LF": "e9c8e112a9cf85483c56cf936ba567ca533c142d5b882cfabf59bae5dcbc5da5"
+    },
+    {
+      "name": "20261027170000_add_visitor_pricing_display_setting",
+      "sha256LF": "912fa225afc540aaa5776b1fe7794aa8609eaf175950aa5e77be389c2b089c91"
+    },
+    {
+      "name": "20261031120000_partner_hub_gap_models",
+      "sha256LF": "c23da0162f9c8ef0b3354298bc725b96c2b75d473aabb5541f68ef7dec33af73"
+    },
+    {
+      "name": "20261031133000_add_user_last_login",
+      "sha256LF": "36bb5fe0df167144bcb3cf9fa1f04ffa4f049f96bc0b8ee489a3ad1b3cbecc31"
+    },
+    {
+      "name": "20261031150000_align_vendor_onboarding_prototype",
+      "sha256LF": "56983662a8836f12368ab1727443cb38e9f6ea4537d29d698679a543095f4d4f"
+    },
+    {
+      "name": "20261031160000_complete_kyc_document_types",
+      "sha256LF": "8d28b7ed35899f47513bc1e19edc1397309d07926f7f883fa3375bf24ebaa36d"
+    },
+    {
+      "name": "20261031161000_backfill_vendor_document_asset_relationships",
+      "sha256LF": "812241744d8c8cb536d360bb3bae9cfa5a17dcf536ceee4f8b73e49aac09d9ef"
+    },
+    {
+      "name": "20261031172000_add_vendor_licence_document_types",
+      "sha256LF": "555ed736a9fe3024b786949ac183bf7d0cacafc288eefd457466868b02a56a9f"
+    },
+    {
+      "name": "20261101090000_add_registration_profile_fields",
+      "sha256LF": "3a4abfd6e7c3af7985d9b08a3297c71adf3984e2e3607d4b1cf5a9c1c0c44359"
+    },
+    {
+      "name": "20261101100000_add_product_option_blueprints",
+      "sha256LF": "4b28ab2fa65d5bd98d29ea903c5f95a6ac473a03741ed0b1e71da194e6335f4c"
+    },
+    {
+      "name": "20261101113000_normalize_product_builder_metadata",
+      "sha256LF": "f7f75dfe21b26835b315440901ec37aa54279d101d74c55cfa31df9a0718dd6d"
+    },
+    {
+      "name": "20261102100000_add_platform_coupons",
+      "sha256LF": "d43e06c1f1b13f9219953ab25f2268f2ccd6aa41e0d1f755960048691c0c64ae"
+    },
+    {
+      "name": "20261102113000_add_experience_selection_rules",
+      "sha256LF": "644e98cfc45748d8c404b06b6458ff7d889c1c4317fc1f6de82f13944121749d"
+    },
+    {
+      "name": "20261102140000_add_agent_commercial_profile",
+      "sha256LF": "95e8883093880aab71a509d685529c096905925618f1e718baa5e1b5bdad0280"
+    },
+    {
+      "name": "20261102150000_public_identifier_registry",
+      "sha256LF": "436014137d9fb26621270c8aff85aece8171ae89921e42bcb83d707a440d206b"
+    },
+    {
+      "name": "20261102160000_add_wallet_payment_method",
+      "sha256LF": "16ef5005e0cc57d4d1552499add94e4396059d3639f733c631bf50ed13ceea3d"
+    },
+    {
+      "name": "20261102170000_add_vendor_admin_profile_defaults",
+      "sha256LF": "00f6bbd0204accd6d08bceb2ba07299ae87e3e3d50ba42f997da90d08f5d91c5"
+    },
+    {
+      "name": "20261102180000_add_vendor_commercial_maker_checker",
+      "sha256LF": "e45be9aa4b91e977c578b7f6337a05586d8fc68ca207bc0f887b46528cc2ab50"
+    },
+    {
+      "name": "20261102190000_payout_release_maker_checker",
+      "sha256LF": "3ccf4164c92c4c7ee7feb0c29fd7b158f8110201bbf5fbfe1688a66b3f7a33fe"
+    },
+    {
+      "name": "20261102200000_preserve_live_selection_rules",
+      "sha256LF": "4c8537eea6a4aa2443d20c41d7ae17d3e4364f6634f6a16a27f22205f3adcad5"
+    },
+    {
+      "name": "20261103100000_commercial_margin_guardrail_configuration",
+      "sha256LF": "d2a6ed9b2cc1ff3f30c91d01a44086a2460cbb6760ffd578f2f58dd2538ca61d"
+    },
+    {
+      "name": "20261103110000_backfill_admin_public_identifiers",
+      "sha256LF": "087a4034347128c79b553c405b0370bdea88493a92c902e1ff4c64a2fcace51b"
+    },
+    {
+      "name": "20261103120000_align_finance_public_code_formats",
+      "sha256LF": "1b6dc248b9d4441a723c3d7d7b1623123c396ef825b03dd28d1382a29f0842b0"
+    },
+    {
+      "name": "20261103130000_agent_wallet_credit_maker_checker",
+      "sha256LF": "3a879cb8b341e99cf484585c9bd030ff404d08c122821040af17261078323e39"
+    },
+    {
+      "name": "20261103140000_agent_commercial_maker_checker",
+      "sha256LF": "8abd65ec04f7435ab4a5291b8db97ae07dc659d74d0bb75f9b54f4dbce23c897"
+    },
+    {
+      "name": "20261103150000_finance_tax_configuration",
+      "sha256LF": "e240ee2c724b56ea12fe44701469c5e3080ae6055ec34ac43db45f14a162af00"
+    },
+    {
+      "name": "20261103160000_partial_payout_holds",
+      "sha256LF": "eafb0472477128158fd35d65b1c4dee0680d1e553b2ad1c4bb35b41042e16aa6"
+    },
+    {
+      "name": "20261103170000_add_experience_offer_pins",
+      "sha256LF": "5276452a8f702e27a1cc50084531cf7e38a1d9547d357b3f902f4af52ebe3eb9"
+    },
+    {
+      "name": "20261103180000_add_experience_selection_locks",
+      "sha256LF": "65156c77b0dbcadc5eee624ae66cd6315e80371a6ae5436f23d9378690d143eb"
+    },
+    {
+      "name": "20261103190000_snapshot_finance_tax_deductions",
+      "sha256LF": "df30fa8a4027d01a26052dd97c7bd428487c609e76cae3c118c3a8230c7a68e4"
+    },
+    {
+      "name": "20261103200000_add_master_options",
+      "sha256LF": "e2cdca9de0831ce9108f765be3db8dc54e53407226966b926c0c737cb1d0748f"
+    },
+    {
+      "name": "20261103210000_public_identifier_sequences",
+      "sha256LF": "c1b08f0f262869ced69cbe6114bf450c5548aa87a4d85fe04e80cb39639cbebc"
+    },
+    {
+      "name": "20261103211000_cleanup_public_identifier_sequences",
+      "sha256LF": "cff649b37d54de06ca1ed71272b5e439042f339df24bd4da044b06e53801a945"
+    },
+    {
+      "name": "20261103212000_vendor_document_public_ids",
+      "sha256LF": "5565f012a27bfe915d6cb00680dae617712a7af4ff5826aba2e7ae782f20c0af"
+    },
+    {
+      "name": "20261103213000_vendor_voucher_short_codes",
+      "sha256LF": "b28d03652a13fb4a4d6659a42c4a33b56f3b2544566320de424ba42887e60328"
+    },
+    {
+      "name": "20261103214000_api_partner_public_ids",
+      "sha256LF": "4c3ce9ddaada9cdc653094c0a22db35c42f21fa2b3f4607932a2ccad4aaf597f"
+    },
+    {
+      "name": "20261103215000_commission_invoice_register",
+      "sha256LF": "764e2076a6b932a0e3aaae1688f0febffc69f29dc0d712d246b312ad225cdd66"
+    },
+    {
+      "name": "20261104100000_vendor_onboarding_agreement_timestamps",
+      "sha256LF": "abc0797cd3e2a561b941e2eafba95c788a59c464a9433245fad4482155b6cc68"
+    },
+    {
+      "name": "20261104103000_add_promotion_condition_value",
+      "sha256LF": "806a165b73e3bf10049a4a500520b04777a390d695f1ab5ec505522bb0073e7e"
+    },
+    {
+      "name": "20261104120000_vendor_login_device_verification",
+      "sha256LF": "ae13be1c8a8e475acbd4332cec403bae084f39e84c246d12e9b1a2581e8b62f4"
+    },
+    {
+      "name": "20261104130000_add_product_view_analytics",
+      "sha256LF": "e49de810d04fc06b8172423e5f9503147544e862b9341b979789c76412fe89db"
+    },
+    {
+      "name": "20261104150000_vendor_review_parity",
+      "sha256LF": "cf33416b7f0ff4709918619e91164466e8891d657c1a624e4ac470aa88fc8052"
+    },
+    {
+      "name": "20261104160000_add_vendor_promotion_drafts",
+      "sha256LF": "22835f3840861b8e632de50780f8152b16b80e00443c1dc405346e3254cc6255"
+    },
+    {
+      "name": "20261104161000_allow_incomplete_promotion_drafts",
+      "sha256LF": "59a72176ea890480bc201fa95db03fbb5c3130e1f1ae3d5cd32367ad49f190ec"
+    },
+    {
+      "name": "20261104170000_add_vendor_team_invite_tokens",
+      "sha256LF": "f84ba3d2f4225b7193049b14c942da84ba63619e4c67f24803a4daa6e192a511"
+    },
+    {
+      "name": "20261104180000_vendor_profile_display_name",
+      "sha256LF": "5006a0c24f8be61a68a2f28f65f331c5088a7cc5db0501f5fc9204af100ffaf6"
+    },
+    {
+      "name": "20261105100000_add_vendor_report_exports",
+      "sha256LF": "94dfdf48daebaf4bc6c116fa16277abb93d4b052d3b89904174b38b947d848fa"
+    },
+    {
+      "name": "20261117100000_multi_outlet_core",
+      "sha256LF": "e2bfcc5991deb63b208d6479fd43febe68d3846ddc98ba6123071031013c0edd"
+    }
+  ],
+  "databaseOnlyObjects": [
+    {
+      "name": "RatePlanCommercialVersion_active_overlap_excl",
+      "table": "RatePlanCommercialVersion",
+      "source": "20260913090000_phase3_commercial_core_prepare"
+    },
+    {
+      "name": "CommercialRuleVersion_active_overlap_excl",
+      "table": "CommercialRuleVersion",
+      "source": "20260913090000_phase3_commercial_core_prepare"
+    },
+    {
+      "name": "CommercialRule_exact_scope_shape",
+      "table": "CommercialRule",
+      "source": "20260913120000_phase3_1_scope_integrity"
+    },
+    {
+      "name": "InventoryState_nonnegative_check",
+      "table": "InventoryState",
+      "source": "20260914090000_phase4_inventory_core_prepare"
+    },
+    {
+      "name": "InventoryState_capacity_balance_check",
+      "table": "InventoryState",
+      "source": "20260914090000_phase4_inventory_core_prepare"
+    },
+    {
+      "name": "InventoryHold_quantity_positive_check",
+      "table": "InventoryHold",
+      "source": "20260914090000_phase4_inventory_core_prepare"
+    },
+    {
+      "name": "InventoryAllocation_quantity_positive_check",
+      "table": "InventoryAllocation",
+      "source": "20260914090000_phase4_inventory_core_prepare"
+    },
+    {
+      "name": "Resource_capacity_positive_when_bounded_check",
+      "table": "Resource",
+      "source": "20260914090000_phase4_inventory_core_prepare"
+    },
+    {
+      "name": "ScheduleResourceRequirement_quantity_positive_check",
+      "table": "ScheduleResourceRequirement",
+      "source": "20260914090000_phase4_inventory_core_prepare"
+    },
+    {
+      "name": "SessionResourceAllocation_quantity_positive_check",
+      "table": "SessionResourceAllocation",
+      "source": "20260914090000_phase4_inventory_core_prepare"
+    },
+    {
+      "name": "Booking_canonical_integrity_check",
+      "table": "Booking",
+      "source": "20260916110000_phase6_booking_core_finalize"
+    },
+    {
+      "name": "Booking_canonical_status_context_check",
+      "table": "Booking",
+      "source": "20260916120000_phase6_allow_transient_new_status"
+    },
+    {
+      "name": "BookingCancellation_bookingAmount_nonnegative",
+      "table": "BookingCancellation",
+      "source": "20260917100000_phase7_1_financial_integrity"
+    },
+    {
+      "name": "BookingCancellation_cancellationCharge_nonnegative",
+      "table": "BookingCancellation",
+      "source": "20260917100000_phase7_1_financial_integrity"
+    },
+    {
+      "name": "BookingCancellation_refundEntitlement_nonnegative",
+      "table": "BookingCancellation",
+      "source": "20260917100000_phase7_1_financial_integrity"
+    },
+    {
+      "name": "Refund_amount_positive",
+      "table": "Refund",
+      "source": "20260917100000_phase7_1_financial_integrity"
+    },
+    {
+      "name": "FinanceConfiguration_singleton_check",
+      "table": "FinanceConfiguration",
+      "source": "20260920110000_phase9_settlement_ledger_finalize"
+    },
+    {
+      "name": "SettlementHold_scope_shape_check",
+      "table": "SettlementHold",
+      "source": "20260920110000_phase9_settlement_ledger_finalize"
+    },
+    {
+      "name": "SettlementBatch_money_nonnegative_check",
+      "table": "SettlementBatch",
+      "source": "20260920110000_phase9_settlement_ledger_finalize"
+    },
+    {
+      "name": "Payout_canonical_amount_positive_check",
+      "table": "Payout",
+      "source": "20260920110000_phase9_settlement_ledger_finalize"
+    },
+    {
+      "name": "PayoutAttempt_amount_positive_check",
+      "table": "PayoutAttempt",
+      "source": "20260920110000_phase9_settlement_ledger_finalize"
+    },
+    {
+      "name": "SettlementLine_gross_base_nonnegative_check",
+      "table": "SettlementLine",
+      "source": "20260921100000_phase9_1_settlement_financial_integrity"
+    },
+    {
+      "name": "SettlementBatch_net_nonnegative_check",
+      "table": "SettlementBatch",
+      "source": "20260921100000_phase9_1_settlement_financial_integrity"
+    },
+    {
+      "name": "RatePlanChannelMapping_status_enabled_consistency_check",
+      "table": "RatePlanChannelMapping",
+      "source": "20260926110000_phase12_distribution_core_finalize"
+    },
+    {
+      "name": "ChannelContract_effective_window_check",
+      "table": "ChannelContract",
+      "source": "20260926110000_phase12_distribution_core_finalize"
+    },
+    {
+      "name": "ChannelInventoryRule_limits_check",
+      "table": "ChannelInventoryRule",
+      "source": "20260926110000_phase12_distribution_core_finalize"
+    },
+    {
+      "name": "ChannelContract_availability_horizon_check",
+      "table": "ChannelContract",
+      "source": "20260926110000_phase12_distribution_core_finalize"
+    },
+    {
+      "name": "ProductRevision_one_working_per_product_idx",
+      "source": "20260912120000_phase2_1_catalogue_integrity"
+    },
+    {
+      "name": "ProductRevision_one_published_per_product_idx",
+      "source": "20260912120000_phase2_1_catalogue_integrity"
+    },
+    {
+      "name": "InventoryHold_state_reference_nonnull_key",
+      "source": "20260915100000_phase4_1_inventory_integrity"
+    },
+    {
+      "name": "InventoryAllocation_state_reference_nonnull_key",
+      "source": "20260915100000_phase4_1_inventory_integrity"
+    },
+    {
+      "name": "VoucherVersion_one_current_per_booking",
+      "source": "20260918100000_phase8_fulfilment_core_prepare"
+    },
+    {
+      "name": "FulfilmentEvidence_one_current_per_kind",
+      "source": "20260918100000_phase8_fulfilment_core_prepare"
+    },
+    {
+      "name": "SettlementEventAllocation_active_financialEvent_key",
+      "source": "20260920110000_phase9_settlement_ledger_finalize"
+    },
+    {
+      "name": "SupplierTierAssignment_current_vendor_key",
+      "source": "20260922110000_phase10_supplier_quality_finalize"
+    },
+    {
+      "name": "SupplierQualityIssue_open_vendor_metric_key",
+      "source": "20260922110000_phase10_supplier_quality_finalize"
+    },
+    {
+      "name": "SupplierQualityPolicy_one_active_key",
+      "source": "20260923100000_phase10_1_quality_integrity"
+    },
+    {
+      "name": "DemandIntelligencePolicy_one_active_key",
+      "source": "20260924100000_phase11_demand_intelligence_core"
+    },
+    {
+      "name": "DemandOpportunity_one_active_key",
+      "source": "20260924100000_phase11_demand_intelligence_core"
+    },
+    {
+      "name": "ChannelContract_one_active_per_channel_key",
+      "source": "20260926120000_phase12_distribution_contract_guard"
+    },
+    {
+      "name": "Payout_tenantId_outletId_week_canonical_key",
+      "source": "20261117100000_multi_outlet_core"
+    },
+    {
+      "name": "VendorOutlet_one_default_per_tenant",
+      "source": "20261117100000_multi_outlet_core"
+    }
+  ]
+}

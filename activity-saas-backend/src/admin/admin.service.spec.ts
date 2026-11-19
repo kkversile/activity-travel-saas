@@ -9,6 +9,21 @@ const lookupPrisma = (value: Record<string, any>) => ({
 });
 
 describe('AdminService governance', () => {
+  it('keeps activated external product and variant identifiers when toggling marketplace availability', async () => {
+    const prisma: any = {
+      distributionChannel: { upsert: jest.fn().mockResolvedValue({ id: 'channel' }) },
+      ratePlan: { findUnique: jest.fn().mockResolvedValue({ id: 'plan', ratePlanCode: 'LOCAL-RATE', variant: { id: 'variant', variantCode: 'LOCAL-VARIANT', product: { id: 'product', productCode: 'LOCAL-PRODUCT' } } }) },
+      productChannelMapping: { findUnique: jest.fn().mockResolvedValue({ version: 4, externalProductCode: 'PARTNER-PRODUCT' }) },
+      variantChannelMapping: { findUnique: jest.fn().mockResolvedValue({ version: 3, externalVariantCode: 'PARTNER-VARIANT' }) },
+      ratePlanChannelMapping: { findUnique: jest.fn().mockResolvedValue({ version: 2, externalRatePlanCode: 'PARTNER-RATE' }) },
+    };
+    const mappings: any = { product: jest.fn(), variant: jest.fn(), rate: jest.fn().mockResolvedValue({ status: 'DISABLED' }) };
+    const service = new AdminService(prisma, {} as any, {} as any, mappings);
+    await expect(service.setRatePlanChannel(actor, 'plan', false)).resolves.toMatchObject({ enabled: false });
+    expect(mappings.product).toHaveBeenCalledWith(actor, expect.objectContaining({ externalProductCode: 'PARTNER-PRODUCT', expectedVersion: 4 }));
+    expect(mappings.variant).toHaveBeenCalledWith(actor, expect.objectContaining({ externalVariantCode: 'PARTNER-VARIANT', expectedVersion: 3 }));
+    expect(mappings.rate).toHaveBeenCalledWith(actor, expect.objectContaining({ externalRatePlanCode: 'PARTNER-RATE', expectedVersion: 2, status: 'DISABLED' }));
+  });
   it('blocks normal Admin from managing platform accounts at the service boundary', async () => {
     const normalAdmin = { ...actor, role: UserRole.ADMIN };
     const prisma: any = { user: { findUnique: jest.fn(), findFirst: jest.fn() } };

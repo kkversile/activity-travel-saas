@@ -102,8 +102,9 @@ async function main() {
   assert.equal(financial.unpaid_canonical_without_beneficiary, 0, 'Existing canonical payouts need beneficiary reconciliation');
   const afterDrift = cli('migrate', 'diff', '--from-url', process.env.DATABASE_URL, '--to-schema-datamodel', 'prisma/schema.prisma', '--script');
   const report = { checkedAt: new Date(), snapshotSha256: crypto.createHash('sha256').update(fs.readFileSync(snapshot)).digest('hex'), sourcePostgres: '15.20', stagingPostgres: (await prisma.$queryRawUnsafe(`SELECT current_setting('server_version') AS version`))[0].version, stagingDatabase: `127.0.0.1:${url.port}/${database}`, sourceWrites: false, successfulHistoricalMigrations: successful.length, rolledBackHistoricalAttempts: history.filter((row) => row.rolled_back).length, unresolvedMigrations: 0, lineEndingOnlyChecksums: lineEndings.length, historicalChecksumDifferences, preflight, originalTablesVerified: originalTables.length, originalDataUnchanged: true, immutableFingerprints: before, migration, deployed, dryRun, firstBackfill: first, secondBackfill: second, repeatCounts: secondCounts, remaining, financial, inheritedSchemaDrift: inheritedDrift, postMigrationSchemaDrift: afterDrift, externalMailAndPaymentActions: false };
-  fs.mkdirSync('../docs/multi-outlet-evidence', { recursive: true });
-  fs.writeFileSync('../docs/multi-outlet-evidence/' + target.evidence, JSON.stringify(report, null, 2));
+  const evidenceDirectory = process.env.VOYA_REHEARSAL_EVIDENCE_DIR || '../docs/multi-outlet-evidence';
+  fs.mkdirSync(evidenceDirectory, { recursive: true });
+  fs.writeFileSync(path.join(evidenceDirectory, target.evidence), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ originalTablesVerified: originalTables.length, originalDataUnchanged: true, remaining, repeatCounts: secondCounts, financial, historicalChecksumDifferences }, null, 2));
 }
 main().catch((error) => { fs.writeFileSync(path.join(work, 'rehearsal-failure.log'), String(error.stack || error)); console.error(`Staging snapshot rehearsal failed. No live connection was used. Diagnostics: ${path.join(work, 'rehearsal-failure.log')}`); process.exitCode = 1; }).finally(() => prisma?.$disconnect());

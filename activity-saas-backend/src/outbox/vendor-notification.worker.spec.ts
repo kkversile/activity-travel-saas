@@ -10,6 +10,8 @@ describe('VendorNotificationWorker', () => {
     booking: { findUnique: jest.fn() },
     product: { findFirst: jest.fn() },
     vendorDocumentVersion: { findFirst: jest.fn() },
+    payout: { findFirst: jest.fn() },
+    settlementBatch: { findFirst: jest.fn() },
     globalSetting: { findFirst: jest.fn() },
     user: { findMany: jest.fn() },
   };
@@ -28,7 +30,7 @@ describe('VendorNotificationWorker', () => {
     prisma.product.findFirst.mockResolvedValue({ productCode: 'TA-GA-0001', currentRevision: { productName: 'Sunrise Trek' } });
     prisma.vendorDocumentVersion.findFirst.mockResolvedValue({ expiresAt: new Date('2026-12-04T00:00:00Z'), vendorDocument: { type: 'PUBLIC_LIABILITY_INSURANCE' } });
     prisma.globalSetting.findFirst.mockResolvedValue({ value: { bookingEmail: true } });
-    prisma.user.findMany.mockResolvedValue([{ email: 'owner@example.test', fullName: 'Vendor Owner' }]);
+    prisma.user.findMany.mockResolvedValue([{ email: 'owner@example.test', fullName: 'Vendor Owner', organizationRole: 'OWNER' }]);
     outbox.claimPending.mockResolvedValue([{ id: 'event-1', tenantId: 'vendor-1', eventType: 'BOOKING_CONFIRMED', aggregateType: 'Booking', aggregateId: 'booking-1', payload: { bookingCode: 'BK-42' }, attemptCount: 1 }]);
     sendMail.mockResolvedValue({ messageId: 'mail-1' });
     worker = new VendorNotificationWorker(prisma, outbox);
@@ -48,6 +50,31 @@ describe('VendorNotificationWorker', () => {
     expect(outbox.claimPending).toHaveBeenCalledWith(25, expect.arrayContaining(['BOOKING_CONFIRMED']));
     expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'owner@example.test', subject: 'Booking update · BK-42' }));
     expect(outbox.markProcessed).toHaveBeenCalledWith('event-1');
+  });
+
+  it('limits booking notifications to the owner and active grants for the booking outlet', async () => {
+    prisma.booking.findUnique.mockResolvedValue({ vendorTenantId: 'vendor-1', outletId: 'outlet-1', bookingCode: 'BK-42', status: 'CONFIRMED', serviceDate: new Date('2026-12-01') });
+    await worker.dispatch();
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {
+      tenantId: 'vendor-1', role: 'VENDOR', active: true, OR: [
+        { organizationRole: 'OWNER' },
+        { outletAccess: { some: { tenantId: 'vendor-1', outletId: 'outlet-1', active: true } } },
+      ],
+    } }));
+  });
+
+  it('sends unattributed legacy notifications only to workspace owners', async () => {
+    await worker.dispatch();
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ OR: [{ organizationRole: 'OWNER' }] }) }));
+  });
+
+  it('keeps payout emails behind the existing finance permission as well as outlet access', async () => {
+    outbox.claimPending.mockResolvedValue([{ id: 'payout-event', tenantId: 'vendor-1', eventType: 'PAYOUT_RECONCILED', aggregateType: 'Payout', aggregateId: 'payout-1', payload: {}, attemptCount: 1 }]);
+    prisma.payout.findFirst.mockResolvedValue({ outletId: 'outlet-1' });
+    prisma.user.findMany.mockResolvedValue(['OWNER', 'FINANCE', 'OPERATIONS', 'CATALOGUE', 'VIEWER'].map((organizationRole) => ({ email: organizationRole.toLowerCase() + '@example.test', fullName: organizationRole, organizationRole })));
+    await worker.dispatch();
+    expect(sendMail.mock.calls.map(([mail]) => mail.to)).toEqual(['owner@example.test', 'finance@example.test']);
+    expect(prisma.payout.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'payout-1', tenantId: 'vendor-1' } }));
   });
 
   it('honors a disabled booking email preference without sending', async () => {

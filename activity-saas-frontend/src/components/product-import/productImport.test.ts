@@ -88,6 +88,12 @@ describe('product JSON import', () => {
 });
 
 describe('product CSV import', () => {
+  it('keeps leading zero option codes and clock strings intact', () => {
+    const result = parseProductCsv(createSampleImportCsv().replaceAll('SUNRISE-SHARED', '000123'));
+    expect(result.issues).toEqual([]);
+    expect(result.model?.options.some((row) => row.option_code === '000123')).toBe(true);
+    expect(result.model?.availability[0].start_time).toBe('06:30');
+  });
   it('parses the sectioned CSV sample into all product setup sections', () => {
     const result = parseProductCsv(createSampleImportCsv());
     expect(result.issues).toEqual([]);

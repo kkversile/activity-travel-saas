@@ -3,6 +3,8 @@
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { writeFileSync, mkdirSync } = require('node:fs');
+const path = require('node:path');
+const evidenceDir = process.env.VOYA_REHEARSAL_EVIDENCE_DIR || '../docs/multi-outlet-evidence';
 const { execFileSync } = require('node:child_process');
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
@@ -278,10 +280,10 @@ async function main() {
     const results = await Promise.allSettled([finance.createBatch(actor(admin), dto), finance.createBatch(actor(admin), dto)]);
     assert.equal(results.filter((r) => r.status === 'fulfilled').length,1);
     assert.equal(await prisma.payout.count({ where: { tenantId: other.id, outletId: outlet.id, recordType: 'CANONICAL' } }),1);
-    mkdirSync('../docs/multi-outlet-evidence', { recursive: true });
-    writeFileSync('../docs/multi-outlet-evidence/concurrency-proof.json', JSON.stringify({ checkedAt: new Date(), results: results.map((r) => ({ status: r.status, rejection: r.status === 'rejected' ? r.reason.message : undefined })), payoutCount: 1, outletId: outlet.id }, null, 2));
+    mkdirSync(evidenceDir, { recursive: true });
+    writeFileSync(path.join(evidenceDir, 'concurrency-proof.json'), JSON.stringify({ checkedAt: new Date(), results: results.map((r) => ({ status: r.status, rejection: r.status === 'rejected' ? r.reason.message : undefined })), payoutCount: 1, outletId: outlet.id }, null, 2));
   });
-  mkdirSync('../docs/multi-outlet-evidence', { recursive: true });
-  writeFileSync('../docs/multi-outlet-evidence/local-integration.json', JSON.stringify({ checkedAt: new Date(), checks, vendorId: vendor.id, outlets: outlets.map((o)=>({id:o.id,name:o.name})), bookings:bookings.map((b)=>({id:b.id,code:b.bookingCode})), ownerEmail: owner.email, employeeEmail: employee.email, password: 'LocalOutlet@123', database: '127.0.0.1:55439/voya_outlet_baseline', note: 'All accounts, documents and settlements are illustrative local records. No real transfers.' }, null, 2));
+  mkdirSync(evidenceDir, { recursive: true });
+  writeFileSync(path.join(evidenceDir, 'local-integration.json'), JSON.stringify({ checkedAt: new Date(), checks, vendorId: vendor.id, outlets: outlets.map((o)=>({id:o.id,name:o.name})), bookings:bookings.map((b)=>({id:b.id,code:b.bookingCode})), ownerEmail: owner.email, employeeEmail: employee.email, password: 'LocalOutlet@123', database: '127.0.0.1:55439/voya_outlet_baseline', note: 'All accounts, documents and settlements are illustrative local records. No real transfers.' }, null, 2));
 }
 main().catch((error) => { console.error(error); process.exitCode=1; }).finally(async () => { if (app && !process.argv.includes('--serve')) await app.close(); await prisma.$disconnect(); if (app && process.argv.includes('--serve') && !process.exitCode) { await app.listen(4007, '127.0.0.1'); console.log('Local outlet demo API: http://127.0.0.1:4007/api'); } });

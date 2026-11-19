@@ -1,0 +1,21 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import zlib from 'node:zlib';
+import assert from 'node:assert/strict';
+const root = path.resolve(import.meta.dirname, '..');
+const manifest = JSON.parse(fs.readFileSync(path.join(root, 'dist/.vite/manifest.json'), 'utf8'));
+const entry = Object.keys(manifest).find((key) => manifest[key].isEntry);
+assert(entry, 'No built entry');
+const initial = new Set();
+function collect(key) { if (initial.has(key)) return;initial.add(key);for (const dependency of manifest[key].imports || []) collect(dependency); }
+collect(entry);
+const files = [...initial].filter((key) => manifest[key].file.endsWith('.js')).map((key) => manifest[key].file);
+const raw = files.reduce((sum,file)=>sum+fs.statSync(path.join(root,'dist',file)).size,0);
+const gzip = files.reduce((sum,file)=>sum+zlib.gzipSync(fs.readFileSync(path.join(root,'dist',file))).length,0);
+assert(raw < 320_000, `Initial JavaScript exceeds 320 kB: ${raw}`);
+assert(gzip < 100_000, `Initial gzip JavaScript exceeds 100 kB: ${gzip}`);
+assert(files.every((file)=>!/spreadsheet|ProductImportModal|ProductBuilder|Onboarding/.test(file)), 'Heavy routes were loaded in the initial entry');
+const chunks = Object.values(manifest).filter((item)=>item.file.endsWith('.js'));
+assert(chunks.every((item)=>fs.statSync(path.join(root,'dist',item.file)).size<500_000),'A JavaScript chunk exceeds 500 kB');
+const result = { checkedAt:new Date(),initialJavaScriptBytes:raw,initialJavaScriptGzipBytes:gzip,initialFiles:files,chunkCount:chunks.length,heavyScreensDeferred:true,budget:'PASS' };
+const dest=path.resolve(root,'../outputs/release-readiness-20261119');fs.mkdirSync(dest,{recursive:true});fs.writeFileSync(path.join(dest,'frontend-budget.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));

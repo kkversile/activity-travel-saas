@@ -1,50 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Dashboard, Onboarding, Products, Inventory, Bookings, Payouts, Performance, AdminDashboard, AdminVendors, AdminProducts, AdminProductCreatePanel, AdminExperienceMatching, AdminReview, AdminCommercial, AdminEligibility, AdminBookings, AdminRefunds, FulfilmentCentre, AdminFulfilment, AdminSettlements, AdminQuality, AdminDemand, Opportunities, AdminDistribution, AdminUsers, AdminAgents, AdminBuyBox, AdminSettings, AdminRegistrationOfferTypes, AdminAuditLog, AdminPromotions, AdminApprovals, AdminDeveloperNotes, VendorBuyBox, AgentProductView, AgentBookings, DeveloperNotesPage, PartnerAddProductPage, PartnerBookingsPage, PartnerBulkUploadPage, PartnerDashboard, PartnerEditProductPage, PartnerOnboardingPage, PartnerPaymentsPage, PartnerProductsPage, PartnerPromotionsPage, PartnerReportsPage, PartnerSettingsPage, AgentDashboardPage, AgentFinancePage, AgentReportsPage, AgentSettingsPage, AgentMarketplace } from './lazyPages';
+import { Loading } from './components/Ui';
 import { api, type User, type VendorOutlet, type VendorOutletList, type VendorProfile } from './api';
-import Dashboard from './pages/Dashboard';
-import Onboarding from './pages/Onboarding';
-import Products from './pages/Products';
-import Inventory from './pages/Inventory';
-import Bookings from './pages/Bookings';
-import Payouts from './pages/Payouts';
-import Performance from './pages/Performance';
-import AdminDashboard from './pages/AdminDashboard';
-import AdminVendors from './pages/AdminVendors';
-import AdminProducts from './pages/AdminProducts';
-import AdminProductCreatePanel from './pages/AdminProductCreatePanel';
-import AdminExperienceMatching from './pages/AdminExperienceMatching';
-import AdminReview from './pages/AdminReview';
-import AdminCommercial from './pages/AdminCommercial';
-import AdminEligibility from './pages/AdminEligibility';
-import AdminBookings from './pages/AdminBookings';
-import AdminRefunds from './pages/AdminRefunds';
-import FulfilmentCentre from './pages/FulfilmentCentre';
-import AdminFulfilment from './pages/AdminFulfilment';
-import AdminSettlements from './pages/AdminSettlements';
-import AdminQuality from './pages/AdminQuality';
-import AdminDemand from './pages/AdminDemand';
-import Opportunities from './pages/Opportunities';
-import AdminDistribution from './pages/AdminDistribution';
-import AdminUsers from './pages/AdminUsers';
-import AdminAgents from './pages/AdminAgents';
-import AdminBuyBox from './pages/AdminBuyBox';
-import AdminSettings from './pages/AdminSettings';
-import AdminRegistrationOfferTypes from './pages/AdminRegistrationOfferTypes';
-import AdminAuditLog from './pages/AdminAuditLog';
-import AdminPromotions from './pages/AdminPromotions';
-import AdminApprovals from './pages/AdminApprovals';
-import AdminDeveloperNotes from './pages/AdminDeveloperNotes';
-import VendorBuyBox from './pages/VendorBuyBox';
 import VendorShell from './layouts/VendorShell';
 import { partnerHubCountsFromDashboard, partnerHubNavigation } from './layouts/vendorNavigation';
-import { DeveloperNotesPage, PartnerAddProductPage, PartnerBookingsPage, PartnerBulkUploadPage, PartnerDashboard, PartnerEditProductPage, PartnerOnboardingPage, PartnerPaymentsPage, PartnerProductsPage, PartnerPromotionsPage, PartnerReportsPage, PartnerSettingsPage } from './pages/PartnerHubPages';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import ChangePasswordDialog from './components/ChangePasswordDialog';
-import AgentMarketplace, { type AgentSearchContext, type AgentSearchState } from './pages/AgentMarketplace';
-import AgentProductView from './pages/AgentProductView';
-import AgentBookings from './pages/AgentBookings';
+import type { AgentSearchContext, AgentSearchState } from './pages/AgentMarketplace';
 import AgentShell, { type AgentNavKey } from './layouts/AgentShell';
-import partnerHero from './assets/voya-partner-hero.png';
-import { AgentDashboardPage, AgentFinancePage, AgentReportsPage, AgentSettingsPage } from './pages/AgentPortalPages';
+import partnerHero from './assets/voya-partner-hero.webp';
 import './layouts/vendor-hub.css';
 import './layouts/agent-hub.css';
 import './admin-theme.css';
@@ -158,7 +122,7 @@ export default function App() {
     else if (page === 'developer-notes') content = <DeveloperNotesPage />;
     else content = <div className="partner-legacy-page"><LegacyComponent /></div>;
     const hubNav = partnerHubNavigation.map((item) => ({ ...item, ...(item.key === 'bookings' ? { count: hubCounts.bookings } : item.key === 'onboarding' ? { count: hubCounts.kyc } : {}) }));
-    app = <VendorShell key={activeOutletId || 'all-outlets'} onboardingStatus={onboardingStatus} activeKey={page} navItems={hubNav} vendorName={vendorName} vendorLocation={[profile?.operatingCity, profile?.operatingRegion].filter(Boolean).join(', ') || user.email} statusLabel={statusLabel} outlets={outlets} outletAccess={outletAccess || undefined} activeOutletId={activeOutletId} onOutletChange={(id) => { setActiveOutletId(id); api.setActiveOutletId(id); const url = new URL(window.location.href); if (id) url.searchParams.set('outletId', id); else url.searchParams.delete('outletId'); window.history.pushState({}, '', url); }} onNavigate={(key) => navigateVendor(key as VendorPage)} onSignOut={logout} onChangePassword={() => setChangePasswordOpen(true)}>{content}</VendorShell>;
+    app = <VendorShell key={activeOutletId || 'all-outlets'} onboardingStatus={onboardingStatus} activeKey={page} navItems={hubNav} vendorName={vendorName} vendorLocation={[profile?.operatingCity, profile?.operatingRegion].filter(Boolean).join(', ') || user.email} statusLabel={statusLabel} outlets={outlets} outletAccess={outletAccess || undefined} activeOutletId={activeOutletId} onOutletChange={(id) => { setActiveOutletId(id); api.setActiveOutletId(id); const url = new URL(window.location.href); if (id) url.searchParams.set('outletId', id); else url.searchParams.delete('outletId'); window.history.pushState({}, '', url); }} onNavigate={(key) => navigateVendor(key as VendorPage)} onSignOut={logout} onChangePassword={() => setChangePasswordOpen(true)}><Suspense fallback={<Loading />}>{content}</Suspense></VendorShell>;
   }
   const passwordDialog = user && changePasswordOpen ? <ChangePasswordDialog key={`${user.id || user.sub || user.email}-${Boolean(user.mustChangePassword)}`} theme={user.role === 'VENDOR' ? 'vendor' : 'console'} required={Boolean(user.mustChangePassword)} onClose={() => setChangePasswordOpen(false)} onChanged={() => setUser((current) => current ? { ...current, mustChangePassword: false } : current)} /> : null;
   return user.isImpersonating ? <><ImpersonationBanner user={user} onEnded={() => { setUser(null); window.location.assign(import.meta.env.BASE_URL); }} />{app}{passwordDialog}</> : <>{app}{passwordDialog}</>;
@@ -181,7 +145,7 @@ function AdminApp({ user, logout }: { user: User; logout: () => void }) {
   ];
   const visibleSections = canManageUsers ? sections : sections.map((section) => ({ ...section, items: section.items.filter(([key]) => key !== 'users' && key !== 'settings') })).filter((section) => section.items.length > 0);
   const content = page === 'dashboard' ? <AdminDashboard onNavigate={navigate} /> : page === 'approvals' ? <AdminApprovals onNavigate={navigate} /> : page === 'agents' ? <AdminAgents canImpersonate={user.role === 'SUPER_ADMIN'} /> : page === 'vendors' ? <AdminVendors canImpersonate={user.role === 'SUPER_ADMIN'} canCreateVendor={user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'} currentUserId={user.id || user.sub} onViewProducts={(vendorId) => navigate('products', { vendorId })} onCreateActivity={(vendorId) => navigate('products', { vendorId, action: 'create' })} /> : page === 'products' ? <><AdminProductCreatePanel canPublishDirectly={canManageUsers} initialVendorId={new URLSearchParams(window.location.search).get('vendorId') || undefined} openOnLoad={new URLSearchParams(window.location.search).get('action') === 'create'} onCreated={() => window.dispatchEvent(new PopStateEvent('popstate'))} /><AdminProducts /></> : page === 'matching' ? <AdminExperienceMatching canApprove={user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'} /> : page === 'commercial' ? <AdminCommercial canApprove={user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'} canManageGuardrails={user.role === 'SUPER_ADMIN'} currentUserId={user.id || user.sub || ''} /> : page === 'bookings' ? <><div className="admin-hero"><div><h2>Bookings</h2><p className="muted">Every booking on every channel. Support and finance act from here.</p></div></div><AdminBookings /></> : page === 'promotions' ? <><div className="admin-hero"><div><h2>Promotions</h2><p className="muted">Coupons we fund, and promotions vendors run on their own activities.</p></div></div><AdminPromotions /></> : page === 'settlements' ? <><div className="admin-hero"><div><h2>Finance</h2><p className="muted">Vendor payouts, agent wallets, refunds and invoices. Releasing money needs two approvals.</p></div></div><AdminSettlements canConfigure={user.role === 'SUPER_ADMIN'} currentUserId={user.id || user.sub || ''} onOpenRefunds={() => navigate('refunds')} /></> : page === 'audit' ? <div className="admin-team-page"><div className="admin-hero"><div><h2>Team &amp; audit log</h2><p className="muted">Internal staff, what each role can do, and every change made on the platform.</p></div></div>{canManageUsers && <AdminUsers />}<AdminAuditLog /></div> : page === 'settings' ? <AdminSettings /> : page === 'registration-offers' ? <AdminRegistrationOfferTypes /> : page === 'developer' ? <AdminDeveloperNotes /> : page === 'review' ? <AdminReview /> : page === 'refunds' ? <AdminRefunds /> : page === 'fulfilment' ? <AdminFulfilment /> : page === 'quality' ? <AdminQuality /> : page === 'demand' ? <AdminDemand /> : page === 'distribution' ? <AdminDistribution /> : page === 'buybox' ? <AdminBuyBox /> : page === 'users' ? <AdminUsers /> : <AdminEligibility />;
-  return <div className="admin-shell"><aside className={`admin-sidebar${mobileMenuOpen ? ' mobile-menu-open' : ''}`}><div className="brand"><div className="brand-mark">A</div><div><b>Partner Hub Admin</b><small>Tours &amp; Attractions · internal</small></div><button type="button" className="admin-mobile-menu-toggle" aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-controls="admin-mobile-navigation" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)}>{mobileMenuOpen ? 'Close' : 'Menu'}</button></div><nav id="admin-mobile-navigation" className={`admin-nav${mobileMenuOpen ? ' is-open' : ''}`} aria-label="Admin navigation">{visibleSections.map((section) => <div className="admin-nav-section" key={section.label || 'primary'}>{section.label && <div className="admin-nav-label">{section.label}</div>}{section.items.map(([key, label]) => <button key={key} className={page === key ? 'active' : ''} aria-current={page === key ? 'page' : undefined} onClick={() => navigate(key)}>{label}{key === 'approvals' && approvalCount != null && <span className="admin-nav-count">{approvalCount}</span>}</button>)}</div>)}</nav><div className="sidebar-foot"><div className="admin-user-avatar">{(user.fullName || user.email).slice(0, 2).toUpperCase()}</div><div className="admin-user-details"><b>{user.fullName || user.email}</b><small>{roleLabel}</small></div><button type="button" className="admin-signout" onClick={logout}>Sign out</button></div></aside><main className="admin-main"><header className="topbar"><div><h1>{title}</h1><p>All channels · live data</p></div><div className="top-actions"><span className="verified">{roleLabel}</span><button className="logout" onClick={logout}>Sign out</button></div></header><div className="content">{content}</div></main></div>;
+  return <div className="admin-shell"><aside className={`admin-sidebar${mobileMenuOpen ? ' mobile-menu-open' : ''}`}><div className="brand"><div className="brand-mark">A</div><div><b>Partner Hub Admin</b><small>Tours &amp; Attractions · internal</small></div><button type="button" className="admin-mobile-menu-toggle" aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-controls="admin-mobile-navigation" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)}>{mobileMenuOpen ? 'Close' : 'Menu'}</button></div><nav id="admin-mobile-navigation" className={`admin-nav${mobileMenuOpen ? ' is-open' : ''}`} aria-label="Admin navigation">{visibleSections.map((section) => <div className="admin-nav-section" key={section.label || 'primary'}>{section.label && <div className="admin-nav-label">{section.label}</div>}{section.items.map(([key, label]) => <button key={key} className={page === key ? 'active' : ''} aria-current={page === key ? 'page' : undefined} onClick={() => navigate(key)}>{label}{key === 'approvals' && approvalCount != null && <span className="admin-nav-count">{approvalCount}</span>}</button>)}</div>)}</nav><div className="sidebar-foot"><div className="admin-user-avatar">{(user.fullName || user.email).slice(0, 2).toUpperCase()}</div><div className="admin-user-details"><b>{user.fullName || user.email}</b><small>{roleLabel}</small></div><button type="button" className="admin-signout" onClick={logout}>Sign out</button></div></aside><main className="admin-main"><header className="topbar"><div><h1>{title}</h1><p>All channels · live data</p></div><div className="top-actions"><span className="verified">{roleLabel}</span><button className="logout" onClick={logout}>Sign out</button></div></header><div className="content"><Suspense fallback={<Loading />}>{content}</Suspense></div></main></div>;
 }
 
 function AgentApp({ user, logout, onChangePassword }: { user: User; logout: () => void; onChangePassword: () => void }) {
@@ -204,7 +168,7 @@ function AgentApp({ user, logout, onChangePassword }: { user: User; logout: () =
   else if (page === 'settings') content = <AgentSettingsPage user={user} canManage={user.organizationRole === 'OWNER'} />;
   else if (productId && context) content = <AgentProductView productId={productId} context={context} canBook={canBook} onBack={() => setProductId(null)} />;
   else content = <AgentMarketplace initial={searchState} onStateChange={setSearchState} onView={(id, next) => { setProductId(id); setContext(next); }} />;
-  return <AgentShell user={user} activeKey={page} canFinance={canFinance} onNavigate={navigate} onSignOut={logout} onChangePassword={onChangePassword}>{content}</AgentShell>;
+  return <AgentShell user={user} activeKey={page} canFinance={canFinance} onNavigate={navigate} onSignOut={logout} onChangePassword={onChangePassword}><Suspense fallback={<Loading />}>{content}</Suspense></AgentShell>;
 }
 
 function AuthHeader({ mode, onSwitch }: { mode: 'login' | 'register'; onSwitch: () => void }) {

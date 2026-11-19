@@ -8,6 +8,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { randomUUID } from "crypto";
+import { VendorOutletAccessService } from '../src/vendor-outlets/vendor-outlet-access.service';
 import { AuditService } from "../src/audit/audit.service";
 import { AuthUser } from "../src/common/auth.types";
 import { RequestContextService } from "../src/common/request-context.service";
@@ -95,12 +96,17 @@ async function main() {
     new CancellationPolicyService(),
     new BookingSnapshotService(),
     new BookingProjectionService(),
+    undefined,
+    undefined,
+    new VendorOutletAccessService(prisma, requestContext),
   );
   const cancellation = new CancellationService(
     prisma,
     audit,
     outbox,
     inventory,
+    undefined,
+    new VendorOutletAccessService(prisma, requestContext),
   );
   const expiry = new BookingExpiryService(prisma, bookings);
   const created: string[] = [];

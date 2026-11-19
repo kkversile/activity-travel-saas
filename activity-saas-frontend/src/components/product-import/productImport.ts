@@ -178,7 +178,7 @@ function normalizeRateRows(sourceRows: ImportRow[]): RateUpdateParseResult {
 
 export function parseRateUpdateCsv(csv: string): RateUpdateParseResult | null {
   let workbook: XLSX.WorkBook;
-  try { workbook = XLSX.read(csv, { type: 'string', cellDates: false }); } catch { return null; }
+  try { workbook = XLSX.read(csv, { type: 'string', cellDates: false, raw: true }); } catch { return null; }
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) return null;
   const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
@@ -362,7 +362,7 @@ export function parseProductWorkbook(buffer: ArrayBuffer): ProductImportParseRes
 
 export function parseProductCsv(csv: string): ProductImportParseResult {
   let workbook: XLSX.WorkBook;
-  try { workbook = XLSX.read(csv, { type: 'string', cellDates: false }); } catch { return { model: null, models: [], issues: [{ sheet: 'CSV', row: 1, message: 'The file is not a readable CSV file.' }] }; }
+  try { workbook = XLSX.read(csv, { type: 'string', cellDates: false, raw: true }); } catch { return { model: null, models: [], issues: [{ sheet: 'CSV', row: 1, message: 'The file is not a readable CSV file.' }] }; }
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows = firstSheet ? XLSX.utils.sheet_to_json<ImportRow>(firstSheet, { defval: '' }) : [];
   if (!rows.length) return { model: null, models: [], issues: [{ sheet: 'CSV', row: 1, message: 'The CSV file is empty.' }] };

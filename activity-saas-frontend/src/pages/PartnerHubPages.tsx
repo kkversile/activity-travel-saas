@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { api, type Product, type ProductListingResponse } from '../api';
 import { Badge, ErrorBox, Loading, Panel, money, shortDate } from '../components/Ui';
-import ProductBuilder from './ProductBuilder';
-import Products from './Products';
-import Bookings from './Bookings';
-import Payouts from './Payouts';
-import Onboarding from './Onboarding';
-import ProductImportModal, { downloadProductImportTemplate, downloadRateUpdateImportTemplate } from '../components/product-import/ProductImportModal';
+const ProductBuilder = lazy(() => import('./ProductBuilder'));
+const Products = lazy(() => import('./Products'));
+const Bookings = lazy(() => import('./Bookings'));
+const Payouts = lazy(() => import('./Payouts'));
+const Onboarding = lazy(() => import('./Onboarding'));
+const ProductImportModal = lazy(() => import('../components/product-import/ProductImportModal'));
+const downloadProductImportTemplate = () => import('../components/product-import/ProductImportModal').then((module) => module.downloadProductImportTemplate());
+const downloadRateUpdateImportTemplate = () => import('../components/product-import/ProductImportModal').then((module) => module.downloadRateUpdateImportTemplate());
 import VendorOutletsPanel from '../components/VendorOutletsPanel';
 
 type Departure = { id: string; bookingCode: string; serviceDate: string; time: string; pax: number; status: string; product: string; option: string; meetingPoint: string; manifestUrl: string };
@@ -68,22 +70,22 @@ export function PartnerDashboard({ onAddProduct, greetingName, businessName }: {
   </div>;
 }
 
-export function PartnerProductsPage({ onEditRoute, onBulkUploadRoute, onAddProductRoute }: { onEditRoute?: (id: string) => void; onBulkUploadRoute?: () => void; onAddProductRoute?: () => void }) { return <Products onEditRoute={onEditRoute} onBulkUploadRoute={onBulkUploadRoute} onAddProductRoute={onAddProductRoute} />; }
-export function PartnerEditProductPage({ productId, onDone, onChanged }: { productId: string; onDone: () => void; onChanged: () => void }) { return <ProductBuilder key={productId} product={{ id: productId } as Product} fullPage onDone={onDone} onChanged={onChanged} />; }
-export function PartnerAddProductPage({ onDone, onChanged }: { onDone: () => void; onChanged: () => void }) { return <ProductBuilder fullPage onDone={onDone} onChanged={onChanged} />; }
-export function PartnerBookingsPage() { return <Bookings />; }
-export function PartnerPaymentsPage() { return <Payouts />; }
-export function PartnerOnboardingPage({ onNavigate, onStatusChange }: { onNavigate?: (page: 'products') => void; onStatusChange?: (status: string) => void }) { return <Onboarding onNavigate={onNavigate} onStatusChange={onStatusChange} />; }
+export function PartnerProductsPage({ onEditRoute, onBulkUploadRoute, onAddProductRoute }: { onEditRoute?: (id: string) => void; onBulkUploadRoute?: () => void; onAddProductRoute?: () => void }) { return <Suspense fallback={<Loading />}><Products onEditRoute={onEditRoute} onBulkUploadRoute={onBulkUploadRoute} onAddProductRoute={onAddProductRoute} /></Suspense>; }
+export function PartnerEditProductPage({ productId, onDone, onChanged }: { productId: string; onDone: () => void; onChanged: () => void }) { return <Suspense fallback={<Loading />}><ProductBuilder key={productId} product={{ id: productId } as Product} fullPage onDone={onDone} onChanged={onChanged} /></Suspense>; }
+export function PartnerAddProductPage({ onDone, onChanged }: { onDone: () => void; onChanged: () => void }) { return <Suspense fallback={<Loading />}><ProductBuilder fullPage onDone={onDone} onChanged={onChanged} /></Suspense>; }
+export function PartnerBookingsPage() { return <Suspense fallback={<Loading />}><Bookings /></Suspense>; }
+export function PartnerPaymentsPage() { return <Suspense fallback={<Loading />}><Payouts /></Suspense>; }
+export function PartnerOnboardingPage({ onNavigate, onStatusChange }: { onNavigate?: (page: 'products') => void; onStatusChange?: (status: string) => void }) { return <Suspense fallback={<Loading />}><Onboarding onNavigate={onNavigate} onStatusChange={onStatusChange} /></Suspense>; }
 
 export function PartnerBulkUploadPage() {
-  const [open, setOpen] = useState(false); const [notice, setNotice] = useState('');
+  const [open, setOpen] = useState(false); const [notice, setNotice] = useState(''); const [templateError, setTemplateError] = useState('');
   return <><PageHeader title="Bulk upload" description="Load many products or rate changes from one spreadsheet. Rows are validated before anything is saved." />
-    <div className="partner-bulk-steps">
-      <Panel className="partner-bulk-step"><span className="partner-bulk-step-label">Step 1</span><h3>Download template</h3><p>One sheet each for Products, Options, Ticket types, Rates, Time slots. Products link by product code.</p><div className="partner-bulk-actions"><button className="btn small" onClick={downloadProductImportTemplate}>Product template</button><button className="btn small" onClick={downloadRateUpdateImportTemplate}>Rate update template</button></div></Panel>
+    {templateError && <ErrorBox error={templateError} />}<div className="partner-bulk-steps">
+      <Panel className="partner-bulk-step"><span className="partner-bulk-step-label">Step 1</span><h3>Download template</h3><p>One sheet each for Products, Options, Ticket types, Rates, Time slots. Products link by product code.</p><div className="partner-bulk-actions"><button className="btn small" onClick={() => { void downloadProductImportTemplate().catch(() => setTemplateError('Unable to download the template. Please reload and retry.')); }}>Product template</button><button className="btn small" onClick={() => { void downloadRateUpdateImportTemplate().catch(() => setTemplateError('Unable to download the template. Please reload and retry.')); }}>Rate update template</button></div></Panel>
       <Panel className="partner-bulk-step"><span className="partner-bulk-step-label">Step 2</span><h3>Upload file</h3><p>Excel (.xlsx or .xls), CSV or JSON. Up to 2,000 rows and 200 products. Choose create new products or update existing rates.</p><button className="btn small primary" onClick={() => setOpen(true)}>Choose file & validate</button></Panel>
       <Panel className="partner-bulk-step"><span className="partner-bulk-step-label">Step 3</span><h3>Fix &amp; import</h3><p>Review validation results, then confirm the import. New products are saved as drafts; rate updates change existing prices. If an import stops, download the remaining records before retrying.</p>{notice && <p role="status">{notice}</p>}</Panel>
     </div>
-    {open && <ProductImportModal allowRateUpdates onClose={() => setOpen(false)} onComplete={(id, count, status, failure, importType) => { setOpen(false); if (importType === 'RATES') { setNotice(status === 'PARTIAL' ? `Rate updates stopped at product ${failure}; ${count} product groups were updated. Upload only the remaining rows after resolving the issue.` : `Rates updated for ${count} products.`); return; } if (!id) return; setNotice(status === 'PARTIAL' ? `Import stopped at product ${failure}; ${count} product drafts were saved. Save only the failed product rows into a new file before retrying.` : `Import created ${count} product draft${count === 1 ? '' : 's'}. Opening the first draft for review…`); window.history.pushState({}, '', vendorHref(`/vendor/products/${encodeURIComponent(id)}/edit`)); window.dispatchEvent(new PopStateEvent('popstate')); }} />}</>;
+    {open && <Suspense fallback={<Loading />}><ProductImportModal allowRateUpdates onClose={() => setOpen(false)} onComplete={(id, count, status, failure, importType) => { setOpen(false); if (importType === 'RATES') { setNotice(status === 'PARTIAL' ? `Rate updates stopped at product ${failure}; ${count} product groups were updated. Upload only the remaining rows after resolving the issue.` : `Rates updated for ${count} products.`); return; } if (!id) return; setNotice(status === 'PARTIAL' ? `Import stopped at product ${failure}; ${count} product drafts were saved. Save only the failed product rows into a new file before retrying.` : `Import created ${count} product draft${count === 1 ? '' : 's'}. Opening the first draft for review…`); window.history.pushState({}, '', vendorHref(`/vendor/products/${encodeURIComponent(id)}/edit`)); window.dispatchEvent(new PopStateEvent('popstate')); }} /></Suspense>}</>;
 }
 
 type Promotion = { id: string; name: string; productId: string; productName: string; promotionType: string; discountPercent: number; discountAmount?: number | null; conditionValue?: number | null; startsAt: string | null; endsAt: string | null; bookingStartsAt?: string | null; bookingEndsAt?: string | null; bookings: number | null; sales: number | null; active: boolean; draft?: boolean; impactTrackingAvailable?: boolean; fundingOwner?: string; validWeekdays?: string[]; stackWithPlatform?: boolean; maxDiscountedBookings?: number | null };
