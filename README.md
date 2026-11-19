@@ -17,5 +17,6 @@ For a disposable demonstration DB only, set NODE_ENV=development and DEMO_PASSWO
 - [Operations, guarded staging commands, storage and recovery](docs/RELEASE_READINESS_OPERATIONS.md).
 - [Client UAT and acceptance worksheet](docs/RELEASE_READINESS_UAT.md).
 - [19 November implementation and verification report](docs/RELEASE_READINESS_REPORT_2026-11-19.md).
+- [Approved live deployment, fresh backups and verification](docs/RELEASE_READINESS_LIVE_DEPLOYMENT_20261119.md).
 
 Staging scripts have explicit loopback DB guards and create synthetic data. Deployment and live database changes require separate approval.

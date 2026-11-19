@@ -1,5 +1,7 @@
 # VOYA implementation and verification report — 19 November 2026
 
+Subsequent approved deployment: see [the live deployment record](RELEASE_READINESS_LIVE_DEPLOYMENT_20261119.md). The staging-only boundary below records the earlier implementation task before that approval.
+
 ## Result and boundary
 
 Credential-independent release work is implemented and the checks below pass. No deployment, push, live database connection, real payment, external email or genuine verification approval was performed. Work started from commit 5cbc26b. Changes remain in the local workspace for review. Existing unrelated untracked archives, documents and storage were preserved.

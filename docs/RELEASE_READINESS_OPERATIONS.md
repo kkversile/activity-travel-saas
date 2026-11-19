@@ -1,5 +1,7 @@
 # Release operations — 19 November 2026
 
+The subsequent approved release is recorded in [the live deployment report](RELEASE_READINESS_LIVE_DEPLOYMENT_20261119.md), including fresh backup and restore evidence. The checklist below remains the procedure for future approved releases.
+
 ## Database paths
 
 **Existing installations:** preserve `_prisma_migrations`. Use `prisma migrate deploy` with existing history, followed by an approved multi-outlet backfill. Never apply the fresh baseline to an existing database. This change introduces no incremental schema migration; the frozen baseline covers all 98 migrations through `20261117100000_multi_outlet_core`.
