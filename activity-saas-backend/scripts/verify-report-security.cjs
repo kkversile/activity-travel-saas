@@ -43,6 +43,10 @@ async function main(){
  await call(roles.FINANCE,`/vendor/reports/${catalogue.id}/download?outletId=${a.id}`,404);
  await call(roles.CATALOGUE,`/vendor/reports/${catalogue.id}/download?outletId=${a.id}`);
  await call(roles.OPERATIONS,`/vendor/reports/${manifest.id}/download?outletId=${a.id}`);
+ const csvFixture=await p.vendorReportExport.create({data:{tenantId,outletId:a.id,name:'DEMONSTRATION CSV boundary',type:'PAYOUTS',format:'CSV',status:'READY',rows:[['Reference','Amount','Identifier'],['=2+3','-100.00','00042']]}});
+ const csv=await call(roles.FINANCE,`/vendor/reports/${csvFixture.id}/download?outletId=${a.id}`);
+ assert(csv.includes('"\t=2+3","-100.00","00042"'));
+ assert.deepEqual((await p.vendorReportExport.findUniqueOrThrow({where:{id:csvFixture.id}})).rows,[['Reference','Amount','Identifier'],['=2+3','-100.00','00042']]);
  const schedule=await call(owner,'/vendor/report-schedules',201,'POST',{reportName:'DEMONSTRATION paused report',reportType:'PAYOUTS',frequency:'DAILY',recipient:'sink@fixture.invalid',runTime:'09:00',outletId:a.id});assert.equal(schedule.status,'PAUSED');
  await call(roles.CATALOGUE,`/vendor/report-schedules/${schedule.id}?outletId=${a.id}`,403,'PATCH',{status:'ACTIVE'});
  await call(owner,`/vendor/report-schedules/${schedule.id}?outletId=${a.id}`,503,'PATCH',{status:'ACTIVE'});
@@ -54,7 +58,7 @@ async function main(){
  for(const record of [stale,undated])assert.equal((await p.vendorReportExport.findUniqueOrThrow({where:{id:record.id}})).status,'FAILED');
  assert.equal((await p.vendorReportExport.findUniqueOrThrow({where:{id:recent.id}})).status,'PROCESSING');
  assert.deepEqual(await hashes(),before);
- const result={checkedAt:new Date(),pass:true,database:target.pathname.slice(1),httpChecks:checks.length,financeRoleAccess:true,employeeFinanceDenials:true,tenantOutletDownloadIsolation:true,ownerOnlyRecipientManagement:true,reportSchedulerRemainsDisabled:true,interruptedExportsRecoverable:true,protectedFinanceAndFileHashes:13,checks};
+ const result={checkedAt:new Date(),pass:true,database:target.pathname.slice(1),httpChecks:checks.length,csvFormulaTextProtected:true,csvSignedAmountsAndStoredRowsPreserved:true,financeRoleAccess:true,employeeFinanceDenials:true,tenantOutletDownloadIsolation:true,ownerOnlyRecipientManagement:true,reportSchedulerRemainsDisabled:true,interruptedExportsRecoverable:true,protectedFinanceAndFileHashes:13,checks};
  if(process.env.REPORT_SECURITY_EVIDENCE)fs.writeFileSync(process.env.REPORT_SECURITY_EVIDENCE,JSON.stringify(result,null,2));console.log(JSON.stringify({...result,checks:undefined}));
 }
 main().catch(e=>{console.error(e.message);process.exitCode=1}).finally(async()=>{await app?.close();await p.$disconnect();});

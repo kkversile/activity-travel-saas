@@ -4,6 +4,7 @@ import { BookingMode, BookingRecordType, BookingStatus, DistributionChannelType,
 import { FilePurpose, FileVisibility } from '@prisma/client';
 import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
+import { csvCell } from '../common/csv';
 import { PublicEntity, allocatePublicCode, ensurePublicIdentifier, publicIdentifierMap } from '../common/public-identifiers';
 import { AuditService } from '../audit/audit.service';
 import { CommercialService } from '../commercial/commercial.service';
@@ -353,9 +354,8 @@ export class BookingsService {
     const first = await this.vendorPage(user, { ...query, page: 1, limit: 100 });
     rows.push(...first.items);
     for (let page = 2; page <= first.pagination.totalPages; page += 1) rows.push(...(await this.vendorPage(user, { ...query, page, limit: 100 })).items);
-    const csv = (value: unknown) => { const text = value == null ? '' : String(value); return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; };
     const lines = [['Booking', 'Product', 'Service date', 'Agent', 'Status', 'Pax', 'Amount', 'Currency'], ...rows.map((row: any) => [row.bookingCode, row.snapshot?.productSnapshot?.productName || '', row.serviceDate, row.agent?.name || '', row.status, row.travellers?.reduce((sum: number, item: any) => sum + Number(item.quantity || 1), 0) || '', row.amount ?? '', row.currency || 'INR'])];
-    return `${lines.map((line) => line.map(csv).join(',')).join('\r\n')}\r\n`;
+    return `${lines.map((line) => line.map((value) => csvCell(value, false)).join(',')).join('\r\n')}\r\n`;
   }
   async vendorDetail(user: AuthUser, id: string, outletId?: string) { const vendorTenantId = requireTenant(user); const scope = await this.vendorOutletScope(user, outletId, true); const row = await this.prisma.booking.findFirst({ where: { id, vendorTenantId, ...(scope.outletIds ? { outletId: { in: scope.outletIds } } : {}) }, include: bookingInclude }); if (!row) throw new NotFoundException('Booking not found'); return this.projection.forVendor(row); }
 

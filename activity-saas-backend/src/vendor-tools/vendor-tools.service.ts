@@ -9,6 +9,7 @@ import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
 import { VendorOutletAccessService, OutletScope } from '../vendor-outlets/vendor-outlet-access.service';
 import { VENDOR_REPORT_TYPES, vendorReportTypesFor, canManageVendorReportSchedules } from '../common/vendor-report-permissions';
+import { csvCell } from '../common/csv';
 
 type ReportFormat = 'CSV' | 'XLSX' | 'PDF';
 type ReportSnapshot = { id: string; name: string; type: string; format: ReportFormat; createdAt: string; status: 'READY'; rows: string[][] };
@@ -540,7 +541,7 @@ export class VendorToolsService {
     if (!saved && !legacy) throw new NotFoundException('Report not found.');
     if (saved && saved.status !== 'READY') throw new BadRequestException(saved.status === 'FAILED' ? 'This report could not be generated.' : 'This report is not ready to download yet.');
     const report = saved ? { ...saved, rows: Array.isArray(saved.rows) ? saved.rows as string[][] : [], createdAt: saved.createdAt.toISOString(), format: saved.format as ReportFormat } : legacy!;
-    const csv = report.rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\r\n');
+    const csv = report.rows.map((row) => row.map((cell) => csvCell(cell)).join(',')).join('\r\n');
     if (report.format === 'PDF') {
       const document = await PDFDocument.create(); const font = await document.embedFont(StandardFonts.Helvetica); let page = document.addPage([842, 595]); let y = 560;
       const draw = (value: string, bold = false) => { if (y < 40) { page = document.addPage([842, 595]); y = 560; } page.drawText(value.slice(0, 150), { x: 24, y, size: bold ? 10 : 8, font, color: rgb(0.08, 0.12, 0.2) }); y -= bold ? 18 : 13; };
