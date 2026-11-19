@@ -67,7 +67,11 @@ async function main() {
   await prisma.outboxEvent.updateMany({ where: { status: 'PENDING' }, data: { status: 'PROCESSED' } });
   const outbox = new OutboxService(prisma), worker = new VendorNotificationWorker(prisma, outbox);
   async function enqueue(revision = approved, extra = {}) {
-    return outbox.enqueue(prisma, { tenantId: owner.tenantId, eventType: 'PRODUCT_REVIEW_EMAIL_REQUESTED', aggregateType: 'ProductRevision', aggregateId: revision.id, payload: { productId: product.id, revisionId: revision.id, decision: revision.id === approved.id ? 'APPROVED' : 'REJECTED' }, ...extra });
+    const event = await outbox.enqueue(prisma, { tenantId: owner.tenantId, eventType: 'PRODUCT_REVIEW_EMAIL_REQUESTED', aggregateType: 'ProductRevision', aggregateId: revision.id, payload: { productId: product.id, revisionId: revision.id, decision: revision.id === approved.id ? 'APPROVED' : 'REJECTED' }, ...extra });
+    // Make only this disposable fixture due. Docker's database clock and the
+    // host clock can differ slightly; production workers poll asynchronously.
+    await prisma.outboxEvent.update({ where: { id: event.id }, data: { availableAt: new Date(0) } });
+    return event;
   }
   const processed = async (event, expected = 'PROCESSED') => assert.equal((await prisma.outboxEvent.findUniqueOrThrow({ where: { id: event.id } })).status, expected);
   await preference(true);
