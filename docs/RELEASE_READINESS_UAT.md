@@ -20,7 +20,7 @@ Prepared 19 November 2026. This is an acceptance worksheet; client attendance an
 | 14 | Maker requests release; checker approves; reconcile | Self-approval rejected; amount/reference match. Bank reassignment cannot rewrite an issued snapshot. Simulated status only. |
 | 15 | Export reports and review email settings | Scoped CSV/XLSX/PDF; SMTP configuration required for delivery. Local capture covers scheduled CSV attachments. |
 | 15a | Repeat reporting as catalogue, operations, viewer and finance employees | Financial statements/invoices/tax exports require finance permissions. Denied types stay hidden in history and guessed downloads fail. Finance employees can generate authorized reports without catalogue permissions. |
-| 15b | Attempt to change report recipients as an employee | Scheduling controls are owner-only in the UI and backend. Approved owner schedules catch up on the same day and concurrent workers serialize delivery. Keep live scheduling disabled until recipients are approved. |
+| 15b | Attempt to change report recipients as an employee | Scheduling controls are owner-only in the UI and backend. Owner-created schedules catch up on the same day and concurrent workers serialize delivery. Delivery is enabled with existing SMTP; no default schedules/recipients were created. Only an owner may choose a recipient and create or activate a schedule. |
 | 15c | Interrupt an isolated staging export and resume workers | An expired processing job becomes actionable as failed; a fresh report can be generated. A late worker cannot overwrite that state. Never simulate worker failure on live. |
 | 16 | Sign out and open existing single-outlet vendor | Sign-out works; old products/bookings/payouts remain under default outlet. |
 
