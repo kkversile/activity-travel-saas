@@ -222,6 +222,20 @@ describe('Partner Hub reports and persistence parity', () => {
 });
 
 describe('Partner Hub notification preferences', () => {
+  it('shows product-review email as connected while its unsupported channels remain labelled', async () => {
+    vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/vendor/team') return { members: [], invitations: [] } as never;
+      if (path === '/vendor/outlets') return { outlets: [] } as never;
+      if (path === '/vendor/notification-preferences') return { reviewEmail: true, reviewWhatsapp: true, reviewSms: true, delivery: { reviewEmail: true, reviewWhatsapp: false, reviewSms: false } } as never;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<PartnerSettingsPage />);
+    const email = await screen.findByRole('checkbox', { name: 'Product review via Email' });
+    await waitFor(() => expect(email.closest('td')).not.toHaveTextContent('Not connected'));
+    expect(email).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Product review via Whatsapp' }).closest('td')).toHaveTextContent('Not connected');
+    expect(screen.getByRole('checkbox', { name: 'Product review via Sms' }).closest('td')).toHaveTextContent('Not connected');
+  });
   it('shows document expiry email as connected while unavailable channels stay labelled', async () => {
     vi.spyOn(api, 'request').mockImplementation(async (path) => {
       if (path === '/vendor/team') return { members: [], invitations: [] } as never;

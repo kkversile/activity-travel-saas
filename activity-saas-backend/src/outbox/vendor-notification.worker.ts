@@ -2,8 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import nodemailer from 'nodemailer';
 import { PrismaService } from '../prisma/prisma.service';
-import { OutboxService } from './outbox.service';
+import { OutboxService, OUTBOX_DELIVERY_LEASE_MS } from './outbox.service';
 import { hasPermission } from '../common/permissions';
+import { createHash } from 'crypto';
+import { Prisma, ProductRevisionStatus } from '@prisma/client';
 
 const BOOKING_EVENTS = [
   'BOOKING_CONFIRMED', 'BOOKING_CONFIRMED_AFTER_FAILOVER', 'BOOKING_CANCELLED_AGENT',
@@ -16,7 +18,10 @@ const PAYOUT_EVENTS = [
   'PAYOUT_RECONCILED', 'PAYOUT_RECONCILIATION_REQUIRED',
 ];
 const DOCUMENT_EVENTS = ['PRODUCT_AUTO_PAUSED_DOCUMENT_EXPIRY', 'PRODUCT_AUTO_RESUMED_DOCUMENT_RENEWAL', 'VENDOR_DOCUMENT_EXPIRY_REMINDER_30', 'VENDOR_DOCUMENT_EXPIRY_REMINDER_15', 'VENDOR_DOCUMENT_EXPIRY_REMINDER_3'];
-const EVENT_TYPES = [...BOOKING_EVENTS, ...PAYOUT_EVENTS, ...DOCUMENT_EVENTS];
+// Separate delivery events avoid replaying historical review decisions that the
+// old synchronous sender may already have emailed.
+const EVENT_TYPES = [...BOOKING_EVENTS, ...PAYOUT_EVENTS, ...DOCUMENT_EVENTS, 'PRODUCT_REVIEW_EMAIL_REQUESTED'];
+const LEASED_EVENTS = ['PRODUCT_REVIEW_EMAIL_REQUESTED'];
 
 @Injectable()
 export class VendorNotificationWorker {
@@ -35,8 +40,10 @@ export class VendorNotificationWorker {
       port,
       secure: String(process.env.SMTP_SECURE || '').toLowerCase() === 'true' || port === 465,
       auth: { user, pass: password },
+      connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 30000,
     });
-    const events = await this.outbox.claimPending(25, EVENT_TYPES);
+    await this.outbox.requeueExpiredProcessing(LEASED_EVENTS);
+    const events = await this.outbox.claimPending(25, EVENT_TYPES, LEASED_EVENTS);
     for (const event of events) {
       try {
         const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
@@ -65,22 +72,29 @@ export class VendorNotificationWorker {
         const recipients = await this.prisma.user.findMany({
           where: { tenantId, role: 'VENDOR', active: true, OR: [
             { organizationRole: 'OWNER' },
-            ...(outletId ? [{ outletAccess: { some: { tenantId, outletId, active: true } } }] : []),
+            ...(outletId ? [{ outletAccess: { some: { tenantId, outletId, active: true, ...(preferenceKey === 'reviewEmail' ? { outlet: { status: 'ACTIVE' as const } } : {}) } } }] : []),
           ] },
           orderBy: [{ organizationRole: 'asc' }, { createdAt: 'asc' }],
-          select: { email: true, fullName: true, organizationRole: true },
+          select: { id: true, email: true, fullName: true, organizationRole: true },
         });
         if (recipients.length) {
           const from = { name: process.env.SMTP_FROM_NAME?.trim() || 'Voya', address: process.env.SMTP_FROM_EMAIL?.trim() || user };
           const subject = `${label} · ${reference}`;
           const text = [
-            `Hello,`, '', detail, '',
+            detail, '',
             `Reference: ${reference}`,
             `This notification was sent from your Voya vendor workspace.`,
           ].join('\n');
-          const permission = preferenceKey === 'payoutEmail' ? 'payout.view' : preferenceKey === 'documentExpiryEmail' ? 'document.view' : 'booking.view.vendor';
+          const permission = preferenceKey === 'payoutEmail' ? 'payout.view' : preferenceKey === 'documentExpiryEmail' ? 'document.view' : preferenceKey === 'reviewEmail' ? 'product.edit' : 'booking.view.vendor';
+          const delivered = new Set(Array.isArray(payload.reviewEmailReceipts) ? payload.reviewEmailReceipts.filter((key): key is string => typeof key === 'string') : []);
           for (const recipient of recipients.filter((recipient) => hasPermission({ role: 'VENDOR', organizationRole: recipient.organizationRole }, permission))) {
+            const receipt = createHash('sha256').update(`${recipient.id}:${recipient.email.trim().toLowerCase()}`).digest('hex');
+            if (preferenceKey === 'reviewEmail' && delivered.has(receipt)) continue;
             await transporter.sendMail({ from, to: recipient.email, subject, text: `Hello ${recipient.fullName},\n\n${text}` });
+            if (preferenceKey === 'reviewEmail') {
+              delivered.add(receipt);
+              await this.prisma.outboxEvent.update({ where: { id: event.id }, data: { payload: { ...payload, reviewEmailReceipts: [...delivered] } as Prisma.InputJsonValue, availableAt: new Date(Date.now() + OUTBOX_DELIVERY_LEASE_MS) } });
+            }
           }
         }
         await this.outbox.markProcessed(event.id);
@@ -91,6 +105,23 @@ export class VendorNotificationWorker {
   }
 
   private async resolveVendor(event: { tenantId: string | null; eventType: string; aggregateType: string; aggregateId: string | null; payload: unknown }) {
+    if (event.eventType === 'PRODUCT_REVIEW_EMAIL_REQUESTED') {
+      const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : {};
+      if (!event.tenantId || event.aggregateType !== 'ProductRevision' || !event.aggregateId || payload.revisionId !== event.aggregateId
+        || typeof payload.productId !== 'string' || !['APPROVED', 'REJECTED'].includes(String(payload.decision))) return null;
+      const approved = payload.decision === 'APPROVED';
+      const revision = await this.prisma.productRevision.findFirst({
+        where: { id: event.aggregateId, productId: payload.productId, product: { tenantId: event.tenantId, deletedAt: null }, status: { in: approved ? [ProductRevisionStatus.PUBLISHED, ProductRevisionStatus.SUPERSEDED] : [ProductRevisionStatus.REJECTED] } },
+        select: { versionNumber: true, productName: true, rejectionReason: true, product: { select: { productCode: true, outletId: true } } },
+      });
+      if (!revision) return null;
+      return {
+        tenantId: event.tenantId, outletId: revision.product.outletId, preferenceKey: 'reviewEmail',
+        label: approved ? 'Product approved' : 'Product changes requested',
+        reference: `${revision.product.productCode} · v${revision.versionNumber}`,
+        detail: `${revision.productName}: revision v${revision.versionNumber} was ${approved ? 'approved' : 'rejected'}.${!approved && revision.rejectionReason ? ` Reviewer note: ${revision.rejectionReason}` : ''}\n${approved ? 'Sign in to Products to view the reviewed revision and current product status.' : 'Sign in to Products, address the reviewer note, and resubmit your revision.'}`,
+      };
+    }
     if (event.eventType.startsWith('VENDOR_DOCUMENT_EXPIRY_REMINDER_') && event.aggregateType === 'VendorDocumentVersion' && event.aggregateId && event.tenantId) {
       const version = await this.prisma.vendorDocumentVersion.findFirst({
         where: { id: event.aggregateId, vendorDocument: { tenantId: event.tenantId } },

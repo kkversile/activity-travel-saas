@@ -3493,6 +3493,10 @@ export class CatalogueService {
           aggregateId: existing.productId,
           payload: { revisionId: id, versionNumber: existing.versionNumber, direct: true },
         });
+        await this.outbox.enqueue(tx, {
+          tenantId, eventType: "PRODUCT_REVIEW_EMAIL_REQUESTED", aggregateType: "ProductRevision", aggregateId: id,
+          payload: { productId: existing.productId, revisionId: id, decision: "APPROVED" },
+        });
         return tx.productRevision.findUniqueOrThrow({ where: { id } });
       }
       const changed = await tx.productRevision.updateMany({
@@ -3526,11 +3530,7 @@ export class CatalogueService {
       });
       return tx.productRevision.findUniqueOrThrow({ where: { id } });
     });
-    if (publishedDirectly) {
-      await this.notifyCatalogueEmail("direct publication", () =>
-        this.catalogueEmail?.notifyDecision(submitted.id, "APPROVED", null),
-      );
-    } else {
+    if (!publishedDirectly) {
       await this.notifyCatalogueEmail("submission", () =>
         this.catalogueEmail?.notifySubmitted(submitted.id),
       );
@@ -4117,18 +4117,15 @@ export class CatalogueService {
           payload: { revisionId: id, versionNumber: candidate.versionNumber },
         });
       }
+      await this.outbox.enqueue(tx, {
+        tenantId: candidate.product.tenantId, eventType: "PRODUCT_REVIEW_EMAIL_REQUESTED", aggregateType: "ProductRevision", aggregateId: id,
+        payload: { productId: candidate.productId, revisionId: id, decision: decision === "publish" ? "APPROVED" : "REJECTED" },
+      });
       return tx.product.findUniqueOrThrow({
         where: { id: candidate.productId },
         include: { currentRevision: true },
       });
     });
-    await this.notifyCatalogueEmail("review decision", () =>
-      this.catalogueEmail?.notifyDecision(
-        id,
-        decision === "publish" ? "APPROVED" : "REJECTED",
-        decision === "reject" ? (dto?.reason ?? null) : null,
-      ),
-    );
     return reviewed;
   }
 

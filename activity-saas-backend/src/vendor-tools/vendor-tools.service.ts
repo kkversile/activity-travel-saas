@@ -190,7 +190,7 @@ export class VendorToolsService {
     const smtpConfigured = Boolean(process.env.SMTP_HOST?.trim() && process.env.SMTP_USER?.trim() && process.env.SMTP_PASSWORD);
     return {
       ...Object.fromEntries(VENDOR_NOTIFICATION_PREFERENCE_KEYS.map((key) => [key, value[key] !== false])),
-      delivery: Object.fromEntries(VENDOR_NOTIFICATION_PREFERENCE_KEYS.map((key) => [key, smtpConfigured && ['bookingEmail', 'cancellationEmail', 'payoutEmail', 'documentExpiryEmail'].includes(key)])),
+      delivery: Object.fromEntries(VENDOR_NOTIFICATION_PREFERENCE_KEYS.map((key) => [key, smtpConfigured && ['bookingEmail', 'cancellationEmail', 'payoutEmail', 'documentExpiryEmail', 'reviewEmail'].includes(key)])),
     };
   }
 

@@ -19,13 +19,6 @@ export class CatalogueEmailService {
     await this.send(await this.adminRecipients(), 'SUBMITTED', revision, null);
   }
 
-  async notifyDecision(revisionId: string, kind: 'REJECTED' | 'APPROVED', reason?: string | null) {
-    const revision = await this.revisionDetails(revisionId);
-    const recipient = revision?.product.tenant.users[0];
-    if (!revision || !recipient?.email) throw new ServiceUnavailableException('Vendor email is not available for product notification');
-    await this.send([recipient.email], kind, revision, reason ?? null);
-  }
-
   async notifyAdminEdited(revisionId: string, editorName: string) {
     const revision = await this.revisionDetails(revisionId);
     const recipient = revision?.product.tenant.users[0];

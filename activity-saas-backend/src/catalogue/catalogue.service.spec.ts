@@ -15,6 +15,20 @@ function service() {
 }
 
 describe('catalogue hierarchy and revision state machine', () => {
+  it('queues rejected-review email in the same transaction as the decision', async () => {
+    const s = service();
+    s.tx.productRevision.findFirst.mockResolvedValue({ ...revision, status: ProductRevisionStatus.UNDER_REVIEW, product: { tenantId: 't1' } });
+    s.tx.productRevision.updateMany.mockResolvedValue({ count: 1 }); s.tx.product.findUniqueOrThrow.mockResolvedValue({ id: 'p1' });
+    await s.service.review(admin, 'r1', 'reject', { reason: 'Please clarify the itinerary.' });
+    expect(s.outbox.enqueue).toHaveBeenCalledWith(s.tx, { tenantId: 't1', eventType: 'PRODUCT_REVIEW_EMAIL_REQUESTED', aggregateType: 'ProductRevision', aggregateId: 'r1', payload: { productId: 'p1', revisionId: 'r1', decision: 'REJECTED' } });
+  });
+  it('does not enqueue a review email when another reviewer already won the decision', async () => {
+    const s = service();
+    s.tx.productRevision.findFirst.mockResolvedValue({ ...revision, status: ProductRevisionStatus.UNDER_REVIEW, product: { tenantId: 't1' } });
+    s.tx.productRevision.updateMany.mockResolvedValue({ count: 0 });
+    await expect(s.service.review(admin, 'r1', 'reject', { reason: 'Please clarify the itinerary.' })).rejects.toMatchObject({ status: 409 });
+    expect(s.outbox.enqueue).not.toHaveBeenCalled();
+  });
   it('returns the stable public product code and prefers the current revision over a rejected draft', async () => {
     const s = service();
     const currentRevision = { id: 'published-r1', status: ProductRevisionStatus.PUBLISHED, productName: 'Published activity' };
