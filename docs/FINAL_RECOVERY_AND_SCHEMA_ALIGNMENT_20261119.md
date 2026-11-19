@@ -1,5 +1,7 @@
 # Harbour Trails recovery and schema alignment verification
 
+The subsequently approved live migration is complete. See [the live deployment record](SCHEMA_ALIGNMENT_LIVE_DEPLOYMENT_20261119.md). The staging-only boundary below records the earlier work before production approval.
+
 Verified on 19 November 2026. The live application remains revision `c1afde3`; operations integrity improvements are installed from `dfa17d1`. No business records, collection policy, payment approvals or live database schema were changed during this task. A newly discovered forward schema repair is implemented and verified on staging; applying it to live is a separate approval step under the user's production-database instruction.
 
 ## Completed live operations
