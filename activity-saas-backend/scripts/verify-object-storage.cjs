@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { S3Client, CreateBucketCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, CreateBucketCommand, HeadObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
 process.env.STORAGE_DRIVER = 's3';
 process.env.STORAGE_S3_ENDPOINT = 'http://127.0.0.1:55450';
 process.env.STORAGE_S3_REGION = 'us-east-1';
@@ -32,7 +32,10 @@ async function main() {
     files.push(...parallel); assert.equal(new Set(parallel.map((file) => file.storageKey)).size, 20);
     for (const [i,file] of parallel.entries()) assert.equal((await storage.read(file.storageKey)).toString(), 'parallel-' + i);
     await assert.rejects(storage.read('../private'), /Invalid storage key/);
-    const report = { checkedAt: new Date(), endpoint: 'loopback Moto S3 emulator :55450', cloudCredentialsUsed: false, purposeRoundtrips: 4, privateAnonymousReadsDenied: 4, parallelUploads: 20, keyCollisionCount: 0, authorization: 'Existing FilesService remains the access-control boundary' };
+    await storage.checkReadiness(AbortSignal.timeout(2500));
+    const probes = await client.send(new ListObjectsV2Command({ Bucket: process.env.STORAGE_S3_BUCKET, Prefix: 'roundtrip/private/health/' }));
+    assert.equal(probes.KeyCount, 0, 'Private health probe was not deleted');
+    const report = { checkedAt: new Date(), endpoint: 'loopback Moto S3 emulator :55450', cloudCredentialsUsed: false, purposeRoundtrips: 4, privateAnonymousReadsDenied: 4, parallelUploads: 20, keyCollisionCount: 0, healthRoundtrip: true, retainedHealthProbes: 0, authorization: 'Existing FilesService remains the access-control boundary' };
     const evidence = process.env.VOYA_REHEARSAL_EVIDENCE_DIR || '../outputs/release-readiness-20261119';fs.mkdirSync(evidence,{recursive:true});
     fs.writeFileSync(path.join(evidence,'object-storage.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
   } finally { await Promise.all(files.map((file) => storage.remove(file.storageKey))); storage.onModuleDestroy(); client.destroy(); }

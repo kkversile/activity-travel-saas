@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Voya local recovery backup
+
+[Timer]
+OnCalendar=*-*-* 01:30:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+Unit=voya-backup.service
+
+[Install]
+WantedBy=timers.target

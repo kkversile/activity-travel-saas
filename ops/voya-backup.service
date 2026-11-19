@@ -1,0 +1,17 @@
+[Unit]
+Description=Voya database, uploads and recovery configuration backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/voya-ops/voya_ops.py backup
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=15min
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/root/voya-backups/scheduled
+PrivateTmp=true

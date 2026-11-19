@@ -138,10 +138,10 @@ describe('VendorToolsService persistence and ownership', () => {
     const service = new VendorToolsService({ globalSetting: { findFirst: jest.fn().mockResolvedValue(null) } } as any);
     try {
       const disconnected = await service.getNotificationPreferences(owner);
-      expect(disconnected.delivery).toMatchObject({ bookingEmail: false, cancellationEmail: false, payoutEmail: false });
+      expect(disconnected.delivery).toMatchObject({ bookingEmail: false, cancellationEmail: false, payoutEmail: false, documentExpiryEmail: false });
       process.env.SMTP_HOST = 'smtp.test'; process.env.SMTP_USER = 'sender@example.test'; process.env.SMTP_PASSWORD = 'configured';
       const connected = await service.getNotificationPreferences(owner);
-      expect(connected.delivery).toMatchObject({ bookingEmail: true, cancellationEmail: true, payoutEmail: true, bookingSms: false, bookingWhatsapp: false });
+      expect(connected.delivery).toMatchObject({ bookingEmail: true, cancellationEmail: true, payoutEmail: true, documentExpiryEmail: true, documentExpirySms: false, documentExpiryWhatsapp: false, reviewEmail: false, bookingSms: false, bookingWhatsapp: false });
     } finally {
       if (previous.host === undefined) delete process.env.SMTP_HOST; else process.env.SMTP_HOST = previous.host;
       if (previous.user === undefined) delete process.env.SMTP_USER; else process.env.SMTP_USER = previous.user;

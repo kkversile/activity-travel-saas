@@ -222,6 +222,20 @@ describe('Partner Hub reports and persistence parity', () => {
 });
 
 describe('Partner Hub notification preferences', () => {
+  it('shows document expiry email as connected while unavailable channels stay labelled', async () => {
+    vi.spyOn(api, 'request').mockImplementation(async (path) => {
+      if (path === '/vendor/team') return { members: [], invitations: [] } as never;
+      if (path === '/vendor/outlets') return { outlets: [] } as never;
+      if (path === '/vendor/notification-preferences') return { documentExpiryEmail: true, documentExpiryWhatsapp: true, documentExpirySms: true, delivery: { documentExpiryEmail: true, documentExpiryWhatsapp: false, documentExpirySms: false } } as never;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<PartnerSettingsPage />);
+    const email = await screen.findByRole('checkbox', { name: 'Document expiry via Email' });
+    await waitFor(() => expect(email.closest('td')).not.toHaveTextContent('Not connected'));
+    expect(email).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Document expiry via Whatsapp' }).closest('td')).toHaveTextContent('Not connected');
+    expect(screen.getByRole('checkbox', { name: 'Document expiry via Sms' }).closest('td')).toHaveTextContent('Not connected');
+  });
   it('shows the one-time join link returned by the invitation API', async () => {
     const inviteToken = 'A'.repeat(43);
     const request = vi.spyOn(api, 'request').mockImplementation(async (path, options) => {

@@ -10,7 +10,7 @@ assert(url.hostname === '127.0.0.1' && url.port === '55439' && url.pathname === 
 Object.assign(process.env, { NODE_ENV: 'test', JWT_SECRET: 'readiness-isolated-development-secret-20261119', SECRET_ENCRYPTION_KEY: '45'.repeat(32),
   STORAGE_DRIVER: 'local', STORAGE_ROOT: path.join(os.tmpdir(),'voya-readiness-storage-20261119'), DISABLE_SCHEDULED_WORKERS: 'true',
   SMTP_HOST: '', SMTP_USER: '', SMTP_PASSWORD: '', EMAIL_OTP_WEBHOOK_URL: '', AI_ACTIVITY_ENABLED: 'false' });
-const evidence = path.resolve('../outputs/release-readiness-20261119'); fs.mkdirSync(evidence,{recursive:true});
+const evidence = path.resolve(process.env.VOYA_REHEARSAL_EVIDENCE_DIR || '../outputs/release-readiness-20261119'); fs.mkdirSync(evidence,{recursive:true});
 const tasks=['verify:phase4-1','verify:phase4-2','verify:phase5','verify:phase6','verify:phase6-2','verify:phase7','verify:phase7-1',
   'verify:phase8','verify:phase8-1','verify:phase8-2','verify:phase9','verify:phase10','verify:phase10-1','verify:phase10-2',
   'verify:phase11','verify:phase11-1','verify:phase11-2','verify:phase12','verify:phase12-1'];

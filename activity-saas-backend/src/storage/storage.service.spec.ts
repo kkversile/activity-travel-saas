@@ -1,6 +1,6 @@
 import { StorageService } from './storage.service';
 import { FilePurpose } from '@prisma/client';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -62,5 +62,30 @@ describe('StorageService', () => {
     s3(); const storage = new StorageService(); send.mockRejectedValue(new Error('Storage unavailable'));
     await expect(storage.save(Buffer.from('x'), FilePurpose.VENDOR_DOCUMENT, '.pdf')).rejects.toThrow('unavailable');
     await expect(storage.remove('private/document.pdf')).rejects.toThrow('unavailable');
+  });
+  it('probes local write/read/delete permissions without retaining files', async () => {
+    const storage = new StorageService(); await storage.checkReadiness(new AbortController().signal);
+    expect(await readdir(join(root, 'private/health'))).toEqual([]);
+  });
+  it('fails readiness when the configured storage cannot create its private directory', async () => {
+    const file = join(root, 'not-a-directory'); await writeFile(file, 'occupied'); process.env.STORAGE_ROOT = file;
+    await expect(new StorageService().checkReadiness(new AbortController().signal)).rejects.toThrow();
+  });
+  it('probes the private S3 backend and deletes its own probe', async () => {
+    s3(); const storage = new StorageService(); let content: Buffer;
+    send.mockImplementation(async (command) => {
+      if (command.input.Body) content = command.input.Body;
+      return { Body: { transformToByteArray: async () => content } };
+    });
+    await storage.checkReadiness(new AbortController().signal);
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(send.mock.calls[0][0].input).toMatchObject({ Key: expect.stringMatching(/^private\/health\/[a-f0-9-]+\.probe$/), CacheControl: 'no-store' });
+    expect(send.mock.calls[0][0].input).not.toHaveProperty('ACL');
+    expect(send.mock.calls[2][0].input.Key).toBe(send.mock.calls[0][0].input.Key);
+  });
+  it('detects corrupt S3 reads and still attempts probe cleanup', async () => {
+    s3(); send.mockResolvedValueOnce({}).mockResolvedValueOnce({ Body: { transformToByteArray: async () => Buffer.from('corrupt') } }).mockResolvedValueOnce({});
+    await expect(new StorageService().checkReadiness(new AbortController().signal)).rejects.toThrow('round-trip failed');
+    expect(send).toHaveBeenCalledTimes(3);
   });
 });

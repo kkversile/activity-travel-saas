@@ -1,0 +1,14 @@
+[Unit]
+Description=Voya readiness and backup freshness monitor
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/voya-ops/voya_ops.py monitor
+UMask=0077
+TimeoutStartSec=15s
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/voya-ops
+PrivateTmp=true

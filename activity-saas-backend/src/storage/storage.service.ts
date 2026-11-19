@@ -1,7 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { FilePurpose } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
+import { mkdir, open, readFile, unlink, writeFile } from 'fs/promises';
 import { dirname, resolve } from 'path';
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
@@ -73,6 +73,32 @@ export class StorageService implements OnModuleDestroy {
   async remove(storageKey: string) {
     if (this.s3) { await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: this.objectKey(storageKey) })); return; }
     try { await unlink(this.localPath(storageKey)); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+  }
+  /** Exercise the real configured backend without creating business FileAssets. */
+  async checkReadiness(signal: AbortSignal) {
+    const key = `private/health/${randomUUID()}.probe`;
+    const body = Buffer.from(randomUUID());
+    if (this.s3) {
+      // Attempt cleanup even if a PUT response was lost after reaching the server.
+      try {
+        await this.s3.send(new PutObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key), Body: body, CacheControl: 'no-store', ContentType: 'application/octet-stream' }), { abortSignal: signal });
+        const result = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key) }), { abortSignal: signal });
+        if (!result.Body || !Buffer.from(await result.Body.transformToByteArray()).equals(body)) throw new Error('Storage readiness round-trip failed');
+      } finally {
+        await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key) }), { abortSignal: AbortSignal.timeout(1000) });
+      }
+      return;
+    }
+    const file = this.localPath(key);
+    await mkdir(dirname(file), { recursive: true });
+    signal.throwIfAborted();
+    const handle = await open(file, 'wx', 0o600);
+    try {
+      await handle.writeFile(body, { signal });
+      if (!(await readFile(file, { signal })).equals(body)) throw new Error('Storage readiness round-trip failed');
+    } finally {
+      try { await handle.close(); } finally { await unlink(file); }
+    }
   }
   onModuleDestroy() { this.s3?.destroy(); }
 }
