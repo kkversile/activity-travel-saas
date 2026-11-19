@@ -60,6 +60,7 @@
     "verify:staging-copy": "node scripts/verify-staging-copy.cjs",
     "db:bootstrap:fresh": "node scripts/bootstrap-fresh-database.cjs",
     "verify:release:matrix": "node scripts/verify-release-matrix.cjs",
+    "verify:schema:alignment": "node scripts/verify-schema-alignment.cjs",
     "test:operations": "node --test scripts/bootstrap-fresh-database.test.cjs",
     "verify:object-storage": "node scripts/verify-object-storage.cjs",
     "verify:readiness:mail": "node scripts/verify-readiness-mail.cjs",

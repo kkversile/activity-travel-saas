@@ -1044,7 +1044,7 @@ model EmailAuthChallenge {
   verifiedAt            DateTime?
   consumedAt            DateTime?
   createdAt             DateTime                  @default(now())
-  updatedAt             DateTime                  @updatedAt
+  updatedAt             DateTime                  @default(now()) @updatedAt
 
   @@index([email, purpose, createdAt])
   @@index([verificationTokenHash, consumedAt])
@@ -1221,7 +1221,7 @@ model AgentWalletCreditApprovalRequest {
   updatedAt     DateTime                        @updatedAt
 
   @@index([status, createdAt])
-  @@index([agentTenantId, status, createdAt])
+  @@index([agentTenantId, status, createdAt], map: "AgentWalletCreditApprovalRequest_agentTenantId_status_createdAt")
   @@index([requestedById, status])
 }
 
@@ -1277,7 +1277,7 @@ model VendorOnboardingApplication {
   reviewedBy               User?                        @relation("VendorOnboardingReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewReason             String?
   createdAt                DateTime                     @default(now())
-  updatedAt                DateTime                     @updatedAt
+  updatedAt                DateTime                     @default(now()) @updatedAt
 
   @@index([status, updatedAt])
 }
@@ -1434,12 +1434,12 @@ model VendorReview {
   rating         Int
   title          String?
   comment        String?
-  reviewedAt     DateTime  @default(now())
+  reviewedAt     DateTime  @default(now()) @db.Timestamptz(6)
   vendorReply    String?
-  repliedAt      DateTime?
+  repliedAt      DateTime? @db.Timestamptz(6)
   status         String    @default("PUBLISHED")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
 
   @@unique([source, sourceReviewId])
   @@index([tenantId, reviewedAt])
@@ -1573,6 +1573,7 @@ model ExperienceOfferPlacement {
 
   @@unique([experienceMasterId, productId])
   @@index([experienceMasterId, priority])
+  @@index([experienceMasterId, pinnedUntil])
 }
 
 model ExperienceMasterOption {
@@ -1617,7 +1618,7 @@ model ExperienceSelectionLock {
   bookingId          String?   @unique
   createdAt          DateTime  @default(now())
 
-  @@unique([agentTenantId, searchAttemptId, experienceMasterId])
+  @@unique([agentTenantId, searchAttemptId, experienceMasterId], map: "ExperienceSelectionLock_agentTenantId_searchAttemptId_experienc")
   @@index([agentTenantId, expiresAt])
   @@index([productId, ratePlanId, sessionId])
 }
@@ -1862,6 +1863,7 @@ model ReportSchedule {
   updatedAt  DateTime      @updatedAt
 
   @@index([tenantId, status])
+  @@index([tenantId, outletId, status])
 }
 
 model VendorReportExport {
@@ -1885,6 +1887,7 @@ model VendorReportExport {
 
   @@index([tenantId, createdAt])
   @@index([status, createdAt])
+  @@index([tenantId, outletId, createdAt])
 }
 
 model ProductBookingQuestion {
@@ -2119,6 +2122,7 @@ model ProductChannelMapping {
   @@unique([channelId, productId])
   @@unique([channelId, externalProductCode])
   @@index([channelId, status])
+  @@index([channelId, activatedAt])
 }
 
 model VariantChannelMapping {
@@ -2139,6 +2143,7 @@ model VariantChannelMapping {
   @@unique([channelId, variantId])
   @@unique([channelId, externalVariantCode])
   @@index([channelId, status])
+  @@index([channelId, activatedAt])
 }
 
 model ChannelInventoryRule {
@@ -2198,7 +2203,7 @@ model DistributionProjectionCursor {
   consumerKey   String    @id
   lastCreatedAt DateTime?
   lastEventId   String?
-  updatedAt     DateTime  @updatedAt
+  updatedAt     DateTime  @default(now()) @updatedAt
 }
 
 model TravellerRule {
@@ -2494,6 +2499,7 @@ model InventoryHold {
   @@index([inventoryStateId, status])
   @@index([inventoryStateId, referenceKey])
   @@index([status, expiresAt])
+  @@index([bookingId, status])
 }
 
 model InventoryAllocation {
@@ -2514,6 +2520,7 @@ model InventoryAllocation {
 
   @@index([inventoryStateId, status])
   @@index([inventoryStateId, referenceKey])
+  @@index([bookingId, status])
 }
 
 model Resource {
@@ -2538,6 +2545,7 @@ model Resource {
 
   @@unique([tenantId, outletId, resourceCode])
   @@index([tenantId, outletId, active, type])
+  @@index([tenantId, active, type])
 }
 
 model ScheduleResourceRequirement {
@@ -2782,7 +2790,8 @@ model BookingFulfilment {
   createdAt                DateTime                @default(now())
   updatedAt                DateTime                @updatedAt
 
-  @@index([status, generationStatus, generationLeaseExpiresAt, generationRequestedAt])
+  @@index([status, generationStatus, generationLeaseExpiresAt, generationRequestedAt], map: "BookingFulfilment_status_generationStatus_generationLeaseExpire")
+  @@index([status, generationStatus, updatedAt])
 }
 
 model FulfilmentEvidence {
@@ -3023,6 +3032,7 @@ model FinancialEvent {
   @@index([vendorTenantId, occurredAt])
   @@index([vendorTenantId, outletId, occurredAt])
   @@index([type, status, occurredAt])
+  @@index([vendorTenantId, currency, status])
 }
 
 model Payout {
@@ -3104,7 +3114,7 @@ model CommercialGuardrailConfiguration {
   pendingUpdatedById       String?
   pendingUpdatedAt         DateTime?
   updatedById              String?
-  updatedAt                DateTime  @updatedAt
+  updatedAt                DateTime  @default(now()) @updatedAt
 }
 
 model VendorSettlementPolicy {
@@ -3120,6 +3130,7 @@ model VendorSettlementPolicy {
   version             Int                          @default(1)
   createdAt           DateTime                     @default(now())
   updatedAt           DateTime                     @updatedAt
+  @@index([vendorTenantId, active])
 }
 
 model CancellationVendorSettlementResolution {
@@ -3197,6 +3208,7 @@ model SettlementBatch {
 
   @@index([vendorTenantId, status, createdAt])
   @@index([vendorTenantId, outletId, status, createdAt])
+  @@index([vendorTenantId, currency, status])
 }
 
 model CommissionInvoice {
@@ -3324,7 +3336,7 @@ model PublicIdentifierSequence {
   entityType String
   prefix     String
   lastValue  Int      @default(0)
-  updatedAt  DateTime @updatedAt
+  updatedAt  DateTime @default(now()) @updatedAt
 
   @@id([entityType, prefix])
 }
@@ -3428,7 +3440,7 @@ model SupplierQualitySnapshot {
   tierAssignments          SupplierTierAssignment[]        @relation("SupplierTierAssignmentSourceSnapshot")
 
   @@index([vendorTenantId, generatedAt])
-  @@index([vendorTenantId, windowStart, windowEnd])
+  @@index([vendorTenantId, windowStart, windowEnd], map: "SupplierQualitySnapshot_vendorTenantId_windowStart_windowEnd_id")
 }
 
 model SupplierQualityMetricSnapshot {
