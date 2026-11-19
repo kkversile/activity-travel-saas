@@ -26,7 +26,9 @@ class OperationalSafetyTests(unittest.TestCase):
         now = ops.utcnow() - dt.timedelta(days=age)
         directory = root / ('voya-daily-' + now.strftime('%Y%m%dT%H%M%SZ') + '-' + suffix)
         directory.mkdir()
-        manifest = {'type': ops.TYPE, 'completed': True, 'backup_root': str(root.resolve()), 'created_at': now.isoformat(), **extra}
+        for name in ['database.dump', 'uploads.tar.gz', 'environment-0.env', 'environment-1.env']:
+            (directory / name).write_bytes(b'synthetic recovery fixture')
+        manifest = {'type': ops.TYPE, 'completed': True, 'backup_root': str(root.resolve()), 'created_at': now.isoformat(), 'database_sha256': ops.file_sha256(directory/'database.dump'), 'uploads_sha256': ops.file_sha256(directory/'uploads.tar.gz'), 'environment_sha256': {name: ops.file_sha256(directory/name) for name in ['environment-0.env','environment-1.env']}, **extra}
         (directory / 'manifest.json').write_text(json.dumps(manifest))
         return directory
     def test_snapshot_copy_keys_are_read_from_actual_column_order(self):
@@ -57,6 +59,8 @@ class OperationalSafetyTests(unittest.TestCase):
         _, directory, manifest = ops.completed_backups(Path(self.config['backup_root']))[0]
         self.assertEqual(manifest['file_count'], 1); self.assertEqual(manifest['missing_reference_count'], 0)
         self.assertTrue((directory / 'environment-0.env').is_file()); self.assertEqual(manifest['status'], 'ok')
+        self.assertTrue(ops.backup_integrity(directory, manifest))
+        self.assertEqual(set(manifest['environment_sha256']), {'environment-0.env','environment-1.env'})
     def test_backup_reports_new_missing_references_as_failure_but_retains_recovery_archive(self):
         with patch.object(ops, 'pg_command', side_effect=self.fake_pg): self.assertFalse(ops.backup(self.config))
         manifest = ops.completed_backups(Path(self.config['backup_root']))[0][2]
@@ -78,5 +82,33 @@ class OperationalSafetyTests(unittest.TestCase):
         with patch.object(ops.urllib.request, 'urlopen', side_effect=OSError('private password/url')): self.assertFalse(ops.monitor(self.config))
         state = (Path(self.config['state_root']) / 'status.json').read_text()
         self.assertNotIn('password', state); self.assertFalse(json.loads(state)['backup_fresh'])
+    def assert_bad_backup(self):
+        with patch.object(ops.urllib.request, 'urlopen', return_value=self.response({'status':'ok','checks':{'database':'up','storage':'up'}})):
+            self.assertFalse(ops.monitor(self.config))
+        state = json.loads((Path(self.config['state_root']) / 'status.json').read_text())
+        self.assertEqual(state['status'], 'error'); self.assertFalse(state['backup_integrity'])
+    def test_monitor_rejects_deleted_archive_without_falling_back_to_previous(self):
+        self.marker(1, '11111111'); latest=self.marker(); (latest/'database.dump').unlink()
+        self.assert_bad_backup()
+    def test_monitor_rejects_corrupted_uploads(self):
+        latest=self.marker(); (latest/'uploads.tar.gz').write_bytes(b'corruption')
+        self.assert_bad_backup()
+    def test_monitor_rejects_corrupted_recovery_configuration(self):
+        latest=self.marker(); (latest/'environment-0.env').write_bytes(b'changed private recovery key')
+        self.assert_bad_backup()
+        self.assertNotIn('private recovery key', (Path(self.config['state_root'])/'status.json').read_text())
+    def test_legacy_backup_requires_archives_and_recovery_files(self):
+        latest=self.marker(); manifest=json.loads((latest/'manifest.json').read_text()); manifest.pop('environment_sha256')
+        self.assertTrue(ops.backup_integrity(latest,manifest)); (latest/'environment-1.env').unlink()
+        self.assertFalse(ops.backup_integrity(latest,manifest))
+    def test_integrity_rejects_invalid_hashes_and_unexpected_configuration_names(self):
+        latest=self.marker(); manifest=json.loads((latest/'manifest.json').read_text())
+        self.assertFalse(ops.backup_integrity(latest,{**manifest,'database_sha256':'not-a-checksum'}))
+        self.assertFalse(ops.backup_integrity(latest,{**manifest,'environment_sha256':{'../secret':'a'*64}}))
+    def test_monitor_rejects_future_backup_timestamp(self):
+        self.marker(-1)
+        with patch.object(ops.urllib.request, 'urlopen', return_value=self.response({'status':'ok','checks':{'database':'up','storage':'up'}})):
+            self.assertFalse(ops.monitor(self.config))
+        self.assertFalse(json.loads((Path(self.config['state_root'])/'status.json').read_text())['backup_fresh'])
 
 if __name__ == '__main__': unittest.main()

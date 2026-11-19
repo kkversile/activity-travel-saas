@@ -26,6 +26,13 @@ TYPE = 'voya-scheduled-backup-v1'
 def utcnow():
     return dt.datetime.now(UTC)
 
+def file_sha256(filename):
+    digest = hashlib.sha256()
+    with filename.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
 def safe_key(key):
     return bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9/_.-]*', key)) and all(part not in ('', '.', '..') for part in key.split('/'))
 
@@ -85,6 +92,8 @@ def completed_backups(root):
         if directory.is_symlink() or not directory.is_dir() or not BACKUP_NAME.fullmatch(directory.name):
             continue
         try:
+            if (directory / 'manifest.json').is_symlink():
+                continue
             manifest = json.loads((directory / 'manifest.json').read_text())
             if manifest.get('type') != TYPE or not manifest.get('completed') or manifest.get('backup_root') != str(root.resolve()):
                 continue
@@ -95,6 +104,31 @@ def completed_backups(root):
         except (OSError, ValueError, KeyError):
             continue
     return sorted(found, key=lambda entry: entry[0], reverse=True)
+
+def backup_integrity(directory, manifest):
+    """Check the newest recovery point, without silently falling back to an older one."""
+    expected = {'database.dump': manifest.get('database_sha256'), 'uploads.tar.gz': manifest.get('uploads_sha256')}
+    environments = manifest.get('environment_sha256')
+    if environments is not None:
+        if not isinstance(environments, dict) or set(environments) != {'environment-0.env', 'environment-1.env'}:
+            return False
+        expected.update(environments)
+    try:
+        for name, checksum in expected.items():
+            filename = directory / name
+            if not isinstance(checksum, str) or not re.fullmatch(r'[a-f0-9]{64}', checksum):
+                return False
+            if filename.is_symlink() or not filename.is_file() or filename.stat().st_size == 0 or file_sha256(filename) != checksum:
+                return False
+        # Older manifests lack configuration hashes; preserve compatibility but
+        # still require both protected recovery files. New backups hash them too.
+        for name in ['environment-0.env', 'environment-1.env']:
+            filename = directory / name
+            if filename.is_symlink() or not filename.is_file() or filename.stat().st_size == 0:
+                return False
+    except OSError:
+        return False
+    return True
 
 def retain(root, days):
     # Only our marked, completed archives can expire; keep at least two.
@@ -141,7 +175,7 @@ def backup(config):
             if file.is_file():
                 # File keys are immutable in the application. Verify completeness
                 # against the FileAsset rows in the dump before publishing backup.
-                hashes[relative] = hashlib.sha256(file.read_bytes()).hexdigest()
+                hashes[relative] = file_sha256(file)
                 output.add(file, arcname=relative, recursive=False)
     with tarfile.open(archive) as source:
         for member in source.getmembers():
@@ -152,13 +186,16 @@ def backup(config):
     missing = sorted(hashlib.sha256(key.encode()).hexdigest() for key in keys if key not in hashes)
     known = set(config.get('known_missing_key_sha256', []))
     new_missing = sorted(set(missing) - known)
+    environment_hashes = {}
     for index, env_name in enumerate(['.env', '.runtime.env']):
         source = Path(config['release_backend']) / env_name
         if not source.is_file() or source.is_symlink():
             raise RuntimeError('Voya recovery environment is missing')
-        shutil.copyfile(source, directory / ('environment-' + str(index) + '.env'))
+        destination = directory / ('environment-' + str(index) + '.env')
+        shutil.copyfile(source, destination)
+        environment_hashes[destination.name] = file_sha256(destination)
     manifest = {'type': TYPE, 'completed': True, 'created_at': created.isoformat(), 'backup_root': str(root.resolve()), 'database': config['database'],
-                'database_sha256': hashlib.sha256(dump.read_bytes()).hexdigest(), 'uploads_sha256': hashlib.sha256(archive.read_bytes()).hexdigest(),
+                'database_sha256': file_sha256(dump), 'uploads_sha256': file_sha256(archive), 'environment_sha256': environment_hashes,
                 'file_count': len(hashes), 'referenced_file_count': len(keys), 'missing_reference_count': len(missing), 'new_missing_reference_count': len(new_missing),
                 'missing_key_sha256': missing, 'file_sha256': hashes, 'status': 'error' if new_missing else 'warning' if missing else 'ok'}
     (directory / 'manifest.json').write_text(json.dumps(manifest, indent=2))
@@ -179,16 +216,17 @@ def monitor(config):
     except (OSError, ValueError):
         pass
     backups = completed_backups(Path(config['backup_root']))
-    fresh = bool(backups and utcnow() - backups[0][0] < dt.timedelta(hours=26))
+    fresh = bool(backups and dt.timedelta(0) <= utcnow() - backups[0][0] < dt.timedelta(hours=26))
+    intact = bool(backups and backup_integrity(backups[0][1], backups[0][2]))
     missing = backups[0][2].get('new_missing_reference_count', 0) if backups else 0
-    state = {'checked_at': utcnow().isoformat(), 'readiness': 'up' if healthy else 'down', 'backup_fresh': fresh,
+    state = {'checked_at': utcnow().isoformat(), 'readiness': 'up' if healthy else 'down', 'backup_fresh': fresh, 'backup_integrity': intact,
              'new_missing_references': missing, 'known_missing_references': backups[0][2].get('missing_reference_count', 0) if backups else 0}
-    good = healthy and fresh and missing == 0
+    good = healthy and fresh and intact and missing == 0
     status = 'ok' if good and not state['known_missing_references'] else 'warning' if good else 'error'
     (state_root / 'status.json.tmp').write_text(json.dumps({**state, 'status': status}, indent=2))
     (state_root / 'status.json.tmp').replace(state_root / 'status.json')
     logging.log(logging.ERROR if not good else logging.WARNING if status == 'warning' else logging.INFO,
-                'Voya monitor status=%s readiness=%s backup_fresh=%s known_missing=%d new_missing=%d', status, state['readiness'], fresh, state['known_missing_references'], missing)
+                'Voya monitor status=%s readiness=%s backup_fresh=%s backup_integrity=%s known_missing=%d new_missing=%d', status, state['readiness'], fresh, intact, state['known_missing_references'], missing)
     return good
 
 def main():
