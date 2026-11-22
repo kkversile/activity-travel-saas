@@ -1,0 +1,54 @@
+name: Deploy voya to Hostinger
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - .github/workflows/deploy-hdemo.yml
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Activate this revision after build and health checks
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hdemo-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out the selected revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build and check the release on hdemo.dhisoft.in
+        env:
+          DEPLOY_KEY: ${{ secrets.HDEMO_DEPLOY_SSH_KEY }}
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$DEPLOY_KEY"
+          ssh_dir="$(mktemp -d)"
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$ssh_dir/key"
+          printf '%s\n' '189.72.156.212 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHHd537bqKbawb+/Gm0tZdF8KFcorPOWVHujQVrUQOAZ' > "$ssh_dir/known_hosts"
+          operation=check
+          if [[ "$PUBLISH" == true ]]; then
+            operation=deploy
+          fi
+          git archive --format=tar.gz "$GITHUB_SHA" |
+            ssh -T -i "$ssh_dir/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$ssh_dir/known_hosts" \
+              -o ConnectTimeout=20 -o ServerAliveInterval=20 -o ServerAliveCountMax=6 \
+              hdemo-ci@189.72.156.212 "$operation $GITHUB_SHA"
