@@ -184,7 +184,7 @@ body:has(.auth-page) {
 .auth-account-card .register-check input { width:17px; height:17px; margin:0; flex:none; }
 .auth-account-card .register-check input { accent-color:var(--auth-primary); }
 .auth-account-card .register-note { color:var(--auth-muted); font-size:14px; }
-.auth-account-card .login-role-buttons { gap:9px; margin:0 0 16px; }
+.auth-account-card .login-role-buttons { display:flex; flex-wrap:wrap; gap:9px; margin:0 0 16px; }
 .auth-account-card .login-role-buttons .btn { min-height:40px; padding:8px 12px; border:1px solid var(--auth-line); border-radius:11px; background:var(--auth-surface); color:var(--auth-panel-ink); }
 .auth-account-card .login-switch,
 .auth-account-card .login-card .link-button { color:var(--auth-primary); font-weight:650; }
