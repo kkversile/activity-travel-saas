@@ -10,6 +10,19 @@ afterEach(() => {
 });
 
 describe('vendor passwordless login flow', () => {
+  it('prefills each configured demo role without submitting or changing the route', () => {
+    window.history.replaceState({}, '', '/vendor/products');
+    const login = vi.spyOn(api, 'login');
+    render(<Login onLogin={vi.fn()} onRegister={vi.fn()} />);
+    for (const [label, role] of [['Vendor', 'vendor'], ['Super Admin', 'super_admin'], ['Admin', 'admin'], ['Agent', 'agent']]) {
+      fireEvent.click(screen.getByRole('button', { name: `${label} Login` }));
+      expect(screen.getByLabelText('Email or mobile')).toHaveValue(`${role}@fixtures.invalid`);
+      expect(screen.getByLabelText('Password')).toHaveValue('FixtureOnly@123');
+      expect(window.location.pathname).toBe('/vendor/products');
+    }
+    expect(login).not.toHaveBeenCalled();
+  });
+
   it('matches the Partner Hub prototype entry layout on vendor routes', () => {
     window.history.replaceState({}, '', '/vendor/products');
 

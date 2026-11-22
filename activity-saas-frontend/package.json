@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build --base=/voya/",
+    "build:demo": "node scripts/build-demo.mjs",
+    "test:demo-build": "node --test scripts/check-demo-build.mjs",
     "test": "vitest run",
     "preview": "vite preview --host 0.0.0.0"
   },
