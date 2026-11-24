@@ -38,6 +38,7 @@ import { StorageService } from "../storage/storage.service";
 import { VendorOutletAccessService } from "../vendor-outlets/vendor-outlet-access.service";
 import { validateFulfilmentPolicy } from "../fulfilment/fulfilment.types";
 import {
+  ActivityPriceOptionDto,
   ActivityPricesAvailabilityDto,
   ArchiveVariantDto,
   CreateProductDraftDto,
@@ -59,6 +60,7 @@ import {
   VariantDto,
 } from "./catalogue.dto";
 import { bulkRateHistory, bulkRateSegments } from './bulk-rate-update';
+import { activityPricePatchSegments } from './activity-price-patch';
 import { ProductReadinessService } from "./product-readiness.service";
 import { requiredVendorDocumentsForProduct } from "../vendor/vendor-document-requirements";
 import { CommercialService } from "../commercial/commercial.service";
@@ -353,8 +355,8 @@ export const buildActivityEditorSourcePayload = (
     ...sourcePayload,
     createdFromActivityEditor: true,
     pricingTimezone: option.timezone || sourcePayload.pricingTimezone || "UTC",
-    pricingDays: normalizedDays(option.pricingDays),
-    pricingSlotCodes: normalizedSlotCodes(option.pricingSlotCodes),
+    pricingDays: normalizedDays(option.pricingDays ?? sourcePayload.pricingDays),
+    pricingSlotCodes: normalizedSlotCodes(option.pricingSlotCodes ?? sourcePayload.pricingSlotCodes),
     ...(option.maxPassengersPerResource
       ? { maxPassengersPerResource: option.maxPassengersPerResource }
       : {}),
@@ -4469,6 +4471,16 @@ export class CatalogueService {
           errors.push(`${optionNames.get(option.variantId) || `Option ${index + 1}`}: ${amount.name} is outside the supported range. ${MONEY_AMOUNT_GUIDANCE}`);
         }
       }
+      // PATCH requirements (adult/base, MRP, visitor pairs, SLA) are checked
+      // again against every resolved segment in preview and inside apply's
+      // transaction. Missing values here mean "preserve", not "clear".
+      if (option.updateMode === 'PATCH') {
+        if (!option.effectiveFrom || !option.effectiveTo || !Number.isFinite(+from) || !Number.isFinite(+to))
+          errors.push(`options[${index}]: enter valid selling start and end dates`);
+        if (!Number.isInteger(option.expectedVersion) || Number(option.expectedVersion) < 1)
+          errors.push(`options[${index}]: reload saved pricing before editing`);
+        continue;
+      }
       if (option.pricingUnit === PricingUnit.PER_PERSON && !prices.length)
         errors.push(
           `options[${index}]: add at least one traveller price for per-traveller pricing`,
@@ -4699,7 +4711,22 @@ export class CatalogueService {
         },
       })),
     );
-    const affectedDates = (dto.options || []).reduce((total, option) => {
+    const resolvedOptions: ActivityPriceOptionDto[] = [];
+    for (const option of dto.options || []) {
+      if (option.updateMode !== 'PATCH') { resolvedOptions.push(option); continue; }
+      if (errors.length) continue;
+      const plans = existing.filter(plan => plan.variantId === option.variantId);
+      const plan = plans.find(plan => !isProtectedLegacyRatePlan(plan) &&
+        (plan.sourcePayload?.createdFromActivityEditor || plan.ratePlanCode?.startsWith('ACTIVITY-')))
+        || (plans.length === 1 && !isProtectedLegacyRatePlan(plans[0]) ? plans[0] : undefined);
+      try {
+        for (const segment of activityPricePatchSegments(plan?.commercialVersions || [], plan || {}, option)) {
+          resolvedOptions.push(segment.option);
+          errors.push(...this.activityPriceInput({ ...dto, options: [segment.option] }, new Map(variants.map(variant => [variant.id, variant.name]))));
+        }
+      } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
+    }
+    const affectedDates = resolvedOptions.reduce((total, option) => {
       const from = dateOnly(
         option.effectiveFrom || new Date().toISOString().slice(0, 10),
       );
@@ -4724,7 +4751,7 @@ export class CatalogueService {
       pricingDays: (version.sourcePayload as any)?.pricingDays || [],
       pricingSlotCodes: (version.sourcePayload as any)?.pricingSlotCodes || [],
     }));
-    const proposedRates = (dto.options || []).map((option) => ({
+    const proposedRates = resolvedOptions.map((option) => ({
       variantId: option.variantId,
       effectiveFrom: option.effectiveFrom || null,
       effectiveTo: option.effectiveTo || null,
@@ -4813,7 +4840,7 @@ export class CatalogueService {
           message:
             "Capacity is checked against held and confirmed inventory during save.",
         })),
-      options: (dto.options || []).map((option) => ({
+      options: resolvedOptions.map((option) => ({
         variantId: option.variantId,
         pricingUnit: option.pricingUnit,
         travellerPrices: option.travellerPrices?.length || 0,
@@ -5001,7 +5028,7 @@ export class CatalogueService {
       async (tx) => {
         // Serialize bulk saves for this product: concurrent identical retries
         // must see the committed result before checking mutable version numbers.
-        if (bulk) await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE`);
+        if (bulk || dto.options.some(option => option.updateMode === 'PATCH')) await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE`);
         const prior = await tx.activityPriceApplyRequest.findUnique({
           where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: key } },
         });
@@ -5202,8 +5229,8 @@ export class CatalogueService {
             validTo: planTo,
             currency:
               option.currency || plan?.currency || product.currency || "INR",
-            unitType,
-            basePrice: bulk && plan ? plan.basePrice : baseAmount || plan?.basePrice || 0,
+            unitType: option.updateMode === 'PATCH' && !option.pricingUnit && plan ? plan.unitType : unitType,
+            basePrice: (bulk || option.updateMode === 'PATCH') && plan ? plan.basePrice : baseAmount || plan?.basePrice || 0,
             minPax: option.minPax ?? variant.minPax ?? plan?.minPax ?? 1,
             maxPax: option.maxPax ?? variant.maxPax ?? plan?.maxPax ?? 99,
             cutOffMinutes:
@@ -5262,11 +5289,12 @@ export class CatalogueService {
               where: { id: plan.id },
               data: planData,
             });
-            if (!bulk) await tx.travellerRule.deleteMany({
+            if (!bulk && option.updateMode !== 'PATCH') await tx.travellerRule.deleteMany({
               where: { ratePlanId: plan.id },
             });
             if (!bulk && travellerRules.length)
               await tx.travellerRule.createMany({
+                ...(option.updateMode === 'PATCH' ? { skipDuplicates: true } : {}),
                 data: travellerRules.map((rule) => ({
                   ...rule,
                   ratePlanId: plan.id,
@@ -5378,7 +5406,7 @@ export class CatalogueService {
               bookingRulesSnapshot,
             ),
           };
-          const history: ActivityPriceHistoryRange<any>[] = (bulk ? bulkRateHistory(editableVersions).map(range => ({...range.value,effectiveFrom:range.effectiveFrom,effectiveTo:range.effectiveTo})) : editorHistory).map(
+          const history: ActivityPriceHistoryRange<any>[] = (bulk || option.updateMode === 'PATCH' ? bulkRateHistory(editableVersions).map(range => ({...range.value,effectiveFrom:range.effectiveFrom,effectiveTo:range.effectiveTo})) : editorHistory).map(
             (version) => ({
               effectiveFrom: version.effectiveFrom,
               effectiveTo: version.effectiveTo || effectiveTo,
@@ -5410,6 +5438,25 @@ export class CatalogueService {
                 }),
               };
               desired = splitActivityPriceHistory(desired,{effectiveFrom:segment.effectiveFrom,effectiveTo:segment.effectiveTo,value:{kind:'candidate',option:value,data}});
+            }
+          } else if (option.updateMode === 'PATCH') {
+            desired = history;
+            for (const segment of activityPricePatchSegments(editableVersions, plan, option)) {
+              const value = segment.option, saved = segment.version;
+              const errors = this.activityPriceInput({ ...dto, options: [value] });
+              if (errors.length) throw new BadRequestException({ code: 'ACTIVITY_PRICES_INVALID', message: 'Fix the highlighted prices and availability fields.', details: errors });
+              const data = {
+                ...candidateData,
+                supplierModel: value.supplierModel, currency: value.currency, pricingUnit: value.pricingUnit,
+                supplierBaseAmount: value.supplierBaseAmount,
+                supplierCommissionPercent: value.supplierCommissionPercent,
+                bookingMode: value.bookingMode, confirmationSlaMinutes: value.confirmationSlaMinutes,
+                sourcePayload: buildActivityEditorSourcePayload({ ...saved.sourcePayload }, dto.hasDifferentialVisitorPricing, value, {
+                  bookingMode: value.bookingMode, confirmationSlaMinutes: value.confirmationSlaMinutes ?? null,
+                  cancellationRules: value.cancellationRules || previousCancellationRules,
+                }),
+              };
+              desired = splitActivityPriceHistory(desired, { effectiveFrom: segment.effectiveFrom, effectiveTo: segment.effectiveTo, value: { kind: 'candidate', option: value, data } });
             }
           } else desired = splitActivityPriceHistory(history, {
             effectiveFrom,effectiveTo,value:{kind:'candidate',option,data:candidateData},

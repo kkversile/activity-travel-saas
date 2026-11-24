@@ -1,0 +1,92 @@
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { ActivityPriceOptionDto } from './catalogue.dto';
+import { activityPricePatchSegments } from './activity-price-patch';
+import { buildActivityEditorSourcePayload } from './catalogue.service';
+
+const amounts = (late = false) => ({ ADULT: late ? '1900' : '1800', CHILD: late ? '950' : '900', SENIOR: '1400', INFANT: late ? '100' : '0', YOUTH: late ? '1300.1234' : '1200.1234', GROUP: late ? '2100' : '2000' });
+function version(late = false) {
+  const prices = amounts(late);
+  return { id: late ? 'jan' : 'dec', status: 'DRAFT', versionNumber: late ? 3 : 2,
+    effectiveFrom: new Date(late ? '2027-01-01' : '2026-12-01'), effectiveTo: new Date(late ? '2027-03-01' : '2027-01-01'),
+    pricingUnit: 'PER_PERSON', currency: 'INR', supplierModel: 'NET_RATE', supplierBaseAmount: '500', bookingMode: 'INSTANT',
+    travellerPrices: Object.entries(prices).map(([travellerType, amount]) => ({ travellerType, amount })),
+    sourcePayload: { mrpMode: 'YES', mrpAmount: '3000', pricingDays: late ? ['SAT', 'SUN'] : ['MON', 'TUE'], pricingTimezone: late ? 'Asia/Dubai' : 'Asia/Kolkata', pricingSlotCodes: late ? ['06:00'] : ['10:00'],
+      ratePeriods: [{ name: late ? 'January' : 'December', adjustmentValue: '100' }],
+      visitorPrices: Object.entries(prices).map(([travellerType, indian]) => ({ travellerType, indian, foreign: '2600' })), visitorEligibilityBasis: 'NATIONALITY', visitorVerificationMode: 'DOCUMENT_AT_BOOKING' },
+  };
+}
+const patch = (changes: Record<string, unknown> = {}) => ({ updateMode: 'PATCH', variantId: 'v1', expectedVersion: 3, effectiveFrom: '2026-12-10', effectiveTo: '2027-02-01', ...changes } as ActivityPriceOptionDto);
+const resolve = (changes: Record<string, unknown> = {}) => activityPricePatchSegments([version(), version(true)], { currency: 'INR' }, patch(changes));
+
+describe('activity editor field patches', () => {
+  it('retains date-specific hidden prices and visitor policies during an adult-only edit', () => {
+    const segments = resolve({ travellerPrices: [{ travellerType: 'ADULT', amount: '1950' }] });
+    expect(segments).toHaveLength(2);
+    for (const [index, segment] of segments.entries()) {
+      expect(Object.fromEntries(segment.option.travellerPrices!.map(price => [price.travellerType, price.amount]))).toEqual({ ...amounts(Boolean(index)), ADULT: '1950' });
+      expect(segment.option.visitorPrices).toContainEqual({ travellerType: 'INFANT', indian: index ? '100' : '0', foreign: '2600' });
+      expect(segment.option.visitorPrices).toContainEqual({ travellerType: 'ADULT', indian: '1950', foreign: '2600' });
+      expect(segment.option.visitorEligibilityBasis).toBe('NATIONALITY');
+      expect(segment.option.visitorVerificationMode).toBe('DOCUMENT_AT_BOOKING');
+    }
+  });
+  it('inherits days, timezone, slots and seasonal adjustments independently in each period', () => {
+    const segments = resolve();
+    for (const [index, segment] of segments.entries()) {
+      const source = version(Boolean(index)).sourcePayload;
+      const payload = buildActivityEditorSourcePayload(segment.version.sourcePayload, true, segment.option);
+      expect(payload).toMatchObject({ pricingDays: source.pricingDays, pricingTimezone: source.pricingTimezone, pricingSlotCodes: source.pricingSlotCodes, ratePeriods: source.ratePeriods });
+    }
+  });
+  it('honors explicit common rules, including clearing slots and seasonal adjustments', () => {
+    for (const { option, version } of resolve({ timezone: 'UTC', pricingDays: ['FRI'], pricingSlotCodes: [], ratePeriods: [] }))
+      expect(buildActivityEditorSourcePayload(version.sourcePayload, true, option)).toMatchObject({ pricingTimezone: 'UTC', pricingDays: ['FRI'], pricingSlotCodes: [], ratePeriods: [] });
+  });
+  it('uses the earlier period when only an earlier range is edited', () => {
+    const segments = resolve({ effectiveTo: '2026-12-20', travellerPrices: [{ travellerType: 'ADULT', amount: '0' }] });
+    expect(segments).toHaveLength(1);
+    expect(segments[0].option.travellerPrices).toContainEqual({ travellerType: 'INFANT', amount: '0' });
+    expect(segments[0].option.travellerPrices).toContainEqual({ travellerType: 'ADULT', amount: '0' });
+    expect(segments[0].effectiveTo.toISOString().slice(0, 10)).toBe('2026-12-20');
+  });
+  it('changes only the foreign value while retaining the Indian value of each date segment', () => {
+    const segments = resolve({ visitorPrices: [{ travellerType: 'ADULT', indian: '1900', foreign: '2800' }] });
+    expect(segments[0].option.visitorPrices).toContainEqual({ travellerType: 'ADULT', indian: '1800', foreign: '2800' });
+    expect(segments[1].option.visitorPrices).toContainEqual({ travellerType: 'ADULT', indian: '1900', foreign: '2800' });
+  });
+  it('preserves untouched legacy visitor amounts even when they differ from ordinary category prices', () => {
+    const saved = version();
+    saved.sourcePayload.visitorPrices.find(price => price.travellerType === 'CHILD')!.indian = '880';
+    const [{ option }] = activityPricePatchSegments([saved], {}, patch({ effectiveTo: '2026-12-20', travellerPrices: [{ travellerType: 'ADULT', amount: '1950' }] }));
+    expect(option.visitorPrices).toContainEqual({ travellerType: 'CHILD', indian: '880', foreign: '2600' });
+    expect(option.visitorPrices).toContainEqual({ travellerType: 'ADULT', indian: '1950', foreign: '2600' });
+  });
+  it('can clear an optional traveller category without dropping other hidden categories', () => {
+    const option = resolve({ removeTravellerTypes: ['CHILD'] })[0].option;
+    expect(option.travellerPrices!.map(price => price.travellerType)).not.toContain('CHILD');
+    expect(option.visitorPrices!.map(price => price.travellerType)).not.toContain('CHILD');
+    expect(option.travellerPrices).toContainEqual({ travellerType: 'YOUTH', amount: '1200.1234' });
+  });
+  it('retains a newer draft only inside its interval and never mutates original versions', () => {
+    const active = { ...version(), status: 'ACTIVE', versionNumber: 1, effectiveTo: new Date('2027-03-01') };
+    const draft = { ...version(true), effectiveFrom: new Date('2027-01-10'), effectiveTo: new Date('2027-01-20') };
+    const originals = structuredClone([active, draft]);
+    const segments = activityPricePatchSegments([active, draft], {}, patch({ effectiveTo: '2027-02-01' }));
+    expect(segments.map(segment => segment.version.id)).toEqual(['dec', 'jan', 'dec']);
+    expect([active, draft]).toEqual(originals);
+  });
+  it('rejects a patch whose base history disappeared', () => {
+    expect(() => activityPricePatchSegments([], {}, patch())).toThrow('Saved pricing is no longer available');
+  });
+  it('retains the original currency of each period when it was not edited', () => {
+    const segments = activityPricePatchSegments([{ ...version(), currency: 'USD' }, version(true)], {}, patch());
+    expect(segments.map(segment => segment.option.currency)).toEqual(['USD', 'INR']);
+  });
+  it('requires the basis for full saves and allows its omission only for a PATCH', async () => {
+    const value = { variantId: 'v1' };
+    expect((await validate(plainToInstance(ActivityPriceOptionDto, value))).some(error => error.property === 'pricingUnit')).toBe(true);
+    expect(await validate(plainToInstance(ActivityPriceOptionDto, { ...value, updateMode: 'PATCH' }))).toEqual([]);
+    expect((await validate(plainToInstance(ActivityPriceOptionDto, { ...value, updateMode: 'PATCH', pricingUnit: 'WRONG' }))).some(error => error.property === 'pricingUnit')).toBe(true);
+  });
+});

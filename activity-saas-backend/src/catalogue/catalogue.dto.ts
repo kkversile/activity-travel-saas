@@ -2,7 +2,7 @@ import { BookingMode, BookingQuestionType, CapacityUnit, ChargeType, EvidenceMat
 import { Transform, Type } from 'class-transformer';
 import { canonicalDuration, DURATION_UNITS, MONEY_AMOUNT_PATTERN, MONEY_AMOUNT_GUIDANCE } from '../common/product-import-contract';
 import { OmitType, PartialType } from '@nestjs/swagger';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsDefined, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, IsUUID, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsDefined, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, IsUUID, Matches, Max, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 
 export class ProductFulfilmentPolicyDto {
   @IsOptional() @IsEnum(FulfilmentMode) mode?: FulfilmentMode;
@@ -331,7 +331,11 @@ export type VisitorVerificationMode = typeof visitorVerificationModes[number];
 
 export class ActivityPriceOptionDto {
   @IsString() variantId!: string;
-  @IsEnum(PricingUnit) pricingUnit!: PricingUnit;
+  /** PATCH merges only supplied fields against each existing date segment. */
+  @IsOptional() @IsIn(['PATCH']) updateMode?: 'PATCH';
+  @ValidateIf(option => option.updateMode !== 'PATCH' || option.pricingUnit !== undefined) @IsEnum(PricingUnit) pricingUnit!: PricingUnit;
+  @IsOptional() @IsArray() @IsEnum(TravellerType, { each: true }) removeTravellerTypes?: TravellerType[];
+  @IsOptional() @IsArray() @IsEnum(TravellerType, { each: true }) removeVisitorTypes?: TravellerType[];
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsEnum(SupplierCommercialModel) supplierModel?: SupplierCommercialModel;
   @IsOptional() @IsEnum(BookingMode) bookingMode?: BookingMode;

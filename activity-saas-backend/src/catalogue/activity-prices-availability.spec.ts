@@ -14,6 +14,29 @@ function makeService() {
 }
 
 describe('simplified prices and availability editor', () => {
+  it.each([false, true])('validates an adult-only patch against every inherited MRP and visitor pair (%s)', async invalid => {
+    const { service, prisma } = makeService();
+    prisma.product.findFirst.mockResolvedValue({ id: 'p1', tenantId: 't1' });
+    prisma.productVariant.findMany.mockResolvedValue([{ id: 'v1', name: 'Standard' }]);
+    prisma.ratePlan.findMany.mockResolvedValue([{ variantId: 'v1', ratePlanCode: 'ACTIVITY-STD', sourcePayload: { createdFromActivityEditor: true }, cancellationRules: [], commercialVersions: [
+      { versionNumber: 2, status: 'DRAFT', pricingUnit: 'PER_PERSON', currency: 'INR', effectiveFrom: '2026-12-01', effectiveTo: '2027-01-01', travellerPrices: [{ travellerType: 'ADULT', amount: '100' }, { travellerType: 'INFANT', amount: '0' }], sourcePayload: { mrpMode: 'YES', mrpAmount: '150', visitorPrices: [{ travellerType: 'ADULT', indian: '100', foreign: '140' }] } },
+      { versionNumber: 3, status: 'DRAFT', pricingUnit: 'PER_PERSON', currency: 'INR', effectiveFrom: '2027-01-01', effectiveTo: '2027-03-01', travellerPrices: [{ travellerType: 'ADULT', amount: '200' }, { travellerType: 'INFANT', amount: '10' }], sourcePayload: { mrpMode: 'YES', mrpAmount: '250', visitorPrices: [{ travellerType: 'ADULT', indian: '200', foreign: '240' }] } },
+    ] }]);
+    const result = await service.previewActivityPricesAvailability(vendor, 'p1', { hasDifferentialVisitorPricing: true, options: [{ updateMode: 'PATCH', variantId: 'v1', expectedVersion: 3, effectiveFrom: '2026-12-10', effectiveTo: '2027-02-01', travellerPrices: [{ travellerType: 'ADULT', amount: invalid ? '175' : '125' }] } as any] });
+    expect(result.valid).toBe(!invalid);
+    expect(result.proposedRates).toHaveLength(2);
+    expect(result.proposedRates[0].travellerPrices).toContainEqual({ travellerType: 'INFANT', amount: '0' });
+    expect(result.proposedRates[1].travellerPrices).toContainEqual({ travellerType: 'INFANT', amount: '10' });
+    if (invalid) expect(result.errors).toContain('Standard: selling prices cannot be above the MRP / gate price');
+  });
+  it('requires a version and valid dates for field patches', async () => {
+    const { service, prisma } = makeService();
+    prisma.product.findFirst.mockResolvedValue({ id: 'p1', tenantId: 't1' });
+    prisma.productVariant.findMany.mockResolvedValue([{ id: 'v1', name: 'Standard' }]);
+    const result = await service.previewActivityPricesAvailability(vendor, 'p1', { options: [{ updateMode: 'PATCH', variantId: 'v1' } as any] });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining('valid selling start'), expect.stringContaining('reload saved pricing')]));
+  });
   it.each([PricingUnit.GROUP, PricingUnit.PER_BOOKING, PricingUnit.PER_UNIT])('accepts mixed traveller and %s options without requiring unrendered foreign prices', async (unit) => {
     const { service, prisma } = makeService();
     prisma.product.findFirst.mockResolvedValue({ id: 'p1', tenantId: 't1' });

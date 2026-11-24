@@ -243,6 +243,11 @@ function latestVersion(plan: any) {
   );
 }
 
+const priceBasisLabel: Record<PricingUnit, string> = {
+  PER_PERSON: "per traveller", PER_BOOKING: "per booking", PER_UNIT: "per resource / vehicle", GROUP: "per group",
+};
+const enteredPrice = (value: string) => value.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= 0;
+
 export default function ActivityPricesAvailability({
   snapshot,
   locked,
@@ -259,6 +264,10 @@ export default function ActivityPricesAvailability({
 }: WizardStepProps & { section?: EditorSection }) {
   const variants = snapshot.variants;
   const [rows, setRows] = useState<PriceRow[]>(() => variants.map(emptyRow));
+  const rowChanges = useRef<Record<string, Set<keyof PriceRow>>>({});
+  const sharedChanges = useRef(new Set<string>());
+  const savedPriceData = useRef<SavedPriceResponse>({});
+  const [mixedPricingRules, setMixedPricingRules] = useState(false);
   const isPricing = section === "pricing";
   const isPolicies = section === "policies";
   const [dateFrom, setDateFrom] = useState(today());
@@ -372,12 +381,14 @@ export default function ActivityPricesAvailability({
     const leading = first.getUTCDay();
     return Array.from({ length: leading + count }, (_, index) => index < leading ? "" : new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), index - leading + 1)).toISOString().slice(0, 10));
   }, [dateFrom]);
-  const dirty = () => {
+  const dirty = (...fields: string[]) => {
+    fields.forEach(field => sharedChanges.current.add(field));
     setSaved(false);
     setPreview(null);
     onPricingDirty?.();
   };
   const updateRow = (id: string, key: keyof PriceRow, value: string) => {
+    (rowChanges.current[id] ||= new Set()).add(key);
     setRows((old) =>
       old.map((row) => (row.variantId === id ? { ...row, [key]: value } : row)),
     );
@@ -410,7 +421,10 @@ export default function ActivityPricesAvailability({
         const next = { ...row };
         values.forEach((value, offset) => {
           const target = keys[start + offset];
-          if (target && value !== "") (next as any)[target] = value;
+          if (target && value !== "") {
+            (next as any)[target] = value;
+            (rowChanges.current[row.variantId] ||= new Set()).add(target);
+          }
         });
         return next;
       }),
@@ -429,7 +443,7 @@ export default function ActivityPricesAvailability({
       if (value === "WEEKDAYS") setOperatingDays(weekdays);
       if (value === "WEEKENDS") setOperatingDays(weekends);
     }
-    dirty();
+    dirty(...(pricing ? ["pricingDays"] : []));
   };
   const toggleDay = (day: string, pricing: boolean) => {
     if (pricing) {
@@ -443,7 +457,7 @@ export default function ActivityPricesAvailability({
         old.includes(day) ? old.filter((item) => item !== day) : [...old, day],
       );
     }
-    dirty();
+    dirty(...(pricing ? ["pricingDays"] : []));
   };
   const updateSlot = (index: number, key: keyof SlotRow, value: string) => {
     setSlots((old) =>
@@ -463,7 +477,7 @@ export default function ActivityPricesAvailability({
     setPricingSlotCodes((old) =>
       old.includes(code) ? old.filter((item) => item !== code) : [...old, code],
     );
-    dirty();
+    dirty("pricingSlotCodes");
   };
   const updateCancellation = (index: number, key: string, value: string) => {
     setCancellationRules((old) =>
@@ -523,7 +537,7 @@ export default function ActivityPricesAvailability({
         adjustmentValue: "",
       },
     ]);
-    dirty();
+    dirty("ratePeriods");
   };
   const updateRatePeriod = (
     index: number,
@@ -535,7 +549,7 @@ export default function ActivityPricesAvailability({
         periodIndex === index ? { ...period, [key]: value } : period,
       ),
     );
-    dirty();
+    dirty("ratePeriods");
   };
   const removeCancellationRule = (index: number) => {
     setCancellationRules((old) =>
@@ -699,6 +713,9 @@ export default function ActivityPricesAvailability({
       .request<SavedPriceResponse>(`/products/${productId}/prices-availability`)
       .then((data) => {
         if (!active) return;
+        savedPriceData.current = data;
+        rowChanges.current = {};
+        sharedChanges.current.clear();
         // The product response also contains options from historical revisions.
         // Populate this editor only from the revision it is currently editing.
         const currentOptions = (data.options || []).filter((item) => variants.some((variant) => variant.id === item.variantId));
@@ -770,6 +787,9 @@ export default function ActivityPricesAvailability({
         const editablePlans = currentOptions
           .flatMap((item) => item.ratePlans || [])
           .filter((plan) => plan.editable);
+        setMixedPricingRules(new Set(editablePlans.flatMap(plan => (plan.versions || [])
+          .filter(version => ["DRAFT", "ACTIVE"].includes(version.status))
+          .map(version => { const p = version.sourcePayload || {}; return JSON.stringify([p.pricingDays, p.pricingTimezone, p.pricingSlotCodes, p.ratePeriods]); }))).size > 1);
         const hasExistingRateData = editablePlans.some((plan) =>
           plan.versions?.some(
             (version: any) =>
@@ -925,6 +945,19 @@ export default function ActivityPricesAvailability({
     };
   }, [snapshot.product?.id, variantIds]);
 
+  function showPricesForDate(date: string) {
+    setRows(current => current.map(row => {
+      const plan = savedPriceData.current.options?.find(option => option.variantId === row.variantId)?.ratePlans?.find(plan => plan.editable);
+      const version = [...(plan?.versions || [])].filter(version => ["DRAFT", "ACTIVE"].includes(version.status) && String(version.effectiveFrom).slice(0, 10) <= date && (!version.effectiveTo || String(version.effectiveTo).slice(0, 10) > date))
+        .sort((a, b) => b.versionNumber - a.versionNumber)[0];
+      if (!version) return row;
+      const amounts = new Map<string, string>((version.travellerPrices || []).map((price: any) => [price.travellerType, text(price.amount)]));
+      const source = version.sourcePayload || {};
+      const foreign = (type: string) => text(source.visitorPrices?.find((price: any) => price.travellerType === type)?.foreign);
+      const values = { pricingUnit: unitFromSaved(version.pricingUnit), currency: text(version.currency), adult: amounts.get("ADULT") || "", child: amounts.get("CHILD") || "", senior: amounts.get("SENIOR") || "", base: text(version.supplierBaseAmount), mrp: text(source.mrpAmount), foreign: foreign("ADULT"), foreignChild: foreign("CHILD"), foreignSenior: foreign("SENIOR") };
+      return { ...row, ...Object.fromEntries(Object.entries(values).filter(([key]) => !rowChanges.current[row.variantId]?.has(key as keyof PriceRow))) };
+    }));
+  }
   function rowPayload(row: PriceRow, proofOverride = mrpProof) {
     const travellerPrices =
       row.pricingUnit === "PER_PERSON"
@@ -995,7 +1028,7 @@ export default function ActivityPricesAvailability({
               : [],
           }
         : undefined;
-    return {
+    const payload = {
       variantId: row.variantId,
       pricingUnit: row.pricingUnit,
       ...(row.currency ? { currency: row.currency } : {}),
@@ -1037,6 +1070,36 @@ export default function ActivityPricesAvailability({
         : {}),
       ...(availability ? { availability } : {}),
     };
+    if (!row.expectedVersion) return payload;
+    const changed = rowChanges.current[row.variantId] || new Set<keyof PriceRow>();
+    const patch: Record<string, any> = {
+      updateMode: "PATCH", variantId: row.variantId, expectedVersion: row.expectedVersion,
+      effectiveFrom: dateFrom, effectiveTo: dateTo,
+      minPax: payload.minPax, maxPax: payload.maxPax, cutOffMinutes: payload.cutOffMinutes,
+      ...bookingRules, ...(availability ? { availability } : {}),
+    };
+    for (const [key, field] of Object.entries({ pricingUnit: "pricingUnit", currency: "currency", base: "supplierBaseAmount", mrp: "mrpAmount", maxPassengers: "maxPassengersPerResource" })) {
+      if (changed.has(key as keyof PriceRow)) patch[field] = (payload as any)[field];
+    }
+    const allPrices = changed.has("pricingUnit");
+    const types = [["ADULT", "adult", "foreign"], ["CHILD", "child", "foreignChild"], ["SENIOR", "senior", "foreignSenior"]] as const;
+    if (row.pricingUnit === "PER_PERSON") {
+      const prices = types.filter(([, key]) => allPrices || changed.has(key));
+      if (prices.some(([, key]) => row[key] !== "")) patch.travellerPrices = prices.filter(([, key]) => row[key] !== "").map(([travellerType, key]) => ({ travellerType, amount: row[key] }));
+      if (prices.some(([, key]) => row[key] === "")) patch.removeTravellerTypes = prices.filter(([, key]) => row[key] === "").map(([type]) => type);
+      if (visitorPricing) {
+        const visitors = types.filter(([, , key]) => allPrices || sharedChanges.current.has("visitorPricing") || changed.has(key));
+        const pairs = visitors.filter(([, key, foreign]) => row[key] !== "" && row[foreign] !== "");
+        if (pairs.length) patch.visitorPrices = pairs.map(([travellerType, key, foreign]) => ({ travellerType, indian: row[key], foreign: row[foreign] }));
+        if (visitors.length !== pairs.length) patch.removeVisitorTypes = visitors.filter(item => !pairs.includes(item)).map(([type]) => type);
+      }
+    } else if (allPrices) {
+      patch.supplierBaseAmount = row.base;
+      if (row.pricingUnit === "PER_UNIT") patch.maxPassengersPerResource = Number(row.maxPassengers);
+    }
+    for (const field of sharedChanges.current) if (field in payload) patch[field] = (payload as any)[field];
+    if (sharedChanges.current.has("pricingSlotCodes")) patch.pricingSlotCodes = selectedSlots;
+    return patch;
   }
   const requestBody = (proofOverride = mrpProof) => ({
     hasDifferentialVisitorPricing: visitorPricing,
@@ -1136,6 +1199,7 @@ export default function ActivityPricesAvailability({
       // version: the next save must still detect that concurrent change.
       if (applied.saved?.length) {
         const persisted = await api.request<SavedPriceResponse>(`/products/${productId}/prices-availability`);
+        savedPriceData.current = persisted;
         setRows((current) => current.map((row) => {
           const savedOption = applied.saved?.find((item) => item.variantId === row.variantId);
           if (!savedOption) return row;
@@ -1152,6 +1216,8 @@ export default function ActivityPricesAvailability({
       setAvailabilityTouched(false);
       setAlsoUpdateCapacity(false);
       setBookingRulesTouched(false);
+      selectedVariantIds.forEach(id => { delete rowChanges.current[id]; });
+      sharedChanges.current.clear();
       onPricingSaved?.();
       return true;
     } catch (error) {
@@ -1230,12 +1296,12 @@ export default function ActivityPricesAvailability({
               <div className="prototype-rate-control">
                 <b>Is there an MRP or gate price for this activity?</b>
                 <div className="experience-segmented">
-                  <button type="button" className={mrpMode === 'YES' ? 'active' : ''} onClick={() => { setMrpMode('YES'); dirty(); }} disabled={locked}>Yes</button>
-                  <button type="button" className={mrpMode === 'NO' ? 'active' : ''} onClick={() => { setMrpMode('NO'); dirty(); }} disabled={locked}>No</button>
+                  <button type="button" className={mrpMode === 'YES' ? 'active' : ''} onClick={() => { setMrpMode('YES'); dirty("mrpMode"); }} disabled={locked}>Yes</button>
+                  <button type="button" className={mrpMode === 'NO' ? 'active' : ''} onClick={() => { setMrpMode('NO'); dirty("mrpMode"); }} disabled={locked}>No</button>
                 </div>
                 <small>The printed counter price or price on your own website. QC uses it to check the sell price.</small>
               </div>
-              {mrpMode === 'YES' && <div className="mrp-proof-fields"><Field label="MRP proof"><input value={mrpProof.startsWith('fileAsset:') ? 'Uploaded rate-board / ticket proof' : mrpProof} onChange={(event) => { setMrpProof(event.target.value); setMrpProofFile(null); dirty(); }} disabled={locked || mrpProof.startsWith('fileAsset:')} placeholder="Link to your website price, or upload a ticket / rate board photo" /></Field><Field label="Upload proof photo"><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => { setMrpProofFile(event.target.files?.[0] || null); dirty(); }} disabled={locked || mrpProofUploading} /><small className="experience-help">Optional supplier evidence for QC. Saved privately with the draft.</small>{mrpProofFile && <small className="experience-pill success">{mrpProofFile.name}</small>}</Field></div>}
+              {mrpMode === 'YES' && <div className="mrp-proof-fields"><Field label="MRP proof"><input value={mrpProof.startsWith('fileAsset:') ? 'Uploaded rate-board / ticket proof' : mrpProof} onChange={(event) => { setMrpProof(event.target.value); setMrpProofFile(null); dirty("mrpProof"); }} disabled={locked || mrpProof.startsWith('fileAsset:')} placeholder="Link to your website price, or upload a ticket / rate board photo" /></Field><Field label="Upload proof photo"><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(event) => { setMrpProofFile(event.target.files?.[0] || null); dirty("mrpProof"); }} disabled={locked || mrpProofUploading} /><small className="experience-help">Optional supplier evidence for QC. Saved privately with the draft.</small>{mrpProofFile && <small className="experience-pill success">{mrpProofFile.name}</small>}</Field></div>}
             </div>
             <div className="prototype-rate-periods">
               <div className="experience-card-heading"><div><h4>Rate periods</h4><p>Base rate applies outside these periods. Adjust in percentage or flat currency.</p></div><button type="button" className="btn small" onClick={addRatePeriod} disabled={locked}>+ Add period</button></div>
@@ -1246,11 +1312,12 @@ export default function ActivityPricesAvailability({
                 <Field label="Days"><select value={period.days} onChange={(event) => updateRatePeriod(index, 'days', event.target.value)} disabled={locked}><option value="ALL">All days</option><option value="WEEKDAYS">Weekdays</option><option value="WEEKENDS">Weekends</option></select></Field>
                 <Field label="Adjustment"><div className="prototype-adjustment"><input value={period.adjustmentValue} onChange={(event) => updateRatePeriod(index, 'adjustmentValue', event.target.value)} disabled={locked} placeholder="0" /><select value={period.adjustmentType} onChange={(event) => updateRatePeriod(index, 'adjustmentType', event.target.value as RatePeriod['adjustmentType'])} disabled={locked}><option value="PERCENT">%</option><option value="FLAT">₹</option></select></div></Field>
                 <div className="prototype-rate-period-preview"><small>Adult sell</small><b>{periodAdultSell(period) == null ? "—" : `₹${periodAdultSell(period)!.toFixed(2)}`}</b></div>
-                {!locked && <button type="button" className="link-button" onClick={() => { setRatePeriods((old) => old.filter((_, periodIndex) => periodIndex !== index)); dirty(); }}>Remove</button>}
+                {!locked && <button type="button" className="link-button" onClick={() => { setRatePeriods((old) => old.filter((_, periodIndex) => periodIndex !== index)); dirty("ratePeriods"); }}>Remove</button>}
               </div>)}</div> : <p className="experience-help">No rate periods configured. The base rate applies to the selling dates above.</p>}
             </div>
           </>
         )}
+        {isPricing && mixedPricingRules && <p className="experience-notice" role="status">Mixed pricing settings: options or periods have different rules. Shared controls initially show the first option’s settings. Edit a control only to apply it to all selected options; untouched rules are preserved.</p>}
         <div className="activity-date-toolbar">
           <Field label="Selling starts">
             <SharedDatePicker
@@ -1258,6 +1325,7 @@ export default function ActivityPricesAvailability({
               onChange={(value) => {
                 setSpecificDateOverride(false);
                 setDateFrom(value);
+                showPricesForDate(value);
                 dirty();
               }}
               disabled={locked || specificDateOverride}
@@ -1291,6 +1359,7 @@ export default function ActivityPricesAvailability({
                 if (checked) {
                   setOverrideDate(start);
                   setDateFrom(start);
+                showPricesForDate(start);
                   setDateTo(
                     new Date(
                       new Date(`${start}T00:00:00Z`).getTime() + 86400000,
@@ -1311,6 +1380,7 @@ export default function ActivityPricesAvailability({
               onChange={(value) => {
                 setOverrideDate(value);
                 setDateFrom(value);
+                showPricesForDate(value);
                 setDateTo(
                   new Date(new Date(value + "T00:00:00Z").getTime() + 86400000)
                     .toISOString()
@@ -1354,7 +1424,7 @@ export default function ActivityPricesAvailability({
           <div>
             <b>Options to update</b>
             <p className="experience-help">
-              Choose which options receive these prices and rules. Paste
+              Only edited prices and rules change for the selected options and dates. Other settings keep their existing values. Paste
               tab-separated values into the first selected row: traveller
               pricing uses adult, child, senior, min, max and cutoff; resource
               pricing uses base, passengers per resource, min, max and cutoff.
@@ -1418,7 +1488,7 @@ export default function ActivityPricesAvailability({
                       "hasDifferentialVisitorPricing",
                       e.target.checked,
                     );
-                    dirty();
+                    dirty("visitorPricing");
                   }}
                   disabled={locked}
                 />{" "}
@@ -1438,7 +1508,7 @@ export default function ActivityPricesAvailability({
                             setVisitorEligibilityBasis(
                               e.target.value as "NATIONALITY" | "RESIDENCY",
                             );
-                            dirty();
+                            dirty("visitorEligibilityBasis");
                           }}
                           disabled={locked}
                         >
@@ -1453,7 +1523,7 @@ export default function ActivityPricesAvailability({
                           value={visitorVerificationMode}
                           onChange={(e) => {
                             setVisitorVerificationMode(e.target.value);
-                            dirty();
+                            dirty("visitorVerificationMode");
                           }}
                           disabled={locked}
                         >
@@ -1791,8 +1861,21 @@ export default function ActivityPricesAvailability({
         )}
         {rows.length > 0 && <section className="prototype-rate-preview" aria-label="Customer price preview">
           <div className="experience-card-heading"><div><h4>Commercial price preview</h4><p>Review the customer price, commission and supplier settlement before saving.</p></div><span className="experience-pill">Commission {commissionPercent || "—"}%</span></div>
-          <div className="prototype-rate-breakdown"><div className="prototype-rate-breakdown-head"><span>Option</span><span>MRP</span><span>Your sell price</span><span>Commission</span><span>You receive</span><span>Saving shown</span></div>{rows.map((row) => { const sell = Number(row.pricingUnit === "PER_PERSON" ? row.adult : row.base); const mrp = Number(row.mrp); const commission = Number(commissionPercent || 0); const fee = sell && commission ? sell * commission / 100 : 0; const receive = sell ? sell - fee : 0; const saving = mrp > 0 && sell > 0 ? Math.max(0, (mrp - sell) / mrp * 100) : 0; const name = byId.get(row.variantId)?.name || "Option"; return <div className="prototype-rate-breakdown-row" key={`breakdown-${row.variantId}`}><b>{name}</b><span>{mrp > 0 ? `₹${mrp.toFixed(2)}` : "—"}</span><span>{sell > 0 ? `₹${sell.toFixed(2)}` : "—"}</span><span>{fee > 0 ? `₹${fee.toFixed(2)}` : "—"}</span><span>{commissionPercent.trim() && receive > 0 ? `₹${receive.toFixed(2)}` : "—"}</span><span>{saving > 0 ? `${saving.toFixed(1)}%` : "—"}</span></div>; })}</div>
-          <div className="prototype-final-price-preview"><b>Final price preview</b>{rows.map((row) => { const sell = Number(row.pricingUnit === "PER_PERSON" ? row.adult : row.base); const name = byId.get(row.variantId)?.name || "Option"; return <span key={`final-${row.variantId}`}>{name}: <strong>{sell > 0 ? `₹${sell.toFixed(2)}` : "Enter a sell price"}</strong> per traveller</span>; })}</div>
+          <div className="prototype-rate-breakdown">
+            <div className="prototype-rate-breakdown-head"><span>Option</span><span>MRP</span><span>Your sell price</span><span>Commission</span><span>You receive</span><span>Saving shown</span></div>
+            {rows.map(row => {
+              const value = row.pricingUnit === "PER_PERSON" ? row.adult : row.base;
+              const hasSell = enteredPrice(value), sell = Number(value), mrp = Number(row.mrp);
+              const hasCommission = commissionPercent.trim() !== "" && Number.isFinite(Number(commissionPercent));
+              const fee = sell * Number(commissionPercent || 0) / 100;
+              const saving = mrp > 0 && hasSell ? Math.max(0, (mrp - sell) / mrp * 100) : null;
+              return <div className="prototype-rate-breakdown-row" key={`breakdown-${row.variantId}`}><b>{byId.get(row.variantId)?.name || "Option"}</b><span>{mrp > 0 ? `₹${mrp.toFixed(2)}` : "—"}</span><span>{hasSell ? `₹${sell.toFixed(2)}` : "—"}</span><span>{hasSell && hasCommission ? `₹${fee.toFixed(2)}` : "—"}</span><span>{hasSell && hasCommission ? `₹${(sell - fee).toFixed(2)}` : "—"}</span><span>{saving !== null ? `${saving.toFixed(1)}%` : "—"}</span></div>;
+            })}
+          </div>
+          <div className="prototype-final-price-preview"><b>Final price preview</b>{rows.map(row => {
+            const value = row.pricingUnit === "PER_PERSON" ? row.adult : row.base;
+            return <span key={`final-${row.variantId}`}>{byId.get(row.variantId)?.name || "Option"}: <strong>{enteredPrice(value) ? `₹${Number(value).toFixed(2)}` : "Enter a sell price"}</strong> {priceBasisLabel[row.pricingUnit]}</span>;
+          })}</div>
         </section>}
       </div>
       <div className="experience-step-card activity-availability-card">
@@ -1824,7 +1907,7 @@ export default function ActivityPricesAvailability({
               ["SLOT", "Date + time slot", "Tours, shows, timed entry"],
               ["DATE", "Date only", "Theme parks, day passes"],
               ["OPEN", "Open-dated", "Valid N days from purchase"],
-            ] as const).map(([value, label, description]) => <button type="button" key={value} className={`option-pricing-mode-card ${bookingType === value ? "selected" : ""}`} onClick={() => { setBookingType(value); setOperatingModel(value === "SLOT" ? "MULTIPLE_SLOTS" : value === "DATE" ? "DATE_CAPACITY" : "ALL_DAY"); setIncludeAvailability(true); setAvailabilityTouched(true); dirty(); }} disabled={locked}><b>{label}</b><span>{description}</span></button>)}
+            ] as const).map(([value, label, description]) => <button type="button" key={value} className={`option-pricing-mode-card ${bookingType === value ? "selected" : ""}`} onClick={() => { setBookingType(value); setOperatingModel(value === "SLOT" ? "MULTIPLE_SLOTS" : value === "DATE" ? "DATE_CAPACITY" : "ALL_DAY"); setIncludeAvailability(true); setAvailabilityTouched(true); dirty("availabilityBookingType"); }} disabled={locked}><b>{label}</b><span>{description}</span></button>)}
           </div>
         </div>
         <div className="experience-form-grid three">
@@ -1834,7 +1917,7 @@ export default function ActivityPricesAvailability({
               onChange={(e) => {
                 setTimezone(e.target.value);
                 setAvailabilityTouched(true);
-                dirty();
+                dirty("timezone");
               }}
               disabled={locked}
             />
@@ -1887,7 +1970,7 @@ export default function ActivityPricesAvailability({
             />
           </Field>
         </div>
-        {bookingType === "OPEN" && <Field label="Valid days from purchase"><input type="number" min="1" value={openDatedValidityDays} onChange={(e) => { setOpenDatedValidityDays(e.target.value); setAvailabilityTouched(true); dirty(); }} disabled={locked} /></Field>}
+        {bookingType === "OPEN" && <Field label="Valid days from purchase"><input type="number" min="1" value={openDatedValidityDays} onChange={(e) => { setOpenDatedValidityDays(e.target.value); setAvailabilityTouched(true); dirty("openDatedValidityDays"); }} disabled={locked} /></Field>}
         <p className="experience-help">
           People and booking capacity use one InventoryState per session shared
           across Adult/Child/Senior. Resources / vehicles use the resource pool
@@ -1940,7 +2023,7 @@ export default function ActivityPricesAvailability({
                 onChange={(e) => {
                   setSlotScope(e.target.value as SlotScope);
                   setAvailabilityTouched(true);
-                  dirty();
+                  dirty("pricingSlotCodes");
                 }}
                 disabled={locked}
               >
@@ -2035,7 +2118,7 @@ export default function ActivityPricesAvailability({
         {includeAvailability && <div className="prototype-availability-calendar">
           <div className="experience-card-heading"><div><h4>{new Date(`${dateFrom || today()}T00:00:00Z`).toLocaleString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })} · {slots[0]?.slotCode || "all day"} slot</h4><p>Open, Under 25% and Sold out reflect saved inventory. Unconfigured dates have no saved inventory. Save availability to generate sessions. Tap a date to toggle a manual blackout.</p></div><div className="prototype-calendar-legend"><span><i className="open" />Open</span><span><i className="low" />Under 25%</span><span><i className="sold-out" />Sold out</span><span><i className="blackout" />Blackout</span></div></div>
           <div className="prototype-calendar-weekdays">{["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => <span key={day}>{day}</span>)}</div>
-          <div className="prototype-calendar-grid">{calendarDays.map((day, index) => { if (!day) return <span key={`blank-${index}`} aria-hidden="true" />; const derived = inventoryStates[day]; const state: string = blackoutDates.includes(day) ? "BLACKOUT" : availabilityStates[day] || derived || "UNSAVED"; const nextState: AvailabilityState = state === "BLACKOUT" ? (derived || "OPEN") : "BLACKOUT"; return <button type="button" key={day} className={state.toLowerCase().replace("_", "-")} onClick={() => { setAvailabilityStates((old) => ({ ...old, [day]: nextState })); setBlackoutDates((old) => nextState === "BLACKOUT" ? (old.includes(day) ? old : [...old, day]) : old.filter((value) => value !== day)); setAvailabilityTouched(true); dirty(); }} disabled={locked || day < dateFrom || day >= dateTo} aria-label={`${day} ${state === "UNSAVED" ? "unconfigured" : state.toLowerCase().replace("_", " ")}`}>{new Date(`${day}T00:00:00Z`).getUTCDate()}</button>; })}</div>
+          <div className="prototype-calendar-grid">{calendarDays.map((day, index) => { if (!day) return <span key={`blank-${index}`} aria-hidden="true" />; const derived = inventoryStates[day]; const state: string = blackoutDates.includes(day) ? "BLACKOUT" : availabilityStates[day] || derived || "UNSAVED"; const nextState: AvailabilityState = state === "BLACKOUT" ? (derived || "OPEN") : "BLACKOUT"; return <button type="button" key={day} className={state.toLowerCase().replace("_", "-")} onClick={() => { setAvailabilityStates((old) => ({ ...old, [day]: nextState })); setBlackoutDates((old) => nextState === "BLACKOUT" ? (old.includes(day) ? old : [...old, day]) : old.filter((value) => value !== day)); setAvailabilityTouched(true); dirty("availabilityBlackouts", "availabilityStates"); }} disabled={locked || day < dateFrom || day >= dateTo} aria-label={`${day} ${state === "UNSAVED" ? "unconfigured" : state.toLowerCase().replace("_", " ")}`}>{new Date(`${day}T00:00:00Z`).getUTCDate()}</button>; })}</div>
         </div>}
         {includeAvailability && (
           <label className="wizard-check activity-capacity-check">

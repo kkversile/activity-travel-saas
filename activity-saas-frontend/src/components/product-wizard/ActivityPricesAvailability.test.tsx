@@ -176,7 +176,7 @@ describe('ActivityPricesAvailability preserves canonical option booking limits',
 });
 
 describe('ActivityPricesAvailability unified create/edit editor', () => {
-  it('retains unrendered traveller and visitor types through repeated saves and explicit visitor opt-out', async () => {
+  it('leaves hidden traveller and visitor types to the server during repeated field patches and explicit visitor opt-out', async () => {
     const response: any = structuredClone(saved);
     response.options = [response.options[0]];
     const version = response.options[0].ratePlans[0].versions[0];
@@ -190,11 +190,17 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     for (let index = 0; index < 2; index += 1) {
       fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
       await waitFor(() => expect(request.mock.calls.filter(([path]) => path.endsWith('/apply'))).toHaveLength(index + 1));
+      await waitFor(() => expect(screen.getByRole('button', { name: /Save (all prices|changes)/ })).toBeEnabled());
       const body = JSON.parse(String(request.mock.calls.filter(([path]) => path.endsWith('/apply')).at(-1)?.[1]?.body));
-      expect(body.options[0].travellerPrices).toEqual(expect.arrayContaining(Object.entries({ ...amounts, ADULT: '1900' }).map(([travellerType, amount]) => ({ travellerType, amount }))));
-      expect(body.options[0].travellerPrices).toHaveLength(6);
-      expect(body.options[0].visitorPrices).toHaveLength(6);
-      expect(body.options[0].visitorPrices).toEqual(expect.arrayContaining([{ travellerType: 'INFANT', indian: '0', foreign: '0' }, { travellerType: 'YOUTH', indian: '1200.1234', foreign: '2600' }, { travellerType: 'ADULT', indian: '1900', foreign: '2600' }]));
+      expect(body.options[0].updateMode).toBe('PATCH');
+      if (index === 0) {
+        expect(body.options[0].travellerPrices).toEqual([{ travellerType: 'ADULT', amount: '1900' }]);
+        expect(body.options[0].visitorPrices).toHaveLength(3);
+      } else {
+        expect(body.options[0]).not.toHaveProperty('travellerPrices');
+        expect(body.options[0]).not.toHaveProperty('visitorPrices');
+      }
+      expect(body.options[0].visitorPrices || []).not.toEqual(expect.arrayContaining([expect.objectContaining({ travellerType: 'INFANT' })]));
     }
     fireEvent.click(screen.getByRole('checkbox', { name: /Visitor pricing Optional/ }));
     fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
@@ -202,7 +208,7 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     const body = JSON.parse(String(request.mock.calls.filter(([path]) => path.endsWith('/apply')).at(-1)?.[1]?.body));
     expect(body.hasDifferentialVisitorPricing).toBe(false);
     expect(body.options[0]).not.toHaveProperty('visitorPrices');
-    expect(body.options[0].travellerPrices).toHaveLength(6);
+    expect(body.options[0]).not.toHaveProperty('travellerPrices');
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -220,7 +226,9 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     const body = JSON.parse(String(request.mock.calls.find(([path]) => path.endsWith('/apply'))?.[1]?.body));
     expect(body.hasDifferentialVisitorPricing).toBe(true);
     expect(body.options).toHaveLength(2);
-    expect(body.options[1]).toMatchObject({ pricingUnit: unit, supplierBaseAmount: '5000' });
+    expect(body.options[1]).toMatchObject({ updateMode: 'PATCH', variantId: 'v2' });
+    expect(body.options[1]).not.toHaveProperty('supplierBaseAmount');
+    expect(body.options[1]).not.toHaveProperty('pricingUnit');
     expect(body.options[1]).not.toHaveProperty('visitorPrices');
     expect(onError).not.toHaveBeenCalled();
   });
@@ -312,7 +320,8 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
     await waitFor(() => expect(request).toHaveBeenCalledWith(expect.stringContaining('/prices-availability/apply'), expect.anything()));
     const applyCall = request.mock.calls.find(([path]) => String(path).endsWith('/prices-availability/apply'));
-    expect(JSON.parse(String(applyCall?.[1]?.body)).options[0].currency).toBe('USD');
+    expect(JSON.parse(String(applyCall?.[1]?.body)).options[0]).toMatchObject({ updateMode: 'PATCH' });
+    expect(JSON.parse(String(applyCall?.[1]?.body)).options[0]).not.toHaveProperty('currency');
   });
 
   it('explains effective-history overlap handling in the preview', async () => {
@@ -320,5 +329,75 @@ describe('ActivityPricesAvailability unified create/edit editor', () => {
     await waitFor(() => expect(screen.getByDisplayValue('900')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Preview changes' }));
     await waitFor(() => expect(screen.getByText(/split the surrounding history/)).toBeInTheDocument());
+  });
+});
+
+
+describe('activity pricing preservation and preview regressions', () => {
+  it.each([
+    ['PER_PERSON', 'per traveller'], ['PER_BOOKING', 'per booking'],
+    ['PER_UNIT', 'per resource / vehicle'], ['GROUP', 'per group'],
+  ])('renders the correct %s basis for positive, zero and blank values', async (unit, suffix) => {
+    const response: any = structuredClone(saved); response.options = [response.options[0]];
+    Object.assign(response.options[0].ratePlans[0].versions[0], { pricingUnit: unit, supplierBaseAmount: '7300',
+      travellerPrices: [{ travellerType: 'ADULT', amount: '7300' }],
+      supplierCommissionPercent: '0', sourcePayload: { maxPassengersPerResource: 6, mrpMode: 'YES', mrpAmount: '8500' } });
+    renderEditor(vi.fn(), response, [variants[0]]);
+    const input = await screen.findByLabelText('Entry Only adult or base price');
+    await waitFor(() => expect(input).toHaveValue(7300));
+    const preview = document.querySelector('.prototype-final-price-preview')!;
+    expect(preview.textContent).toContain('₹7300.00'); expect(preview.textContent).toContain(suffix);
+    if (unit !== 'PER_PERSON') expect(preview.textContent).not.toContain('per traveller');
+    fireEvent.change(input, { target: { value: '0' } });
+    expect(preview.textContent).toContain('₹0.00'); expect(preview.textContent).not.toContain('Enter a sell price');
+    const breakdown = document.querySelector('.prototype-rate-breakdown-row')!;
+    expect(breakdown.textContent?.match(/₹0.00/g)).toHaveLength(3);
+    expect(breakdown.textContent).toContain('100.0%');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(preview.textContent).toContain('Enter a sell price');
+  });
+
+  it('omits untouched shared rules from a multi-option price edit and applies explicit common changes', async () => {
+    const response: any = structuredClone(saved); response.options = response.options.slice(0, 2);
+    Object.assign(response.options[1].ratePlans[0].versions[0].sourcePayload, { pricingDays: ['SAT', 'SUN'], pricingTimezone: 'Asia/Dubai', pricingSlotCodes: ['06:00'], ratePeriods: [{ name: 'Weekend premium' }] });
+    const request = renderEditor(vi.fn(), response, variants.slice(0, 2));
+    await waitFor(() => expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900));
+    expect(screen.getByText(/Mixed pricing settings:/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Entry Only adult or base price'), { target: { value: '950' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request.mock.calls.filter(([path]) => path.endsWith('/apply'))).toHaveLength(1));
+    await waitFor(() => expect(screen.getByRole('button', { name: /Save (all prices|changes)/ })).toBeEnabled());
+    const first = JSON.parse(String(request.mock.calls.find(([path]) => path.endsWith('/apply'))?.[1]?.body));
+    for (const option of first.options) for (const key of ['pricingDays', 'timezone', 'pricingSlotCodes', 'ratePeriods']) expect(option).not.toHaveProperty(key);
+    expect(first.options[0].travellerPrices).toEqual([{ travellerType: 'ADULT', amount: '950' }]);
+    expect(first.options[1]).not.toHaveProperty('travellerPrices');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Pricing day preset' }), { target: { value: 'WEEKENDS' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request.mock.calls.filter(([path]) => path.endsWith('/apply'))).toHaveLength(2));
+    const second = JSON.parse(String(request.mock.calls.filter(([path]) => path.endsWith('/apply')).at(-1)?.[1]?.body));
+    for (const option of second.options) expect(option.pricingDays).toEqual(['SAT', 'SUN']);
+  });
+
+  it('shows earlier-period values on date selection and sends only the price actually edited', async () => {
+    const response: any = structuredClone(saved); response.options = [response.options[0]];
+    const plan = response.options[0].ratePlans[0], old = plan.versions[0];
+    plan.versions = [
+      { ...old, versionNumber: 2, effectiveFrom: '2026-12-01', effectiveTo: '2027-01-01', travellerPrices: [{ travellerType: 'ADULT', amount: '1800' }, { travellerType: 'CHILD', amount: '900' }, { travellerType: 'INFANT', amount: '0' }] },
+      { ...old, versionNumber: 3, effectiveFrom: '2027-01-01', effectiveTo: '2027-03-01', travellerPrices: [{ travellerType: 'ADULT', amount: '1900' }, { travellerType: 'CHILD', amount: '950' }, { travellerType: 'INFANT', amount: '100' }] },
+    ];
+    const request = renderEditor(vi.fn(), response, [variants[0]]);
+    await waitFor(() => expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(1900));
+    fireEvent.click(screen.getByRole('button', { name: 'Selling starts' }));
+    fireEvent.change(screen.getByLabelText('Selling starts year'), { target: { value: '2026' } });
+    fireEvent.change(screen.getByLabelText('Selling starts month'), { target: { value: '11' } });
+    fireEvent.click(screen.getByRole('button', { name: '10' }));
+    expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(1800);
+    expect(screen.getByLabelText('Entry Only child price')).toHaveValue(900);
+    fireEvent.change(screen.getByLabelText('Entry Only adult or base price'), { target: { value: '1950' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/products/p1/prices-availability/apply', expect.anything()));
+    const body = JSON.parse(String(request.mock.calls.find(([path]) => path.endsWith('/apply'))?.[1]?.body));
+    expect(body.options[0]).toMatchObject({ updateMode: 'PATCH', effectiveFrom: '2026-12-10', expectedVersion: 3, travellerPrices: [{ travellerType: 'ADULT', amount: '1950' }] });
+    expect(body.options[0]).not.toHaveProperty('visitorPrices');
   });
 });

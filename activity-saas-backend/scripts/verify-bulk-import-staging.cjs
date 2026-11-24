@@ -248,6 +248,7 @@ async function main() {
   });
   await require('./verify-bulk-import-six-cases.cjs')({check,request,db,owner,outlet,tag,sample,parsing,XLSX,evidence,base,token,hashFinance});
   await require('./verify-bulk-editor-six-cases.cjs')({check,request,db,owner,outlet,tag,sample,parsing,XLSX,evidence,hashFinance});
+  await require('./verify-bulk-editor-four-cases.cjs')({check,request,db,owner,employee,foreign,outlet,tag,sample,parsing,XLSX,evidence,hashFinance});
   await browserFixtures(owner,outlet,tag);
   await check('final protected booking and finance hash comparison',async()=>assert.deepEqual(await hashFinance(),before));
 }
