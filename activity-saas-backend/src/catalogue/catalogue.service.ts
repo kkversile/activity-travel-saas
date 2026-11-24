@@ -6,6 +6,7 @@ import {
   Optional,
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
+import { normalizeImportChoices } from "../common/product-import-contract";
 import { fingerprint } from "../bookings/booking-fingerprint";
 import {
   BookingMode,
@@ -1852,7 +1853,7 @@ export class CatalogueService {
     validateOnly = false,
     outletId?: string,
   ) {
-    const source = dto as ImportProductJsonDto & Record<string, unknown>;
+    const source = { ...dto } as ImportProductJsonDto & Record<string, unknown>;
     const importSections = ["Basic_Info", "Experience", "Options", "Ticket_Types", "Rate_Plans", "Availability", "Media", "Booking_Questions", "Fulfilment"];
     const rowCount = importSections.reduce((count, section) => {
       const rows = source[section];
@@ -1872,6 +1873,16 @@ export class CatalogueService {
     )
       throw new ConflictException("Product import services are not configured");
 
+    const choiceIssues: Array<{ section: string; row: number; field: string; value: string; message: string; correction: string }> = [];
+    for (const section of importSections) {
+      const rows = source[section];
+      if (!Array.isArray(rows)) continue;
+      source[section] = rows.map((original, index) => {
+        const normalized = normalizeImportChoices(section, original);
+        choiceIssues.push(...normalized.issues.map((issue) => ({ ...issue, section, row: index + 3 })));
+        return normalized.row;
+      });
+    }
     const basicRows = (source.Basic_Info ?? []) as ImportJsonRow[];
     const experienceRows = (source.Experience ?? []) as ImportJsonRow[];
     const options = (source.Options ?? []) as ImportJsonRow[];
@@ -1881,7 +1892,7 @@ export class CatalogueService {
     const questionRows = (source.Booking_Questions ?? []) as ImportJsonRow[];
     const fulfilmentRows = (source.Fulfilment ?? []) as ImportJsonRow[];
     const ticketTypeRows = (source.Ticket_Types ?? []) as ImportJsonRow[];
-    const issues: Array<{ section: string; row: number; message: string }> = [];
+    const issues: Array<{ section: string; row: number; message: string }> = [...choiceIssues];
     const issue = (section: string, row: number, message: string) =>
       issues.push({ section, row, message });
 

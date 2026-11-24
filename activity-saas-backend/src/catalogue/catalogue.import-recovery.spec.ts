@@ -23,6 +23,17 @@ function fixture() {
  return {service,dto,blueprint,prisma,tx,audit};
 }
 describe('JSON import write recovery',()=>{
+ it.each([['Basic_Info','duration_unit'],['Basic_Info','type'],['Options','sharing'],['Rate_Plans','booking_mode'],['Availability','capacity_unit']])('rejects invalid %s.%s before writing drafts',async(section,field)=>{
+  const {service,dto}=fixture();dto[section][0][field]='BANANAS';
+  await expect(service.importJson(vendor,dto)).rejects.toMatchObject({response:{code:'IMPORT_VALIDATION_FAILED',issues:expect.arrayContaining([expect.objectContaining({section,field,value:'BANANAS',correction:expect.stringContaining('Choose ')})])}});
+  expect(service.createDraft).not.toHaveBeenCalled();
+ });
+ it('normalizes imported duration before passing it to the ordinary product service',async()=>{
+  const {service,dto}=fixture();dto.Basic_Info[0].duration_unit='hOur';dto.Basic_Info[0].duration_value='2';
+  await service.importJson(vendor,dto);
+  expect(service.updateRevision).toHaveBeenCalledWith(vendor,'revision',expect.objectContaining({durationUnit:'HOURS'}));
+  expect(dto.Basic_Info[0].duration_unit).toBe('hOur');
+ });
  it('preserves an unspecified adult upper age as unbounded',async()=>{
   const {service,dto,blueprint}=fixture();
   await expect(service.importJson(vendor,dto)).resolves.toMatchObject({productId:'new-product'});

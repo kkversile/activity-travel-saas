@@ -1,5 +1,6 @@
 import { BookingMode, BookingQuestionType, CapacityUnit, ChargeType, EvidenceMatchMode, FulfilmentEvidenceKind, FulfilmentMode, MeetingModel, MediaKind, OperatingModel, PricingUnit, ProductRevisionStatus, ProductType, SupplierCommercialModel, TravellerType } from '@prisma/client';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+import { canonicalDuration, DURATION_UNITS } from '../common/product-import-contract';
 import { OmitType, PartialType } from '@nestjs/swagger';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsDefined, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
 
@@ -53,7 +54,7 @@ export class ProductRevisionDto {
   @IsString() countryName!: string;
   @IsString() stateName!: string;
   @IsOptional() @IsString() durationValue?: string;
-  @IsOptional() @IsString() durationUnit?: string;
+  @IsOptional() @Transform(({ value }) => canonicalDuration(value)) @IsIn([...DURATION_UNITS, '']) durationUnit?: string;
   @IsOptional() @IsString() guideIncluded?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) guideLanguages?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) included?: string[];
@@ -109,7 +110,7 @@ export class CreateProductDraftDto {
   @IsOptional() @IsEnum(MeetingModel) meetingModel?: MeetingModel;
   @IsOptional() @IsString() meetingPoint?: string;
   @IsOptional() @IsString() durationValue?: string;
-  @IsOptional() @IsString() durationUnit?: string;
+  @IsOptional() @Transform(({ value }) => canonicalDuration(value)) @IsIn([...DURATION_UNITS, '']) durationUnit?: string;
   @IsOptional() @IsString() guideIncluded?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) guideLanguages?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) included?: string[];

@@ -8,6 +8,18 @@ import { createSampleWorkbook } from './productImport';
 afterEach(() => vi.restoreAllMocks());
 
 describe('ProductImportModal backend validation flow', () => {
+  it('explains duplicate product codes using the uploaded sheet and both cell locations', async () => {
+    const request = vi.spyOn(api, 'request');
+    const workbook = createSampleWorkbook();
+    XLSX.utils.sheet_add_json(workbook.Sheets.Products, XLSX.utils.sheet_to_json(workbook.Sheets.Products), { origin: -1, skipHeader: true });
+    render(<ProductImportModal onClose={vi.fn()} onComplete={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })], 'duplicate.xlsx')] } });
+    expect(await screen.findByText(/Products!A3: Duplicate product_code/)).toHaveTextContent('Products!A2');
+    expect(screen.getByText(/Keep one product row per code/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validate file' })).toBeDisabled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('sends a single-product workbook to the server-side validated import endpoint', async () => {
     const request = vi.spyOn(api, 'request').mockResolvedValue({ productId: 'product-1', status: 'DRAFT' } as never);
     const onComplete = vi.fn();

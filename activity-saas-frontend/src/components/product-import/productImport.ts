@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { normalizeImportChoices } from '../../../../activity-saas-backend/src/common/product-import-contract';
 
 export const IMPORT_SHEETS = ['Basic_Info', 'Experience', 'Options', 'Ticket_Types', 'Rate_Plans', 'Availability', 'Media', 'Booking_Questions', 'Fulfilment'] as const;
 export const PROTOTYPE_IMPORT_SHEETS = ['Products', 'Options', 'Ticket types', 'Rates', 'Time slots'] as const;
@@ -6,7 +7,41 @@ export const MAX_IMPORT_ROWS = 2000;
 export const MAX_IMPORT_PRODUCTS = 200;
 
 export type ImportRow = Record<string, unknown>;
-export type ImportIssue = { sheet: string; row: number; message: string; fatal?: boolean; productKey?: string; rowData?: ImportRow };
+export type ImportIssue = { sheet: string; row: number; message: string; fatal?: boolean; productKey?: string; rowData?: ImportRow; field?: string; cell?: string; value?: string; correction?: string };
+type RowSource = { sheet: string; row: number; columns: string[] };
+const rowSources = new WeakMap<ImportRow, RowSource>();
+const rowChoiceIssues = new WeakMap<ImportRow, ImportIssue[]>();
+function inheritSource(row: ImportRow, original: ImportRow): ImportRow {
+  const source = rowSources.get(original);
+  if (source) rowSources.set(row, source);
+  if (rowChoiceIssues.has(original)) rowChoiceIssues.set(row, rowChoiceIssues.get(original)!);
+  return row;
+}
+function locatedIssue(issue: ImportIssue): ImportIssue {
+  const correction = issue.correction || (issue.message.startsWith('Unknown option_code:')
+    ? 'Use an option_code from the Options sheet for this product. Add the option there first, or correct the reference.'
+    : issue.message.startsWith('Duplicate option_code:')
+      ? 'Keep one option row per option_code. Use a unique code for a different option and update its related rows.'
+      : issue.message.startsWith('Duplicate rate_plan_code:')
+        ? 'Use a unique rate_plan_code for each rate plan.'
+        : issue.message.endsWith(' is required.') ? 'Fill in the required field, then upload the corrected file again.' : undefined);
+  issue = { ...issue, correction };
+  const source = issue.rowData && rowSources.get(issue.rowData);
+  if (!source) return issue;
+  const inferredField = /^([a-z_]+) (?:is required|must be)/.exec(issue.message)?.[1] || (issue.message.includes('option_code') ? 'option_code' : undefined);
+  issue = { ...issue, field: issue.field || inferredField };
+  const field = source.columns.includes(issue.field || '') ? issue.field : issue.field === 'product_key' && source.columns.includes('product_code') ? 'product_code' : undefined;
+  const column = field ? source.columns.indexOf(field) : -1;
+  return { ...issue, sheet: source.sheet, row: source.row, field: field || issue.field, ...(column >= 0 ? { cell: XLSX.utils.encode_cell({ r: source.row - 1, c: column }) } : {}), message: issue.message.replaceAll('product_key', source.columns.includes('product_code') ? 'product_code' : 'product_key') };
+}
+function workbookRows(workbook: XLSX.WorkBook, name: string, headerRow = 0): ImportRow[] {
+  const sheet = workbook.Sheets[name];
+  if (!sheet) return [];
+  const columns = (XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, range: headerRow, blankrows: true })[0] || []).map(String);
+  return XLSX.utils.sheet_to_json<ImportRow>(sheet, { range: headerRow, defval: '' })
+    .filter((row) => Object.values(row).some((value) => String(value ?? '').trim() !== ''))
+    .map((row) => { rowSources.set(row, { sheet: name, row: Number(row.__rowNum__) + 1, columns }); return row; });
+}
 export type ImportWorkbookModel = {
   basic: ImportRow;
   experience: ImportRow;
@@ -200,15 +235,20 @@ export function parseRateUpdateWorkbook(buffer: ArrayBuffer): RateUpdateParseRes
 }
 
 function sheetRows(workbook: XLSX.WorkBook, name: string): ImportRow[] {
-  const sheet = workbook.Sheets[name];
-  if (!sheet) return [];
-  return XLSX.utils.sheet_to_json<ImportRow>(sheet, { range: 2, defval: '' }).filter((row) => Object.values(row).some((value) => String(value ?? '').trim() !== ''));
+  return workbookRows(workbook, name, 2);
 }
 
 function prototypeRowsToImport(rows: Record<string, ImportRow[]>) {
-  const products = rows.Products.map((row) => ({ product_key: row.product_code, product_name: row.product_name, type: row.type, sub_type: row.sub_type, sub_category: row.sub_category, city: row.city, state: row.state, country: row.country, meeting_model: row.meeting_model, short_description: row.short_description, meeting_point: row.meeting_point, address: row.address, latitude: row.latitude, longitude: row.longitude, duration_value: row.duration_value, duration_unit: row.duration_unit, guide_included: row.guide_included, guide_languages: row.guide_languages, included: row.included, not_included: row.not_included, end_point: row.end_point, things_to_know: row.things_to_know, accessibility: row.accessibility, follow_itinerary: row.follow_itinerary, itinerary_stops_json: row.itinerary_stops_json, voucher_code_source: row.voucher_code_source, voucher_accepted_as: row.voucher_accepted_as, voucher_instructions: row.voucher_instructions, cancellation_preset: row.cancellation_preset, traveller_details: row.traveller_details, amendment_policy: row.amendment_policy, labels: row.labels }));
-  const experience = rows.Products.map((row) => ({ product_key: row.product_code, full_description: row.full_description, highlights: row.highlights, important_information: row.important_information, things_to_carry: row.things_to_carry, safety_measures: row.safety_measures, terms: row.terms, how_to_redeem: row.how_to_redeem, additional_information: row.additional_information }));
-  const mapLinked = (sheet: string, map: (row: ImportRow) => ImportRow = (row) => row) => rows[sheet].map((row) => ({ product_key: row.product_code, ...map(Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'product_code'))) }));
+  const sections: Record<string, string> = { Products: 'Basic_Info', Options: 'Options', 'Ticket types': 'Ticket_Types', Rates: 'Rate_Plans', 'Time slots': 'Availability' };
+  rows = Object.fromEntries(Object.entries(rows).map(([name, values]) => [name, values.map((original) => {
+    const normalized = normalizeImportChoices(sections[name], original);
+    const row = inheritSource(normalized.row, original);
+    rowChoiceIssues.set(row, normalized.issues.map((issue) => ({ ...issue, sheet: sections[name], row: 0, rowData: row })));
+    return row;
+  })]));
+  const products = rows.Products.map((row) => inheritSource({ product_key: row.product_code, product_name: row.product_name, type: row.type, sub_type: row.sub_type, sub_category: row.sub_category, city: row.city, state: row.state, country: row.country, meeting_model: row.meeting_model, short_description: row.short_description, meeting_point: row.meeting_point, address: row.address, latitude: row.latitude, longitude: row.longitude, duration_value: row.duration_value, duration_unit: row.duration_unit, guide_included: row.guide_included, guide_languages: row.guide_languages, included: row.included, not_included: row.not_included, end_point: row.end_point, things_to_know: row.things_to_know, accessibility: row.accessibility, follow_itinerary: row.follow_itinerary, itinerary_stops_json: row.itinerary_stops_json, voucher_code_source: row.voucher_code_source, voucher_accepted_as: row.voucher_accepted_as, voucher_instructions: row.voucher_instructions, cancellation_preset: row.cancellation_preset, traveller_details: row.traveller_details, amendment_policy: row.amendment_policy, labels: row.labels }, row));
+  const experience = rows.Products.map((row) => inheritSource({ product_key: row.product_code, full_description: row.full_description, highlights: row.highlights, important_information: row.important_information, things_to_carry: row.things_to_carry, safety_measures: row.safety_measures, terms: row.terms, how_to_redeem: row.how_to_redeem, additional_information: row.additional_information }, row));
+  const mapLinked = (sheet: string, map: (row: ImportRow) => ImportRow = (row) => row) => rows[sheet].map((row) => inheritSource({ product_key: row.product_code, ...map(Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'product_code'))) }, row));
   const scheduleGroups = new Map<string, ImportRow[]>();
   for (const row of rows['Time slots']) {
     const identity = [row.product_code, row.option_code, row.schedule_code].map((value) => String(value ?? '').trim().toUpperCase()).join('::');
@@ -218,7 +258,9 @@ function prototypeRowsToImport(rows: Record<string, ImportRow[]>) {
     const first = group[0];
     const { product_code: _productCode, ...schedule } = first;
     const slots = group.map((slot, index) => ({ slotCode: slot.slot_code || slot.start_time, startTime: slot.start_time, endTime: slot.end_time, rank: index }));
-    return { product_key: first.product_code, ...schedule, slots_json: JSON.stringify(slots) };
+    const result = inheritSource({ product_key: first.product_code, ...schedule, slots_json: JSON.stringify(slots) }, first);
+    rowChoiceIssues.set(result, group.flatMap((row) => rowChoiceIssues.get(row) || []));
+    return result;
   });
   const grouped: Record<string, ImportRow[]> = {
     Basic_Info: products,
@@ -233,7 +275,7 @@ function prototypeRowsToImport(rows: Record<string, ImportRow[]>) {
 }
 
 function prototypeWorkbookRows(workbook: XLSX.WorkBook) {
-  return prototypeRowsToImport(Object.fromEntries(PROTOTYPE_IMPORT_SHEETS.map((name) => [name, XLSX.utils.sheet_to_json<ImportRow>(workbook.Sheets[name], { defval: '' }).filter((row) => Object.values(row).some((value) => String(value ?? '').trim() !== ''))])));
+  return prototypeRowsToImport(Object.fromEntries(PROTOTYPE_IMPORT_SHEETS.map((name) => [name, workbookRows(workbook, name)])));
 }
 
 function text(row: ImportRow, key: string) { return String(row[key] ?? '').trim(); }
@@ -243,6 +285,14 @@ function number(row: ImportRow, key: string, fallback?: number) { const value = 
 
 function validateImportRows(rows: Record<string, ImportRow[]>): { model: ImportWorkbookModel | null; issues: ImportIssue[] } {
   const issues: ImportIssue[] = [];
+  rows = Object.fromEntries(Object.entries(rows).map(([sheet, values]) => [sheet, values.map((original, index) => {
+    const normalized = normalizeImportChoices(sheet, original);
+    const row = inheritSource(normalized.row, original);
+    const sourceIssues = (rowChoiceIssues.get(row) || []).filter((issue) => issue.sheet === sheet);
+    issues.push(...sourceIssues.map((issue) => ({ ...issue, sheet, row: index + 3 })));
+    issues.push(...normalized.issues.filter((issue) => !sourceIssues.some((source) => source.field === issue.field && source.value === issue.value)).map((issue) => ({ ...issue, sheet, row: index + 3, rowData: row })));
+    return row;
+  })]));
   const basicRows = rows.Basic_Info || [];
   const experienceRows = rows.Experience || [];
   const options = rows.Options || [];
@@ -271,7 +321,7 @@ function validateImportRows(rows: Record<string, ImportRow[]>): { model: ImportW
   if (!ratePlans.length) issues.push({ sheet: 'Rate_Plans', row: 3, message: 'Add at least one rate plan.' });
   if (!availability.length) issues.push({ sheet: 'Availability', row: 3, message: 'Add at least one availability schedule.' });
   if (fulfilmentRows.length > 1) issues.push({ sheet: 'Fulfilment', row: 4, message: 'Provide only one Fulfilment row.' });
-  if (key && [...experienceRows, ...options, ...ticketTypes, ...ratePlans, ...availability, ...media, ...bookingQuestions, ...fulfilmentRows].some((row) => text(row, 'product_key') && text(row, 'product_key') !== key)) issues.push({ sheet: 'Workbook', row: 1, message: 'All sheets must use the same product_key.' });
+  if (key && [...experienceRows, ...options, ...ticketTypes, ...ratePlans, ...availability, ...media, ...bookingQuestions, ...fulfilmentRows].some((row) => text(row, 'product_key') && text(row, 'product_key').toUpperCase() !== key.toUpperCase())) issues.push({ sheet: 'Workbook', row: 1, message: 'All sheets must use the same product_key.' });
   const optionCodes = new Set<string>();
   options.forEach((row, index) => { const code = text(row, 'option_code'); if (!code) issues.push({ sheet: 'Options', row: index + 3, message: 'option_code is required.' }); else if (optionCodes.has(code)) issues.push({ sheet: 'Options', row: index + 3, message: `Duplicate option_code: ${code}.` }); else optionCodes.add(code); if (!text(row, 'option_name')) issues.push({ sheet: 'Options', row: index + 3, message: 'option_name is required.' }); });
   const rateCodes = new Set<string>();
@@ -306,7 +356,7 @@ function validateImportRows(rows: Record<string, ImportRow[]>): { model: ImportW
     const from = text(row, 'age_from'); const to = text(row, 'age_to');
     if ((from && (!Number.isInteger(Number(from)) || Number(from) < 0)) || (to && (!Number.isInteger(Number(to)) || Number(to) < 0)) || (from && to && Number(to) < Number(from))) issues.push({ sheet: 'Ticket_Types', row: index + 3, message: 'Ticket type age range must contain non-negative integers in ascending order.' });
   });
-  const annotated = issues.map((issue) => ({ ...issue, ...(rows[issue.sheet]?.[issue.row - 3] ? { rowData: rows[issue.sheet][issue.row - 3] } : {}), fatal: issue.sheet === 'Basic_Info' || issue.sheet === 'Experience' || issue.sheet === 'Workbook' || issue.sheet === 'Fulfilment' || (['Options', 'Rate_Plans', 'Availability'].includes(issue.sheet) && issue.message.startsWith('Add at least')) }));
+  const annotated = issues.map((issue) => ({ ...issue, ...(!issue.rowData && rows[issue.sheet]?.[issue.row - 3] ? { rowData: rows[issue.sheet][issue.row - 3] } : {}), fatal: issue.sheet === 'Basic_Info' || issue.sheet === 'Experience' || issue.sheet === 'Workbook' || issue.sheet === 'Fulfilment' || (['Options', 'Rate_Plans', 'Availability'].includes(issue.sheet) && issue.message.startsWith('Add at least')) }));
   const invalidRows = new Set(annotated.filter((issue) => !issue.fatal).map((issue) => `${issue.sheet}:${issue.row}`));
   const validOptions = options.filter((_, index) => !invalidRows.has(`Options:${index + 3}`));
   const validOptionCodes = new Set(validOptions.map((row) => text(row, 'option_code')));
@@ -318,8 +368,8 @@ function validateImportRows(rows: Record<string, ImportRow[]>): { model: ImportW
   if (options.length && !validOptions.length) annotated.push({ sheet: 'Options', row: 3, message: 'No valid option rows remain after validation.', fatal: true });
   if (ratePlans.length && !validRatePlans.length) annotated.push({ sheet: 'Rate_Plans', row: 3, message: 'No valid rate-plan rows remain after validation.', fatal: true });
   if (availability.length && !validAvailability.length) annotated.push({ sheet: 'Availability', row: 3, message: 'No valid availability rows remain after validation.', fatal: true });
-  if (annotated.some((issue) => issue.fatal)) return { model: null, issues: annotated };
-  return { model: { basic, experience: experienceRows[0], options: validOptions, ticketTypes: validTicketTypes, ratePlans: validRatePlans, availability: validAvailability, media: validMedia, bookingQuestions: validBookingQuestions, fulfilment: fulfilmentRows[0] || {} }, issues: annotated };
+  if (annotated.some((issue) => issue.fatal)) return { model: null, issues: annotated.map(locatedIssue) };
+  return { model: { basic, experience: experienceRows[0], options: validOptions, ticketTypes: validTicketTypes, ratePlans: validRatePlans, availability: validAvailability, media: validMedia, bookingQuestions: validBookingQuestions, fulfilment: fulfilmentRows[0] || {} }, issues: annotated.map(locatedIssue) };
 }
 
 function validateProductGroups(rows: Record<string, ImportRow[]>): ProductImportParseResult {
@@ -328,18 +378,24 @@ function validateProductGroups(rows: Record<string, ImportRow[]>): ProductImport
     const parsed = validateImportRows(rows);
     return { ...parsed, models: parsed.model ? [parsed.model] : [] };
   }
-  const keys = basicRows.map((row) => text(row, 'product_key'));
-  const duplicate = keys.find((key, index) => !key || keys.indexOf(key) !== index);
-  if (duplicate !== undefined) return { model: null, models: [], issues: [{ sheet: 'Basic_Info', row: 3, message: duplicate ? `Duplicate product_key: ${duplicate}.` : 'Every product row needs a product_key.' }] };
+  const keys = basicRows.map((row) => text(row, 'product_key').toUpperCase());
+  const duplicateIndex = keys.findIndex((key, index) => !key || keys.indexOf(key) !== index);
+  if (duplicateIndex >= 0) {
+    const key = keys[duplicateIndex];
+    const first = key ? locatedIssue({ sheet: 'Basic_Info', row: keys.indexOf(key) + 3, field: 'product_key', rowData: basicRows[keys.indexOf(key)], message: '' }) : undefined;
+    const location = first ? `${first.sheet}!${first.cell || `row ${first.row}`}` : '';
+    const issue = locatedIssue({ sheet: 'Basic_Info', row: duplicateIndex + 3, rowData: basicRows[duplicateIndex], field: 'product_key', value: key, message: key ? `Duplicate product_key: ${key}. This code is already used at ${location}.` : 'Every product row needs a product_key.', correction: key ? 'Keep one product row per code. Remove the duplicate row, or give the separate product a unique code and update its related rows. Repeating the code in linked option, rate and time-slot rows is expected.' : 'Enter a unique product code and use it in the related sheets.' });
+    return { model: null, models: [], issues: [issue] };
+  }
   const models: ImportWorkbookModel[] = [];
   const issues: ImportIssue[] = [];
   const keyedSheets = IMPORT_SHEETS;
   const unassigned = keyedSheets.flatMap((sheet) => (rows[sheet] || []).flatMap((row, index) => text(row, 'product_key') ? [] : [{ sheet, row: index + 3 }]));
-  if (unassigned.length) return { model: null, models: [], issues: unassigned.map((item) => ({ sheet: item.sheet, row: item.row, message: 'Add product_key to link this row to a product.' })) };
-  const unknownKeys = keyedSheets.flatMap((sheet) => (rows[sheet] || []).flatMap((row, index) => { const key = text(row, 'product_key'); return key && !keys.includes(key) ? [{ sheet, row: index + 3, key }] : []; }));
-  if (unknownKeys.length) return { model: null, models: [], issues: unknownKeys.map((item) => ({ sheet: item.sheet, row: item.row, message: `product_key ${item.key} does not match a Basic_Info product.` })) };
+  if (unassigned.length) return { model: null, models: [], issues: unassigned.map((item) => locatedIssue({ sheet: item.sheet, row: item.row, rowData: rows[item.sheet][item.row - 3], field: 'product_key', message: 'Add product_key to link this row to a product.' })) };
+  const unknownKeys = keyedSheets.flatMap((sheet) => (rows[sheet] || []).flatMap((row, index) => { const key = text(row, 'product_key'); return key && !keys.includes(key.toUpperCase()) ? [{ sheet, row: index + 3, key }] : []; }));
+  if (unknownKeys.length) return { model: null, models: [], issues: unknownKeys.map((item) => locatedIssue({ sheet: item.sheet, row: item.row, rowData: rows[item.sheet][item.row - 3], field: 'product_key', message: `product_key ${item.key} does not match a product row.`, correction: 'Use a code from the product sheet.' })) };
   for (const key of keys) {
-    const grouped = Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, (rows[sheet] || []).filter((row) => text(row, 'product_key') === key)]));
+    const grouped = Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, (rows[sheet] || []).filter((row) => text(row, 'product_key').toUpperCase() === key)]));
     const parsed = validateImportRows(grouped);
     if (parsed.model) models.push(parsed.model);
     issues.push(...parsed.issues.map((issue) => ({ ...issue, productKey: key, fatal: false })));
@@ -364,8 +420,9 @@ export function parseProductCsv(csv: string): ProductImportParseResult {
   let workbook: XLSX.WorkBook;
   try { workbook = XLSX.read(csv, { type: 'string', cellDates: false, raw: true }); } catch { return { model: null, models: [], issues: [{ sheet: 'CSV', row: 1, message: 'The file is not a readable CSV file.' }] }; }
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = firstSheet ? XLSX.utils.sheet_to_json<ImportRow>(firstSheet, { defval: '' }) : [];
+  const rows = firstSheet ? workbookRows(workbook, workbook.SheetNames[0]) : [];
   if (!rows.length) return { model: null, models: [], issues: [{ sheet: 'CSV', row: 1, message: 'The CSV file is empty.' }] };
+  rows.forEach((row) => { const source = rowSources.get(row); if (source) source.sheet = 'CSV'; });
   const sections = rows.map((row) => text(row, 'section') || text(row, 'sheet'));
   if (sections.some((section) => PROTOTYPE_IMPORT_SHEETS.includes(section as typeof PROTOTYPE_IMPORT_SHEETS[number]))) {
     const prototype = Object.fromEntries(PROTOTYPE_IMPORT_SHEETS.map((section) => [section, [] as ImportRow[]])) as Record<string, ImportRow[]>;
@@ -373,7 +430,7 @@ export function parseProductCsv(csv: string): ProductImportParseResult {
     rows.forEach((row, index) => {
       const section = text(row, 'section') || text(row, 'sheet');
       if (!PROTOTYPE_IMPORT_SHEETS.includes(section as typeof PROTOTYPE_IMPORT_SHEETS[number])) { issues.push({ sheet: 'CSV', row: index + 2, message: `Unknown prototype section: ${section}.` }); return; }
-      const cleaned = { ...row }; delete cleaned.section; delete cleaned.sheet; prototype[section].push(cleaned);
+      const cleaned = inheritSource({ ...row }, row); delete cleaned.section; delete cleaned.sheet; prototype[section].push(cleaned);
     });
     const grouped = prototypeRowsToImport(prototype);
     const parsed = validateProductGroups(grouped);
@@ -388,7 +445,7 @@ export function parseProductCsv(csv: string): ProductImportParseResult {
     const section = text(row, 'section') || text(row, 'sheet');
     if (!section) { issues.push({ sheet: 'CSV', row: index + 2, message: 'Each CSV row must have a section column containing one of the VOYA import section names.' }); return; }
     if (!IMPORT_SHEETS.includes(section as typeof IMPORT_SHEETS[number])) { issues.push({ sheet: 'CSV', row: index + 2, message: `Unknown section: ${section}.` }); return; }
-    const cleaned = { ...row };
+    const cleaned = inheritSource({ ...row }, row);
     delete cleaned.section; delete cleaned.sheet;
     grouped[section].push(cleaned);
   });
@@ -440,3 +497,24 @@ export function normalizeImportRow(row: ImportRow) {
 }
 
 export { bool, list, number, text };
+
+export function serverImportIssues(details: unknown[], models: ImportWorkbookModel[]): ImportIssue[] {
+  const rowsFor = (model: ImportWorkbookModel, section: string): ImportRow[] => ({ Basic_Info: [model.basic], Experience: [model.experience], Options: model.options, Ticket_Types: model.ticketTypes, Rate_Plans: model.ratePlans, Availability: model.availability, Media: model.media, Booking_Questions: model.bookingQuestions, Fulfilment: [model.fulfilment] }[section] || []);
+  return details.flatMap((entry: any) => {
+    const model = models.find((item) => text(item.basic, 'product_key').toUpperCase() === String(entry.productKey || '').toUpperCase()) || models[(entry.productIndex || 1) - 1];
+    const nested = Array.isArray(entry.issues) ? entry.issues : [entry];
+    return nested.map((detail: any) => {
+      const issue = typeof detail === 'object' && detail ? detail : { message: String(detail) };
+      const section = issue.section || issue.sheet || (entry.optionCode ? 'Rates' : 'Basic_Info');
+      const row = issue.row || entry.row || 3;
+      return locatedIssue({ ...issue, sheet: section, row, productKey: entry.productKey || entry.productCode, message: issue.message || String(entry.issues || 'Validation failed.'), rowData: model ? rowsFor(model, section)[row - 3] : undefined });
+    });
+  });
+}
+
+export function importErrorsCsv(issues: ImportIssue[]): string {
+  const rowFields = [...new Set(issues.flatMap((issue) => Object.keys(issue.rowData || {})))];
+  const columns = [...new Set(['sheet', 'row', 'cell', 'field', 'product_key', 'value', 'message', 'correction', ...rowFields])];
+  const quote = (value: unknown) => { const text = String(value ?? ''); return `"${(/^[\s\u0000-\u001f]*[=+@-]/.test(text) ? "'" : '') + text.replaceAll('"', '""')}"`; };
+  return [columns.map(quote).join(','), ...issues.map((issue) => columns.map((column) => quote(column === 'product_key' ? issue.productKey || issue.rowData?.product_key || issue.rowData?.product_code : column in issue ? (issue as unknown as ImportRow)[column] : issue.rowData?.[column])).join(','))].join('\r\n');
+}
