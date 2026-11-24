@@ -247,6 +247,7 @@ async function main() {
     for(const actor of [employee,foreign]){const denied=await request(actor,'/products/rates/import/batch/validate',{rows:[{...row,productCode:foreignPublic.publicCode}]});assert([400,403,404].includes(denied.status),JSON.stringify(denied));}
   });
   await require('./verify-bulk-import-six-cases.cjs')({check,request,db,owner,outlet,tag,sample,parsing,XLSX,evidence,base,token,hashFinance});
+  await require('./verify-bulk-editor-six-cases.cjs')({check,request,db,owner,outlet,tag,sample,parsing,XLSX,evidence,hashFinance});
   await browserFixtures(owner,outlet,tag);
   await check('final protected booking and finance hash comparison',async()=>assert.deepEqual(await hashFinance(),before));
 }

@@ -1,5 +1,5 @@
 import { UserRole } from '@prisma/client';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { CatalogueService } from './catalogue.service';
 import { attachCatalogueTestOutletAccess } from './catalogue-test-outlet-access';
 
@@ -119,6 +119,27 @@ describe('CatalogueService bulk rate update import', () => {
     return { service, prisma, preview, apply };
   }
 
+  it.each([NotFoundException, ForbiddenException])('maps outlet denial to each supplied row before cached results or writes (%s)', async (Denied) => {
+    const { service, prisma, apply } = rateService();
+    jest.spyOn(service, 'activityPricesAvailability').mockRejectedValue(new Denied('Private outlet details'));
+    for (const validateOnly of [true, false]) {
+      await expect(service.importRateBatch(vendor, { rows: [rateRow(), rateRow('OPT-2')] }, validateOnly)).rejects.toMatchObject({ response: {
+        code: 'RATE_IMPORT_VALIDATION_FAILED', issues: [2, 3].map(row => expect.objectContaining({ row, field: 'productCode', value: 'TA-GA-0318', correction: expect.stringContaining('authorized') })),
+      } });
+    }
+    expect(prisma.activityPriceApplyRequest.findUnique).not.toHaveBeenCalled();
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('does not apply an earlier valid group when a later group belongs to another outlet', async () => {
+    const { service, prisma, apply } = rateService();
+    const current = await service.activityPricesAvailability(vendor, 'p1');
+    prisma.product.findMany.mockResolvedValue([{ id: 'p1', productCode: 'TA-GA-0318' }, { id: 'p2', productCode: 'OTHER-OUTLET' }]);
+    jest.spyOn(service, 'activityPricesAvailability').mockImplementation(async (_user, id) => { if (id === 'p2') throw new NotFoundException(); return current; });
+    await expect(service.importRateBatch(vendor, { rows: [rateRow(), { ...rateRow(), productCode: 'OTHER-OUTLET' }] })).rejects.toMatchObject({ response: { issues: [expect.objectContaining({ row: 3, productCode: 'OTHER-OUTLET', field: 'productCode' })] } });
+    expect(apply).not.toHaveBeenCalled();
+  });
+
   it('rejects a public/internal product-code collision before applying or replaying either product',async()=>{
     const {service,prisma,apply}=rateService();
     prisma.product.findMany.mockResolvedValue([{id:'p1',productCode:'TA-GA-0318'},{id:'p2',productCode:'PRD-TWO'}]);
@@ -195,6 +216,7 @@ describe('CatalogueService bulk rate update import', () => {
   it('groups distinct options under public/internal aliases into one product save and reports both source codes',async()=>{
     const {service,prisma,apply}=rateService();aliases(prisma);
     const existing:any=await service.activityPricesAvailability(vendor,'p1');existing.options.push({...existing.options[0],variantId:'v2',variantCode:'OPT-2'});jest.spyOn(service,'activityPricesAvailability').mockResolvedValue(existing);
+    await expect(service.importRateBatch(vendor,{rows:[rateRow(),{...rateRow('OPT-2'),productCode:'TA-KL-0031'}]},true)).resolves.toMatchObject({valid:true,productCount:1});
     const result=await service.importRateBatch(vendor,{rows:[rateRow(),{...rateRow('OPT-2'),productCode:'TA-KL-0031'}]});
     expect(result).toMatchObject({updatedProductCount:1,completedProductCodes:['TA-GA-0318','TA-KL-0031']});expect(apply).toHaveBeenCalledTimes(1);expect(apply.mock.calls[0][2].options).toHaveLength(2);
   });

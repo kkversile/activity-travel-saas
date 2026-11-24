@@ -120,6 +120,22 @@ describe('product CSV import', () => {
 });
 
 describe('vendor rate update import', () => {
+  it.each(['csv', 'xlsx'])('reports only the invalid start date without blaming a valid end date (%s)', (format) => {
+    const row = { product_code: 'PRD', option_code: 'OPT', valid_from: '2027-02-30', valid_to: '2027-03-01', adult_sell_inr: '100' };
+    const sheet = XLSX.utils.json_to_sheet([row]);
+    const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, sheet, 'Rates');
+    const result = format === 'csv' ? parseRateUpdateCsv(XLSX.utils.sheet_to_csv(sheet), true) : parseRateUpdateWorkbook(XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }), true);
+    expect(result?.rows).toHaveLength(0);
+    expect(result?.issues.filter(issue => issue.field)).toEqual([expect.objectContaining({ field: 'valid_from', cell: 'C2', value: '2027-02-30' })]);
+    expect(result?.issues.some(issue => issue.field === 'valid_to')).toBe(false);
+  });
+
+  it('accepts leap dates and still rejects reversed real date ranges', () => {
+    const header = 'product_code,option_code,valid_from,valid_to,adult_sell_inr\n';
+    expect(parseRateUpdateCsv(header + 'PRD,OPT,2028-02-29,2028-03-01,100', true)?.issues).toEqual([]);
+    expect(parseRateUpdateCsv(header + 'PRD,OPT,2027-03-02,2027-03-01,100', true)?.issues).toContainEqual(expect.objectContaining({ field: 'valid_to' }));
+  });
+
   it('parses valid rate CSV rows and reports invalid rows without dropping valid updates', () => {
     const csv = [
       'product_code,option_code,valid_from,valid_to,adult_sell_inr,child_sell_inr,senior_sell_inr,base_sell_inr,mrp_inr',

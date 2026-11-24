@@ -268,7 +268,7 @@ function normalizeRateRows(sourceRows: ImportRow[]): RateUpdateParseResult {
     if (!optionCode) problem('option_code is required.','option_code','Copy an option code belonging to this product.');
     if (!isImportDate(validFrom)) problem('valid_from must be a real calendar date in YYYY-MM-DD format.','valid_from','Enter a real date, for example 2026-12-15.');
     if (!isImportDate(validTo)) problem('valid_to must be a real calendar date in YYYY-MM-DD format.','valid_to','Enter a real date later than valid_from; the end date is exclusive.');
-    if (validFrom && validTo && Date.parse(validTo) <= Date.parse(validFrom)) problem('valid_to must be after valid_from.','valid_to','Choose an end date later than valid_from; the end date is exclusive.');
+    if (isImportDate(validFrom) && isImportDate(validTo) && validTo <= validFrom) problem('valid_to must be after valid_from.','valid_to','Choose an end date later than valid_from; the end date is exclusive.');
     if (![row.adultSellInr, row.childSellInr, row.seniorSellInr, row.baseSellInr].some(Boolean)) problem('Provide at least one sell price.');
     for (const field of ['adultSellInr', 'childSellInr', 'seniorSellInr', 'baseSellInr', 'mrpInr'] as const) {
       const value = row[field];

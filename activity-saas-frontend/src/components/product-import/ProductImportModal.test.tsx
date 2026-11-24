@@ -8,6 +8,54 @@ import { createSampleWorkbook, createSampleImportJson } from './productImport';
 afterEach(() => vi.restoreAllMocks());
 
 describe('ProductImportModal backend validation flow', () => {
+  const rateCsv = 'product_code,option_code,valid_from,valid_to,adult_sell_inr\nPRD,OPT,2026-12-01,2027-01-01,1900';
+  it('calls rows parsed until server validation resolves public/internal aliases into one product', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ valid: true, productCount: 1 } as never);
+    render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Import mode'), { target: { value: 'UPDATE_RATES' } });
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([rateCsv + '\nPUBLIC,OTHER,2026-12-01,2027-01-01,1500'], 'aliases.csv')] } });
+    await screen.findByText(/2 parsed rate rows/);
+    expect(screen.queryByText(/across \d+ existing products?/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Validate file' }));
+    await screen.findByText(/2 validated option rates/);
+    expect(screen.getByText(/across 1 existing product\./)).toBeInTheDocument();
+    expect(screen.queryByText(/across 2/)).not.toBeInTheDocument();
+  });
+
+  it('keeps rejected rows labelled parsed with no records ready after server failure', async () => {
+    vi.spyOn(api, 'request').mockRejectedValue(new ApiError(400, 'No rates were saved.', 'RATE_IMPORT_VALIDATION_FAILED', [{ row: 3, productCode: 'MISSING', optionCode: 'OPT', field: 'productCode', message: 'Product unavailable.', correction: 'Select an authorized outlet or remove this row.' }]));
+    render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Import mode'), { target: { value: 'UPDATE_RATES' } });
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([rateCsv + '\nMISSING,OPT,2026-12-01,2027-01-01,1500'], 'mixed.csv')] } });
+    await screen.findByText(/2 parsed rate rows/);
+    fireEvent.click(screen.getByRole('button', { name: 'Validate file' }));
+    await screen.findByText(/0 records are ready to save/);
+    expect(screen.getByText(/CSV!A3/)).toHaveTextContent('MISSING');
+    expect(screen.getByRole('button', { name: 'Download error rows' })).toBeEnabled();
+    expect(screen.queryByText(/validated option rates|across 2 existing products/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply valid rate updates (2)' })).toBeDisabled();
+  });
+
+  it.each(['validated', 'invalid'])('clears %s file state before showing an empty replacement file', async (state) => {
+    vi.spyOn(api, 'request').mockResolvedValue({ valid: true, productCount: 1 } as never);
+    render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Import mode'), { target: { value: 'UPDATE_RATES' } });
+    const contents = state === 'validated' ? rateCsv : rateCsv.replace('1900', 'banana');
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([contents], 'previous.csv')] } });
+    await screen.findByText('Selected: previous.csv');
+    if (state === 'validated') {
+      await screen.findByText(/1 parsed rate row/);
+      fireEvent.click(screen.getByRole('button', { name: 'Validate file' })); await screen.findByText(/Server validation passed/);
+    } else await screen.findByRole('button', { name: 'Download error rows' });
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([], 'empty.csv')] } });
+    await screen.findByText(/This file is empty/);
+    expect(screen.getByText('Selected: empty.csv')).toBeInTheDocument();
+    expect(screen.queryByText(/previous.csv|Server validation passed|Rate update preview|banana/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download error rows' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validate file' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apply valid rate updates' })).toBeDisabled();
+  });
+
   it('validates and saves an explicit zero child price without replacing it with a blank',async()=>{
     const request=vi.spyOn(api,'request').mockResolvedValueOnce({valid:true} as never).mockResolvedValueOnce({status:'COMPLETED',updatedProductCount:1} as never),complete=vi.fn();
     render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={complete}/>);
@@ -76,7 +124,7 @@ describe('ProductImportModal backend validation flow', () => {
     render(<ProductImportModal onClose={vi.fn()} onComplete={onComplete} />);
 
     fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [file] } });
-    await screen.findByText(/1 valid product/);
+    await screen.findByText(/1 parsed product/);
     fireEvent.click(screen.getByRole('button', { name: 'Validate file' }));
     await screen.findByText(/Server validation passed/);
     fireEvent.click(screen.getByRole('button', { name: 'Import valid products (1)' }));
@@ -113,7 +161,7 @@ describe('ProductImportModal backend validation flow', () => {
     render(<ProductImportModal onClose={vi.fn()} onComplete={onComplete} />);
 
     fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [file] } });
-    expect(await screen.findByText(/2 valid products/)).toBeInTheDocument();
+    expect(await screen.findByText(/2 parsed products/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Validate file' }));
     await screen.findByText(/Server validation passed/);
     fireEvent.click(screen.getByRole('button', { name: 'Import valid products (2)' }));
@@ -134,7 +182,7 @@ describe('ProductImportModal backend validation flow', () => {
 
     fireEvent.change(screen.getByLabelText('Import mode'), { target: { value: 'UPDATE_RATES' } });
     fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [file] } });
-    expect(await screen.findByText(/1 valid option rate/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 parsed rate row/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Validate file' }));
     await screen.findByText(/Server validation passed/);
     fireEvent.click(screen.getByRole('button', { name: 'Apply valid rate updates (1)' }));
@@ -151,7 +199,7 @@ describe('import validation safety', () => {
     const request=vi.spyOn(api,'request').mockResolvedValueOnce({valid:true} as never).mockResolvedValueOnce({status:'PARTIAL',updatedProductCount:1,completedProductCodes:['PRD-FIRST','TA-KL-FIRST'],failedProductCode:'SECOND'} as never).mockResolvedValueOnce({valid:true} as never);
     render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()}/>);fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
     const csv='product_code,option_code,valid_from,valid_to,adult_sell_inr\nPRD-FIRST,OPT1,2026-12-01,2027-01-01,1900\nTA-KL-FIRST,OPT2,2026-12-01,2027-01-01,1800\nSECOND,OPT3,2026-12-01,2027-01-01,1700';
-    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File([csv],'aliases.csv')]}});await screen.findByText(/3 valid option rates/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);fireEvent.click(screen.getByRole('button',{name:'Apply valid rate updates (3)'}));await screen.findByText(/Only unsaved records remain/);
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File([csv],'aliases.csv')]}});await screen.findByText(/3 parsed rate rows/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);fireEvent.click(screen.getByRole('button',{name:'Apply valid rate updates (3)'}));await screen.findByText(/Only unsaved records remain/);
     expect(screen.getByRole('button',{name:'Apply valid rate updates (1)'})).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);expect(JSON.parse(String(request.mock.calls[2][1]?.body)).rows.map((row:any)=>row.productCode)).toEqual(['SECOND']);
   });
   it('shows the entered invalid rate value alongside its source cell and correction',async()=>{
@@ -164,20 +212,20 @@ describe('import validation safety', () => {
     const onComplete=vi.fn();render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={onComplete}/>);
     fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
     const file=new File(['product_code,option_code,valid_from,valid_to,adult_sell_inr\nPRD,OPT,2026-12-01,2027-01-01,1900'],'rates.csv');
-    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[file]}});await screen.findByText(/1 valid option rate/);
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[file]}});await screen.findByText(/1 parsed rate row/);
     fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
     fireEvent.click(screen.getByRole('button',{name:'Apply valid rate updates (1)'}));await screen.findByText('Response lost');
     fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
     fireEvent.click(screen.getByRole('button',{name:'Apply valid rate updates (1)'}));await waitFor(()=>expect(onComplete).toHaveBeenCalledTimes(1));
     const ids=request.mock.calls.slice(0,4).map(call=>JSON.parse(String(call[1]?.body)).submissionId);expect(new Set(ids).size).toBe(1);expect(ids[0]).toMatch(/^[a-f0-9-]{36}$/);
-    request.mockResolvedValueOnce({valid:true} as never);fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[file]}});await screen.findByText(/1 valid option rate/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
+    request.mockResolvedValueOnce({valid:true} as never);fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[file]}});await screen.findByText(/1 parsed rate row/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
     expect(JSON.parse(String(request.mock.calls[4][1]?.body)).submissionId).not.toBe(ids[0]);
   });
   it('shows server rate corrections at the physical CSV cell and keeps saving disabled',async()=>{
     vi.spyOn(api,'request').mockRejectedValue(new ApiError(400,'Invalid rate','RATE_IMPORT_VALIDATION_FAILED',[{row:2,productCode:'PRD',optionCode:'OPT',field:'adultSellInr',message:'Sell price exceeds MRP.',correction:'Enter a price at or below 2000.'}]));
     render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()}/>);fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
     fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File(['product_code,option_code,valid_from,valid_to,adult_sell_inr\n\nPRD,OPT,2026-12-01,2027-01-01,2100'],'rates.csv')]}});
-    await screen.findByText(/1 valid option rate/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));expect(await screen.findByText(/CSV!E3/)).toBeInTheDocument();expect(screen.getByText('Enter a price at or below 2000.')).toBeInTheDocument();expect(screen.getByRole('button',{name:'Apply valid rate updates (1)'})).toBeDisabled();
+    await screen.findByText(/1 parsed rate row/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));expect(await screen.findByText(/CSV!E3/)).toBeInTheDocument();expect(screen.getByText('Enter a price at or below 2000.')).toBeInTheDocument();expect(screen.getByRole('button',{name:'Apply valid rate updates (1)'})).toBeDisabled();
   });
   it('retains only unsaved rate groups after a partial update', async () => {
     const request = vi.spyOn(api, 'request').mockResolvedValueOnce({ valid: true } as never).mockResolvedValueOnce({ status: 'PARTIAL', updatedProductCount: 1, failedProductCode: 'SECOND' } as never);
@@ -186,7 +234,7 @@ describe('import validation safety', () => {
     fireEvent.change(screen.getByLabelText('Import mode'), { target: { value: 'UPDATE_RATES' } });
     const csv = 'product_code,option_code,valid_from,valid_to,adult_sell_inr\nFIRST,OPT1,2026-12-01,2027-01-01,750\nSECOND,OPT2,2026-12-01,2027-01-01,850';
     fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([csv], 'rates.csv')] } });
-    await screen.findByText(/2 valid option rates/);
+    await screen.findByText(/2 parsed rate rows/);
     fireEvent.click(screen.getByRole('button', { name: 'Validate file' })); await screen.findByText(/Server validation passed/);
     fireEvent.click(screen.getByRole('button', { name: 'Apply valid rate updates (2)' }));
     await screen.findByText(/Only unsaved records remain/);
@@ -201,7 +249,7 @@ describe('import validation safety', () => {
     render(<ProductImportModal onClose={vi.fn()} onComplete={vi.fn()} />);
     const bytes = XLSX.write(createSampleWorkbook(), { bookType: 'xlsx', type: 'array' });
     fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([bytes], 'walk.xlsx')] } });
-    await screen.findByText(/1 valid product/);
+    await screen.findByText(/1 parsed product/);
     expect(screen.getByRole('button', { name: 'Import valid products (1)' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Validate file' }));
     await screen.findByText(/Invalid rates/);
@@ -227,7 +275,7 @@ describe('import validation safety', () => {
     }
     render(<ProductImportModal onClose={vi.fn()} onComplete={onComplete} />);
     fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })], 'walks.xlsx')] } });
-    await screen.findByText(/2 valid products/);
+    await screen.findByText(/2 parsed products/);
     fireEvent.click(screen.getByRole('button', { name: 'Validate file' })); await screen.findByText(/Server validation passed/);
     fireEvent.click(screen.getByRole('button', { name: 'Import valid products (2)' }));
     await screen.findByText(/Only unsaved records remain/);

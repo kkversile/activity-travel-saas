@@ -27,7 +27,7 @@ it('opens the imported draft in the actual vendor router while preserving the se
   await waitFor(()=>expect(screen.getByRole('combobox',{name:'Current outlet'})).toHaveValue('outlet-a'));
   fireEvent.click(screen.getByRole('button',{name:'Choose file & validate'}));await screen.findByRole('dialog');
   fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File([XLSX.write(createSampleWorkbook(),{type:'array',bookType:'xlsx'})],'products.xlsx')]}});
-  await screen.findByText(/1 valid product/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
+  await screen.findByText(/1 parsed product/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
   fireEvent.click(screen.getByRole('button',{name:'Import valid products (1)'}));
   expect(await screen.findByText('Review imported draft saved-product')).toBeInTheDocument();
   expect(window.location.pathname).toBe('/vendor/products/saved-product/edit');expect(new URLSearchParams(window.location.search).get('outletId')).toBe('outlet-a');expect(api.activeOutletId).toBe('outlet-a');

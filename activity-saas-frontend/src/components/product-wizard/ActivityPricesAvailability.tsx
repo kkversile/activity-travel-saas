@@ -27,6 +27,8 @@ type PriceRow = {
   adult: string;
   child: string;
   senior: string;
+  additionalTravellerPrices: Array<{ travellerType: string; amount: string }>;
+  additionalVisitorPrices: Array<{ travellerType: string; indian: string; foreign: string }>;
   mrp: string;
   base: string;
   maxPassengers: string;
@@ -203,6 +205,8 @@ const emptyRow = (variant: ProductVariant): PriceRow => ({
   adult: "",
   child: "",
   senior: "",
+  additionalTravellerPrices: [],
+  additionalVisitorPrices: [],
   mrp: "",
   base: "",
   maxPassengers: "",
@@ -737,6 +741,14 @@ export default function ActivityPricesAvailability({
               adult: text(traveller.get("ADULT")),
               child: text(traveller.get("CHILD")),
               senior: text(traveller.get("SENIOR")),
+              // The simplified form edits only these three types. Keep every
+              // other stored type when the same draft is saved here.
+              additionalTravellerPrices: (version?.travellerPrices || [])
+                .filter((price: any) => !["ADULT", "CHILD", "SENIOR"].includes(price.travellerType))
+                .map((price: any) => ({ travellerType: price.travellerType, amount: text(price.amount) })),
+              additionalVisitorPrices: visitor
+                .filter((price) => !["ADULT", "CHILD", "SENIOR"].includes(price.travellerType))
+                .map((price) => ({ travellerType: price.travellerType, indian: text(price.indian), foreign: text(price.foreign) })),
               mrp: text((version?.sourcePayload as any)?.mrpAmount),
               base: text(version?.supplierBaseAmount),
               maxPassengers: text(payload.maxPassengersPerResource),
@@ -920,10 +932,11 @@ export default function ActivityPricesAvailability({
             row.adult && { travellerType: "ADULT", amount: row.adult },
             row.child && { travellerType: "CHILD", amount: row.child },
             row.senior && { travellerType: "SENIOR", amount: row.senior },
+            ...row.additionalTravellerPrices,
           ].filter(Boolean)
         : [];
-    const visitorPrices = visitorPricing
-      ? (
+    const visitorPrices = visitorPricing && row.pricingUnit === "PER_PERSON"
+      ? [...(
           [
             ["ADULT", row.adult, row.foreign],
             ["CHILD", row.child, row.foreignChild],
@@ -935,7 +948,7 @@ export default function ActivityPricesAvailability({
             travellerType,
             indian,
             foreign,
-          }))
+          })), ...row.additionalVisitorPrices]
       : [];
     const selectedSlots = slotScope === "SELECTED" ? pricingSlotCodes : [];
     const bookingRules = bookingRulesTouched

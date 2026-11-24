@@ -14,6 +14,23 @@ function makeService() {
 }
 
 describe('simplified prices and availability editor', () => {
+  it.each([PricingUnit.GROUP, PricingUnit.PER_BOOKING, PricingUnit.PER_UNIT])('accepts mixed traveller and %s options without requiring unrendered foreign prices', async (unit) => {
+    const { service, prisma } = makeService();
+    prisma.product.findFirst.mockResolvedValue({ id: 'p1', tenantId: 't1' });
+    prisma.productVariant.findMany.mockResolvedValue([{ id: 'v1', name: 'Admission' }, { id: 'v2', name: 'Private group' }]);
+    const result = await service.previewActivityPricesAvailability(vendor, 'p1', {
+      hasDifferentialVisitorPricing: true,
+      options: [
+        { variantId: 'v1', pricingUnit: PricingUnit.PER_PERSON, travellerPrices: [{ travellerType: 'ADULT', amount: '100' }], visitorPrices: [{ travellerType: 'ADULT', indian: '100', foreign: '150' }] },
+        { variantId: 'v2', pricingUnit: unit, supplierBaseAmount: '500', ...(unit === PricingUnit.PER_UNIT ? { maxPassengersPerResource: 6 } : {}) },
+      ],
+    } as any);
+    expect(result).toMatchObject({ valid: true, errors: [] });
+    const missingForeign = await service.previewActivityPricesAvailability(vendor, 'p1', { hasDifferentialVisitorPricing: true, options: [{ variantId: 'v1', pricingUnit: PricingUnit.PER_PERSON, travellerPrices: [{ travellerType: 'ADULT', amount: '100' }] }] } as any);
+    expect(missingForeign.valid).toBe(false);
+    expect(missingForeign.errors).toContainEqual(expect.stringContaining('foreign adult price'));
+  });
+
   it.each(['traveller','base','mrp','visitor'])('rejects an overflowing %s amount in canonical previews before any writes',async kind=>{
     const {service,prisma}=makeService();prisma.product.findFirst.mockResolvedValue({id:'p1',tenantId:'t1'});prisma.productVariant.findMany.mockResolvedValue([{id:'v1',name:'Standard'}]);
     const option:any={variantId:'v1',pricingUnit:PricingUnit.PER_PERSON,travellerPrices:[{travellerType:'ADULT',amount:'100'}]};
@@ -34,6 +51,16 @@ describe('simplified prices and availability editor', () => {
     expect(payload).not.toHaveProperty('visitorPrices');
     expect(payload).not.toHaveProperty('visitorEligibilityBasis');
     expect(payload).not.toHaveProperty('visitorVerificationMode');
+  });
+
+  it('preserves hidden visitor eligibility and verification when a price-only editor save omits them', () => {
+    const payload = buildActivityEditorSourcePayload({ visitorEligibilityBasis: 'NATIONALITY', visitorVerificationMode: 'DOCUMENT_AT_BOOKING', visitorPrices: [{ travellerType: 'ADULT', indian: '100', foreign: '150' }] }, true, { visitorPrices: [{ travellerType: 'ADULT', indian: '120', foreign: '150' }] });
+    expect(payload).toMatchObject({ visitorEligibilityBasis: 'NATIONALITY', visitorVerificationMode: 'DOCUMENT_AT_BOOKING', visitorPrices: [{ travellerType: 'ADULT', indian: '120', foreign: '150' }] });
+  });
+
+  it('honors explicit visitor policy changes while retaining sensible defaults for a new setup', () => {
+    expect(buildActivityEditorSourcePayload({ visitorEligibilityBasis: 'NATIONALITY', visitorVerificationMode: 'DOCUMENT_AT_BOOKING' }, true, { visitorPrices: [{ travellerType: 'ADULT', indian: '100', foreign: '150' }], visitorEligibilityBasis: 'RESIDENCY', visitorVerificationMode: 'NONE' })).toMatchObject({ visitorEligibilityBasis: 'RESIDENCY', visitorVerificationMode: 'NONE' });
+    expect(buildActivityEditorSourcePayload({}, true, { visitorPrices: [{ travellerType: 'ADULT', indian: '100', foreign: '150' }] })).toMatchObject({ visitorEligibilityBasis: 'RESIDENCY', visitorVerificationMode: 'NONE' });
   });
 
   it('rejects duplicate options before any apply write can be attempted', async () => {

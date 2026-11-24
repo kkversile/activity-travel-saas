@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   Optional,
@@ -344,9 +345,9 @@ export const buildActivityEditorSourcePayload = (
   } else if (option.visitorPrices?.length) {
     sourcePayload.visitorPrices = option.visitorPrices;
     sourcePayload.visitorEligibilityBasis =
-      option.visitorEligibilityBasis || "RESIDENCY";
+      option.visitorEligibilityBasis || sourcePayload.visitorEligibilityBasis || "RESIDENCY";
     sourcePayload.visitorVerificationMode =
-      option.visitorVerificationMode || "NONE";
+      option.visitorVerificationMode || sourcePayload.visitorVerificationMode || "NONE";
   }
   return {
     ...sourcePayload,
@@ -2751,7 +2752,17 @@ export class CatalogueService {
     for (const {product,rows:productRows} of grouped.values()) {
       const productCode=productRows[0].productCode, sourceCodes=[...new Set(productRows.map(row=>row.productCode))];
       // This read enforces tenant AND outlet permissions before a cached result is examined.
-      const current = await this.activityPricesAvailability(user,product.id);
+      let current: Awaited<ReturnType<CatalogueService['activityPricesAvailability']>>;
+      try {
+        current = await this.activityPricesAvailability(user,product.id);
+      } catch (error) {
+        if (!(error instanceof NotFoundException || error instanceof ForbiddenException)) throw error;
+        for (const row of productRows) problem(row,
+          'Product is unavailable in the selected outlet or for this account.',
+          'productCode',
+          'Select an outlet you are authorized to manage that contains this product, or remove this row and validate again.');
+        continue;
+      }
       const publicOptions = await this.prisma.publicIdentifier?.findMany({where:{entityType:PublicEntity.VARIANT,entityId:{in:current.options.map(option=>option.variantId)},publicCode:{in:productRows.map(row=>row.optionCode),mode:'insensitive'}},select:{entityId:true,publicCode:true}}) || [];
       const optionsByCode = new Map<string, typeof current.options[number]>();
       const ambiguousOptions = new Set<string>();
@@ -4589,7 +4600,7 @@ export class CatalogueService {
             `options[${index}]: visitor prices must be valid non-negative amounts`,
           );
       }
-      if (dto.hasDifferentialVisitorPricing) {
+      if (dto.hasDifferentialVisitorPricing && option.pricingUnit === PricingUnit.PER_PERSON) {
         const visitorPrices = option.visitorPrices || [];
         const adult = visitorPrices.find(
           (price) => price.travellerType === TravellerType.ADULT,
