@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
-import { normalizeImportChoices } from '../../../../activity-saas-backend/src/common/product-import-contract';
+import { importMediaIssues, importProductContentKey, isImportDate, normalizeImportChoices } from '../../../../activity-saas-backend/src/common/product-import-contract';
+import { importSheetHeaders, inspectImportHeaders } from './productImportStructure';
 
 export const IMPORT_SHEETS = ['Basic_Info', 'Experience', 'Options', 'Ticket_Types', 'Rate_Plans', 'Availability', 'Media', 'Booking_Questions', 'Fulfilment'] as const;
 export const PROTOTYPE_IMPORT_SHEETS = ['Products', 'Options', 'Ticket types', 'Rates', 'Time slots'] as const;
@@ -40,7 +41,20 @@ function workbookRows(workbook: XLSX.WorkBook, name: string, headerRow = 0): Imp
   const columns = (XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, range: headerRow, blankrows: true })[0] || []).map(String);
   return XLSX.utils.sheet_to_json<ImportRow>(sheet, { range: headerRow, defval: '' })
     .filter((row) => Object.values(row).some((value) => String(value ?? '').trim() !== ''))
-    .map((row) => { rowSources.set(row, { sheet: name, row: Number(row.__rowNum__) + 1, columns }); return row; });
+    .map((row) => {
+      for (const field of ['valid_from', 'valid_to', 'effective_from', 'effective_to']) {
+        if (typeof row[field] !== 'number') continue;
+        const date = XLSX.SSF.parse_date_code(row[field] as number, { date1904: workbook.Workbook?.WBProps?.date1904 });
+        if (date) row[field] = `${String(date.y).padStart(4, '0')}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`;
+      }
+      for (const field of ['start_time', 'end_time']) {
+        const value = row[field];
+        if (typeof value !== 'number' || value < 0 || value >= 1) continue;
+        const minutes = Math.round(value * 1440);
+        if (minutes < 1440 && Math.abs(minutes - value * 1440) < 0.000001) row[field] = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+      }
+      rowSources.set(row, { sheet: name, row: Number(row.__rowNum__) + 1, columns }); return row;
+    });
 }
 export type ImportWorkbookModel = {
   basic: ImportRow;
@@ -88,7 +102,7 @@ const demoRows: Record<string, ImportRow[]> = {
     { product_key: 'MUNNAR_SUNRISE_SPICE', option_code: 'SUNRISE-SHARED', schedule_code: 'SCH-SUNRISE-SHARED', schedule_name: 'Sunrise shared walk daily slots', operating_model: 'MULTIPLE_SLOTS', timezone: 'Asia/Kolkata', effective_from: '2026-10-24', effective_to: '2027-10-24', operating_days: 'MON|TUE|WED|THU|FRI|SAT|SUN', capacity_unit: 'PERSON', default_capacity: 15, start_time: '06:30', end_time: '08:30', materialize: true },
     { product_key: 'MUNNAR_SUNRISE_SPICE', option_code: 'PRIVATE-SPICE-WALK', schedule_code: 'SCH-SUNRISE-PRIVATE', schedule_name: 'Private sunrise walk daily slots', operating_model: 'MULTIPLE_SLOTS', timezone: 'Asia/Kolkata', effective_from: '2026-10-24', effective_to: '2027-10-24', operating_days: 'MON|TUE|WED|THU|FRI|SAT|SUN', capacity_unit: 'PERSON', default_capacity: 6, start_time: '06:00', end_time: '08:30', materialize: true },
   ],
-  Media: [{ product_key: 'MUNNAR_SUNRISE_SPICE', kind: 'IMAGE', external_url: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80', description: 'Sunrise over the green hills and spice gardens of Munnar', rank: 1 }],
+  Media: [],
   Booking_Questions: [{ product_key: 'MUNNAR_SUNRISE_SPICE', code: 'lead_phone', label: 'Lead traveller phone', type: 'TEXT', required: true, applies_per_traveller: false, rank: 1 }, { product_key: 'MUNNAR_SUNRISE_SPICE', code: 'dietary_requirements', label: 'Dietary or allergy requirements', type: 'TEXT', required: false, applies_per_traveller: false, rank: 2 }],
   Fulfilment: [{ product_key: 'MUNNAR_SUNRISE_SPICE', mode: 'AUTO', operations_contact_name: 'Munnar Spice Garden Operations', operations_contact_phone: '+919876543210', operations_contact_email: 'operations@abcactivities.example', emergency_contact_name: 'Munnar Activity Host', emergency_contact_phone: '+919876543211', emergency_contact_email: 'emergency@abcactivities.example', voucher_notes: 'Host will confirm pickup details one day before the experience.|Please arrive 15 minutes before the selected start time.', review_required: false }],
 };
@@ -100,7 +114,7 @@ const sheetNotes: Record<string, string> = {
   Ticket_Types: 'One row per ticket type. Link rows with product_key and option_code.',
   Rate_Plans: 'One row per rate plan. option_code must match Options.',
   Availability: 'One row per schedule. operating_days uses | (pipe).',
-  Media: 'External URLs are supported. One row per image or video.',
+  Media: 'Images need an uploaded, validated file_asset_id. Video URLs or uploaded video assets are supported. Add images in the product editor after import.',
   Booking_Questions: 'One row per booking question.',
   Fulfilment: 'One row per product. AUTO is the simplest vendor fulfilment mode.',
 };
@@ -135,8 +149,9 @@ export function createSampleImportJson() {
       'Edit the demo rows, keep the section names and field names, then upload this JSON from Products.',
       'The upload creates a DRAFT product. Review it in the normal six-step wizard and submit it manually.',
       'List fields use | as the separator. Boolean values use true or false. Dates use YYYY-MM-DD.',
+    'Images require an uploaded, validated image asset. Add images in the product editor after creating the draft, or use an owned file_asset_id.',
     ],
-    ...Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, demoRows[sheet] || []])),
+    ...Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, (demoRows[sheet] || []).map((row) => ({ ...row }))])),
   };
 }
 
@@ -145,6 +160,54 @@ export function createSampleImportCsv() {
   const rows = PROTOTYPE_IMPORT_SHEETS.flatMap((section) => XLSX.utils.sheet_to_json<ImportRow>(workbook.Sheets[section], { defval: '' }).map((row) => ({ section, ...row })));
   return XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(rows));
 }
+
+const requiredImportFields: Record<string, string[]> = {
+  Basic_Info: ['product_key', 'product_name', 'type', 'sub_type', 'sub_category', 'city', 'state', 'country', 'meeting_model', 'short_description'],
+  Experience: ['product_key', 'full_description'], Options: ['product_key', 'option_code', 'option_name'],
+  Ticket_Types: ['product_key', 'option_code', 'ticket_type'],
+  Rate_Plans: ['product_key', 'option_code', 'rate_plan_code', 'rate_plan_name', 'valid_from', 'valid_to'],
+  Availability: ['product_key', 'option_code', 'schedule_code', 'effective_from', 'effective_to', 'operating_days'],
+};
+const prototypeSections: Record<string, string> = { Products: 'Basic_Info', Options: 'Options', 'Ticket types': 'Ticket_Types', Rates: 'Rate_Plans', 'Time slots': 'Availability' };
+export const looksLikeProductWorkbook = (names: string[]) => names.some((name) => ['Products', 'Options', 'Ticket types', 'Time slots', 'Basic_Info', 'Experience', 'Rate_Plans', 'Availability'].includes(name));
+
+function workbookStructure(workbook: XLSX.WorkBook): { prototype: boolean; issues: ImportIssue[] } {
+  const prototype = !workbook.SheetNames.includes('Basic_Info') && workbook.SheetNames.some((name) => ['Products', 'Ticket types', 'Rates', 'Time slots'].includes(name));
+  const legacy = workbook.SheetNames.some((name) => ['Basic_Info', 'Experience', 'Rate_Plans', 'Availability'].includes(name));
+  if (!prototype && !legacy) return { prototype, issues: [{ sheet: 'Workbook', row: 1, message: 'This workbook does not match a product import template.', correction: 'Download a fresh product template. Keep the Products, Options, Ticket types, Rates and Time slots sheet names.', fatal: true }] };
+  const requiredSheets = prototype ? [...PROTOTYPE_IMPORT_SHEETS] : ['Basic_Info', 'Experience', 'Options', 'Rate_Plans', 'Availability'];
+  const missing = requiredSheets.filter((name) => !workbook.Sheets[name]);
+  if (missing.length) return { prototype, issues: missing.map((sheet) => ({ sheet, row: 1, message: `Missing required sheet: ${sheet}.`, correction: `Restore the sheet name ${sheet}, or download a fresh template and copy your data into it.`, fatal: true })) };
+  const template = createSampleWorkbook();
+  const issues: ImportIssue[] = [];
+  for (const sheet of (prototype ? PROTOTYPE_IMPORT_SHEETS : IMPORT_SHEETS)) {
+    if (!workbook.Sheets[sheet]) continue;
+    const headerRow = prototype ? 1 : 3;
+    const columns = importSheetHeaders(workbook, sheet, headerRow);
+    if (!columns.some(Boolean) && !requiredSheets.includes(sheet)) continue;
+    const section = prototype ? prototypeSections[sheet] : sheet;
+    let allowed = prototype ? importSheetHeaders(template, sheet, 1) : [...new Set((demoRows[sheet] || []).flatMap(Object.keys))];
+    if (!prototype && sheet === 'Basic_Info') allowed = [...new Set([...allowed, ...importSheetHeaders(template, 'Products', 1).filter((field) => field !== 'product_code')])];
+    if (!prototype && sheet === 'Options') allowed.push('dropoff_timings', 'points_of_interest', 'pricing_days', 'meal_type', 'meal_variety', 'menu', 'seo_title', 'seo_description');
+    if (!prototype && sheet === 'Availability') allowed.push('slots_json');
+    if (!prototype && sheet === 'Media') allowed.push('product_key','kind','external_url','file_asset_id','description','rank');
+    const required = [...(requiredImportFields[section] || [])].map((field) => prototype && field === 'product_key' ? 'product_code' : field);
+    if (prototype && sheet === 'Products') required.push('full_description');
+    issues.push(...inspectImportHeaders(sheet, columns, allowed, required, headerRow));
+  }
+  return { prototype, issues };
+}
+
+function csvHeaderIssues(workbook: XLSX.WorkBook): ImportIssue[] {
+  const template = createSampleWorkbook();
+  const allowed = [...new Set(['section', 'sheet', ...PROTOTYPE_IMPORT_SHEETS.flatMap((name) => importSheetHeaders(template, name, 1)), ...Object.values(demoRows).flatMap((rows) => rows.flatMap(Object.keys)), 'slots_json', 'kind', 'external_url', 'file_asset_id', 'description', 'rank'])];
+  return inspectImportHeaders('CSV', importSheetHeaders(workbook, workbook.SheetNames[0], 1), allowed, [], 1);
+}
+
+const rateUpdateHeaders = ['product_code', 'option_code', 'valid_from', 'valid_to', 'adult_sell_inr', 'child_sell_inr', 'senior_sell_inr', 'base_sell_inr', 'mrp_inr'];
+const ratePriceHeaders = ['adult_sell_inr', 'child_sell_inr', 'senior_sell_inr', 'base_sell_inr'];
+const rateFields: Record<string,string> = {productCode:'product_code',optionCode:'option_code',validFrom:'valid_from',validTo:'valid_to',adultSellInr:'adult_sell_inr',childSellInr:'child_sell_inr',seniorSellInr:'senior_sell_inr',baseSellInr:'base_sell_inr',mrpInr:'mrp_inr'};
+const rateOriginalRows = new WeakMap<RateUpdateImportRow, ImportRow>();
 
 export function createRateUpdateWorkbook() {
   const workbook = XLSX.utils.book_new();
@@ -155,14 +218,21 @@ export function createRateUpdateWorkbook() {
     ['validTo is exclusive. Leave child/senior prices blank to retain the current values.'],
   ]);
   XLSX.utils.book_append_sheet(workbook, readme, 'README');
-  const rates = XLSX.utils.aoa_to_sheet([['product_code', 'option_code', 'valid_from', 'valid_to', 'adult_sell_inr', 'child_sell_inr', 'senior_sell_inr', 'base_sell_inr', 'mrp_inr']]);
+  const rates = XLSX.utils.aoa_to_sheet([rateUpdateHeaders]);
   rates['!cols'] = Array.from({ length: 9 }, () => ({ wch: 22 }));
   XLSX.utils.book_append_sheet(workbook, rates, 'Rates');
   return workbook;
 }
 
 export function createRateUpdateTemplateCsv() {
-  return 'product_code,option_code,valid_from,valid_to,adult_sell_inr,child_sell_inr,senior_sell_inr,base_sell_inr,mrp_inr\r\n';
+  return `${rateUpdateHeaders.join(',')}\r\n`;
+}
+
+function rateHeaderIssues(workbook: XLSX.WorkBook, name: string, displayName = 'Rates'): ImportIssue[] {
+  const columns = importSheetHeaders(workbook, name, 1);
+  const issues = inspectImportHeaders(displayName, columns, rateUpdateHeaders, rateUpdateHeaders.slice(0, 4), 1);
+  if (!columns.some((column) => ratePriceHeaders.includes(column))) issues.push({ sheet: displayName, row: 1, message: 'Missing sell-price column.', correction: `Include at least one of ${ratePriceHeaders.join(', ')} from the rate-update template.`, fatal: true });
+  return issues;
 }
 
 function normalizeRateRows(sourceRows: ImportRow[]): RateUpdateParseResult {
@@ -170,7 +240,7 @@ function normalizeRateRows(sourceRows: ImportRow[]): RateUpdateParseResult {
   const issues: ImportIssue[] = [];
   const seen = new Set<string>();
   sourceRows.forEach((source, index) => {
-    const rowNumber = index + 2;
+    const rowNumber = rowSources.get(source)?.row || index + 2;
     const productCode = text(source, 'product_code');
     const optionCode = text(source, 'option_code');
     const dateText = (value: unknown) => {
@@ -191,45 +261,51 @@ function normalizeRateRows(sourceRows: ImportRow[]): RateUpdateParseResult {
     };
     const identity = `${productCode.toUpperCase()}::${optionCode.toUpperCase()}`;
     let invalid = false;
-    const problem = (message: string) => { issues.push({ sheet: 'Rates', row: rowNumber, message, fatal: false, rowData: source }); invalid = true; };
-    if (!productCode) problem('product_code is required.');
-    if (!optionCode) problem('option_code is required.');
-    if (!validFrom || Number.isNaN(Date.parse(validFrom))) problem('valid_from must be a valid date.');
-    if (!validTo || Number.isNaN(Date.parse(validTo))) problem('valid_to must be a valid date.');
-    if (validFrom && validTo && Date.parse(validTo) <= Date.parse(validFrom)) problem('valid_to must be after valid_from.');
+    const problem = (message: string, field?: string, correction = 'Correct this value in the rate-update template, then upload the file again.') => { issues.push(locatedIssue({sheet:'Rates',row:rowNumber,message,field,value:field?String(source[field] ?? ''):undefined,correction,fatal:false,rowData:source})); invalid = true; };
+    if (!productCode) problem('product_code is required.','product_code','Copy an existing product code from Your products.');
+    if (!optionCode) problem('option_code is required.','option_code','Copy an option code belonging to this product.');
+    if (!isImportDate(validFrom)) problem('valid_from must be a real calendar date in YYYY-MM-DD format.','valid_from','Enter a real date, for example 2026-12-15.');
+    if (!isImportDate(validTo)) problem('valid_to must be a real calendar date in YYYY-MM-DD format.','valid_to','Enter a real date later than valid_from; the end date is exclusive.');
+    if (validFrom && validTo && Date.parse(validTo) <= Date.parse(validFrom)) problem('valid_to must be after valid_from.','valid_to','Choose an end date later than valid_from; the end date is exclusive.');
     if (![row.adultSellInr, row.childSellInr, row.seniorSellInr, row.baseSellInr].some(Boolean)) problem('Provide at least one sell price.');
     for (const field of ['adultSellInr', 'childSellInr', 'seniorSellInr', 'baseSellInr', 'mrpInr'] as const) {
       const value = row[field];
-      if (value !== undefined && (!/^\d+(\.\d{1,4})?$/.test(value) || Number(value) <= 0)) problem(`${field} must be a positive amount with up to four decimals.`);
+      if (value !== undefined && (!/^\d+(\.\d{1,4})?$/.test(value) || Number(value) <= 0)) problem(`${rateFields[field]} must be a positive amount with up to four decimals.`,rateFields[field],'Enter a positive INR amount, for example 1250.50, with no currency symbol and at most four decimal places.');
     }
-    if (seen.has(identity)) problem('Only one row per product option is allowed in this rate batch.');
+    if (seen.has(identity)) problem('Only one row per product option is allowed in this rate batch.','option_code','Keep one rate row for each product and option pair.');
     seen.add(identity);
-    if (!invalid) rows.push(row);
+    if (!invalid) { rateOriginalRows.set(row,source); rows.push(row); }
   });
   if (!rows.length && !issues.length) issues.push({ sheet: 'Rates', row: 1, message: 'Add at least one rate update row.' });
   if (!rows.length && issues.length) issues.push({ sheet: 'Rates', row: 1, message: 'No rate rows passed validation.' });
   return { rows, issues };
 }
 
-export function parseRateUpdateCsv(csv: string): RateUpdateParseResult | null {
+export function parseRateUpdateCsv(csv: string, expectedRateUpdate = false): RateUpdateParseResult | null {
   let workbook: XLSX.WorkBook;
   try { workbook = XLSX.read(csv, { type: 'string', cellDates: false, raw: true }); } catch { return null; }
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) return null;
-  const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
-  const headers = Array.from({ length: range.e.c - range.s.c + 1 }, (_, offset) => text({ value: sheet[XLSX.utils.encode_cell({ r: range.s.r, c: range.s.c + offset })]?.v }, 'value').toLowerCase());
-  if (!headers.includes('product_code') || !headers.includes('option_code') || !headers.includes('valid_from') || !headers.includes('valid_to') || !headers.some((header) => ['adult_sell_inr', 'child_sell_inr', 'senior_sell_inr', 'base_sell_inr'].includes(header))) return null;
-  const rows = XLSX.utils.sheet_to_json<ImportRow>(sheet, { defval: '' });
+  const headers = importSheetHeaders(workbook, workbook.SheetNames[0], 1).map((header) => header.trim().toLowerCase());
+  const isRateUpdate = !headers.includes('section') && !headers.includes('sheet') &&
+    (headers.some((header) => /^(adult|child|senior|base)_sell(?:_|$)/.test(header)) || headers.includes('mrp_inr') || headers.filter((header) => rateUpdateHeaders.slice(0, 4).includes(header)).length >= 2);
+  if (headers.includes('section') || headers.includes('sheet') || (!isRateUpdate && !expectedRateUpdate)) return null;
+  const headerIssues = rateHeaderIssues(workbook, workbook.SheetNames[0], 'CSV');
+  if (headerIssues.length) return { rows: [], issues: headerIssues };
+  const rows = workbookRows(workbook, workbook.SheetNames[0]);
+  for (const row of rows) { const source=rowSources.get(row); if(source) rowSources.set(row,{...source,sheet:'CSV'}); }
   const limitIssues = rowLimitIssue('Rates', rows.length);
   return limitIssues.length ? { rows: [], issues: limitIssues } : normalizeRateRows(rows);
 }
 
-export function parseRateUpdateWorkbook(buffer: ArrayBuffer): RateUpdateParseResult | null {
+export function parseRateUpdateWorkbook(buffer: ArrayBuffer, expectedRateUpdate = false): RateUpdateParseResult | null {
   let workbook: XLSX.WorkBook;
   try { workbook = XLSX.read(buffer, { type: 'array', cellDates: false }); } catch { return null; }
   const sheet = workbook.Sheets.Rates;
-  if (!sheet) return null;
-  const rows = XLSX.utils.sheet_to_json<ImportRow>(sheet, { defval: '' });
+  if (!sheet) return expectedRateUpdate ? { rows: [], issues: [{ sheet: 'Rates', row: 1, message: 'Missing required sheet: Rates.', correction: 'Restore the Rates sheet name or copy your data into a fresh rate-update template.', fatal: true }] } : null;
+  const headerIssues = rateHeaderIssues(workbook, 'Rates');
+  if (headerIssues.length) return { rows: [], issues: headerIssues };
+  const rows = workbookRows(workbook, 'Rates');
   const limitIssues = rowLimitIssue('Rates', rows.length);
   return limitIssues.length ? { rows: [], issues: limitIssues } : normalizeRateRows(rows);
 }
@@ -256,10 +332,31 @@ function prototypeRowsToImport(rows: Record<string, ImportRow[]>) {
   }
   const schedules = [...scheduleGroups.values()].map((group) => {
     const first = group[0];
+    const conflicts: ImportIssue[] = [];
+    const scheduleFields = ['schedule_name', 'operating_model', 'timezone', 'effective_from', 'effective_to', 'operating_days', 'capacity_unit', 'default_capacity', 'materialize'];
+    const comparable = (row: ImportRow, field: string) => {
+      const value = text(row, field);
+      if (field === 'operating_days') return value.split('|').map((day) => day.trim()).filter(Boolean).sort().join('|');
+      if (field === 'default_capacity' && value !== '' && Number.isFinite(Number(value))) return String(Number(value));
+      return value;
+    };
+    for (const row of group.slice(1)) {
+      for (const field of scheduleFields) {
+        // Blank later cells inherit the first row. Explicit differing values
+        // must never disappear while the rows are combined into one schedule.
+        if (!text(row, field) || comparable(row, field) === comparable(first, field)) continue;
+        if ((rowChoiceIssues.get(row) || []).some((issue) => issue.field === field) || (rowChoiceIssues.get(first) || []).some((issue) => issue.field === field)) continue;
+        const reference = locatedIssue({ sheet: 'Availability', row: 3, field, rowData: first, message: '' });
+        const firstLocation = `${reference.sheet}!${reference.cell || `row ${reference.row}`}`;
+        conflicts.push({ sheet: 'Availability', row: 0, field, value: text(row, field), rowData: row, fatal: true,
+          message: `Conflicting ${field} for schedule ${text(first, 'schedule_code')}. The first row at ${firstLocation} uses “${text(first, field) || '(blank)'}”.`,
+          correction: `Use the same ${field} on every row of this product/option/schedule, or use a different schedule_code for a separate schedule.` });
+      }
+    }
     const { product_code: _productCode, ...schedule } = first;
     const slots = group.map((slot, index) => ({ slotCode: slot.slot_code || slot.start_time, startTime: slot.start_time, endTime: slot.end_time, rank: index }));
     const result = inheritSource({ product_key: first.product_code, ...schedule, slots_json: JSON.stringify(slots) }, first);
-    rowChoiceIssues.set(result, group.flatMap((row) => rowChoiceIssues.get(row) || []));
+    rowChoiceIssues.set(result, [...group.flatMap((row) => rowChoiceIssues.get(row) || []), ...conflicts]);
     return result;
   });
   const grouped: Record<string, ImportRow[]> = {
@@ -345,18 +442,15 @@ function validateImportRows(rows: Record<string, ImportRow[]>): { model: ImportW
       catch { issues.push({ sheet: 'Availability', row: index + 3, message: 'slots_json must contain one or more valid slots with slotCode, startTime and endTime.' }); }
     } else if (!text(row, 'start_time') || !text(row, 'end_time')) issues.push({ sheet: 'Availability', row: index + 3, message: 'Provide start_time and end_time for the schedule slot.' });
   });
-  media.forEach((row, index) => {
-    const url = text(row, 'external_url');
-    const assetId = text(row, 'file_asset_id');
-    if (!url && !assetId) issues.push({ sheet: 'Media', row: index + 3, message: 'Provide external_url or file_asset_id.' });
-    else if (url && !/^https?:\/\//i.test(url)) issues.push({ sheet: 'Media', row: index + 3, message: 'external_url must be an http or https URL.' });
+  media.forEach((row,index) => {
+    issues.push(...importMediaIssues(row).map(issue => ({...issue,sheet:'Media',row:index+3,rowData:row,fatal:true})));
   });
   ticketTypes.forEach((row, index) => {
     if (!text(row, 'ticket_type') || !optionCodes.has(text(row, 'option_code'))) issues.push({ sheet: 'Ticket_Types', row: index + 3, message: !text(row, 'ticket_type') ? 'ticket_type is required.' : `Unknown option_code: ${text(row, 'option_code')}.` });
     const from = text(row, 'age_from'); const to = text(row, 'age_to');
     if ((from && (!Number.isInteger(Number(from)) || Number(from) < 0)) || (to && (!Number.isInteger(Number(to)) || Number(to) < 0)) || (from && to && Number(to) < Number(from))) issues.push({ sheet: 'Ticket_Types', row: index + 3, message: 'Ticket type age range must contain non-negative integers in ascending order.' });
   });
-  const annotated = issues.map((issue) => ({ ...issue, ...(!issue.rowData && rows[issue.sheet]?.[issue.row - 3] ? { rowData: rows[issue.sheet][issue.row - 3] } : {}), fatal: issue.sheet === 'Basic_Info' || issue.sheet === 'Experience' || issue.sheet === 'Workbook' || issue.sheet === 'Fulfilment' || (['Options', 'Rate_Plans', 'Availability'].includes(issue.sheet) && issue.message.startsWith('Add at least')) }));
+  const annotated = issues.map((issue) => ({ ...issue, ...(!issue.rowData && rows[issue.sheet]?.[issue.row - 3] ? { rowData: rows[issue.sheet][issue.row - 3] } : {}), fatal: issue.fatal ?? (issue.sheet === 'Basic_Info' || issue.sheet === 'Experience' || issue.sheet === 'Workbook' || issue.sheet === 'Fulfilment' || (['Options', 'Rate_Plans', 'Availability'].includes(issue.sheet) && issue.message.startsWith('Add at least'))) }));
   const invalidRows = new Set(annotated.filter((issue) => !issue.fatal).map((issue) => `${issue.sheet}:${issue.row}`));
   const validOptions = options.filter((_, index) => !invalidRows.has(`Options:${index + 3}`));
   const validOptionCodes = new Set(validOptions.map((row) => text(row, 'option_code')));
@@ -370,6 +464,14 @@ function validateImportRows(rows: Record<string, ImportRow[]>): { model: ImportW
   if (availability.length && !validAvailability.length) annotated.push({ sheet: 'Availability', row: 3, message: 'No valid availability rows remain after validation.', fatal: true });
   if (annotated.some((issue) => issue.fatal)) return { model: null, issues: annotated.map(locatedIssue) };
   return { model: { basic, experience: experienceRows[0], options: validOptions, ticketTypes: validTicketTypes, ratePlans: validRatePlans, availability: validAvailability, media: validMedia, bookingQuestions: validBookingQuestions, fulfilment: fulfilmentRows[0] || {} }, issues: annotated.map(locatedIssue) };
+}
+
+function duplicateContentIssues(rows: ImportRow[]): ImportIssue[] {
+  const seen = new Map<string,number>();
+  return rows.flatMap((row,index) => {
+    const identity = importProductContentKey(row), first=seen.get(identity); seen.set(identity,first ?? index);
+    return first === undefined ? [] : [locatedIssue({sheet:'Basic_Info',row:index+3,rowData:row,field:'product_name',value:text(row,'product_name'),message:`This product has the same name, type and destination as product ${first+1} (${text(rows[first],'product_key')}).`,correction:'Remove the repeated product, or correct its name/type/destination if it is a different experience.',fatal:true})];
+  });
 }
 
 function validateProductGroups(rows: Record<string, ImportRow[]>): ProductImportParseResult {
@@ -387,6 +489,8 @@ function validateProductGroups(rows: Record<string, ImportRow[]>): ProductImport
     const issue = locatedIssue({ sheet: 'Basic_Info', row: duplicateIndex + 3, rowData: basicRows[duplicateIndex], field: 'product_key', value: key, message: key ? `Duplicate product_key: ${key}. This code is already used at ${location}.` : 'Every product row needs a product_key.', correction: key ? 'Keep one product row per code. Remove the duplicate row, or give the separate product a unique code and update its related rows. Repeating the code in linked option, rate and time-slot rows is expected.' : 'Enter a unique product code and use it in the related sheets.' });
     return { model: null, models: [], issues: [issue] };
   }
+  const duplicates = duplicateContentIssues(basicRows);
+  if (duplicates.length) return {model:null,models:[],issues:duplicates};
   const models: ImportWorkbookModel[] = [];
   const issues: ImportIssue[] = [];
   const keyedSheets = IMPORT_SHEETS;
@@ -407,9 +511,11 @@ function validateProductGroups(rows: Record<string, ImportRow[]>): ProductImport
 export function parseProductWorkbook(buffer: ArrayBuffer): ProductImportParseResult {
   let workbook: XLSX.WorkBook;
   try { workbook = XLSX.read(buffer, { type: 'array', cellDates: false }); } catch { return { model: null, models: [], issues: [{ sheet: 'Workbook', row: 1, message: 'The file is not a readable Excel workbook.' }] }; }
-  const prototype = PROTOTYPE_IMPORT_SHEETS.every((sheet) => workbook.SheetNames.includes(sheet));
+  const { prototype, issues: structureIssues } = workbookStructure(workbook);
+  if (structureIssues.length) return { model: null, models: [], issues: structureIssues };
   const grouped = prototype ? prototypeWorkbookRows(workbook) : Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, sheetRows(workbook, sheet)]));
-  const rowIssues = rowLimitIssue('Workbook', importRowCount(grouped));
+  const sourceRowCount = prototype ? PROTOTYPE_IMPORT_SHEETS.reduce((count, name) => count + workbookRows(workbook, name).length, 0) : importRowCount(grouped);
+  const rowIssues = rowLimitIssue('Workbook', sourceRowCount);
   if (rowIssues.length) return { model: null, models: [], issues: rowIssues };
   const result = validateProductGroups(grouped);
   const productIssues = productLimitIssue(result.models.length);
@@ -419,6 +525,8 @@ export function parseProductWorkbook(buffer: ArrayBuffer): ProductImportParseRes
 export function parseProductCsv(csv: string): ProductImportParseResult {
   let workbook: XLSX.WorkBook;
   try { workbook = XLSX.read(csv, { type: 'string', cellDates: false, raw: true }); } catch { return { model: null, models: [], issues: [{ sheet: 'CSV', row: 1, message: 'The file is not a readable CSV file.' }] }; }
+  const headerIssues = csvHeaderIssues(workbook);
+  if (headerIssues.length) return { model: null, models: [], issues: headerIssues };
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows = firstSheet ? workbookRows(workbook, workbook.SheetNames[0]) : [];
   if (!rows.length) return { model: null, models: [], issues: [{ sheet: 'CSV', row: 1, message: 'The CSV file is empty.' }] };
@@ -456,40 +564,47 @@ export function parseProductCsv(csv: string): ProductImportParseResult {
   return productIssues.length ? { model: null, models: [], issues: productIssues } : { ...parsed, issues: [...issues, ...parsed.issues] };
 }
 
-function jsonRows(value: unknown, sheet: string): ImportRow[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((row): row is ImportRow => Boolean(row) && typeof row === 'object' && !Array.isArray(row));
+function jsonRows(value: unknown): ImportRow[] {
+  return Array.isArray(value) ? value.filter((row): row is ImportRow => Boolean(row) && typeof row === 'object' && !Array.isArray(row)) : [];
 }
-
+function jsonShapeIssues(source: Record<string,unknown>): ImportIssue[] {
+  return Object.entries(source).flatMap(([section,value]) => {
+    if(section === 'README') return [];
+    const correction = 'Use the sample JSON structure. Each section must be an array of row objects; remove empty entries or replace them with complete objects.';
+    if(!IMPORT_SHEETS.includes(section as typeof IMPORT_SHEETS[number])) return [{sheet:'JSON',row:1,field:section,message:`Unknown JSON section: ${section}.`,correction:'Use the exact section names from the sample JSON.',fatal:true}];
+    if(!Array.isArray(value)) return [{sheet:section,row:1,message:`${section} must be an array of row objects.`,correction,fatal:true}];
+    return value.flatMap((row,index) => !row || typeof row !== 'object' || Array.isArray(row) ? [{sheet:section,row:index+1,message:`${section}[${index}] must be a row object.`,correction,value:JSON.stringify(row),fatal:true}] : []);
+  });
+}
+function jsonSections(source:Record<string,unknown>) {
+  return Object.fromEntries(IMPORT_SHEETS.map(sheet => [sheet,jsonRows(source[sheet]).map(row => {const index=(source[sheet] as unknown[]).indexOf(row);rowSources.set(row,{sheet,row:index+1,columns:[]});return row;})]));
+}
 export function parseProductJson(inputText: string): ProductImportParseResult {
   let parsed: unknown;
-  try { parsed = JSON.parse(inputText); } catch { return { model: null, models: [], issues: [{ sheet: 'JSON', row: 1, message: 'The file is not valid JSON.' }] }; }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { model: null, models: [], issues: [{ sheet: 'JSON', row: 1, message: 'The JSON root must be an object containing the import sections.' }] };
-  const source = parsed as Record<string, unknown>;
-  if (Array.isArray(source.products)) {
-    const dataRows = source.products.reduce((sum, product) => {
-      if (!product || typeof product !== 'object' || Array.isArray(product)) return sum;
-      const item = product as Record<string, unknown>;
-      return sum + IMPORT_SHEETS.reduce((count, sheet) => count + jsonRows(item[sheet], sheet).length, 0);
-    }, 0);
-    const rowIssues = rowLimitIssue('JSON', dataRows);
-    if (rowIssues.length) return { model: null, models: [], issues: rowIssues };
-    const models: ImportWorkbookModel[] = [];
-    const issues: ImportIssue[] = [];
-    source.products.forEach((product, index) => {
-      if (!product || typeof product !== 'object' || Array.isArray(product)) { issues.push({ sheet: 'JSON', row: index + 1, message: 'Each products entry must be a product import object.', fatal: false }); return; }
-      const item = product as Record<string, unknown>;
-      const parsedProduct = validateImportRows(Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, jsonRows(item[sheet], sheet)])));
-      if (parsedProduct.model) models.push(parsedProduct.model);
-      issues.push(...parsedProduct.issues.map((issue) => ({ ...issue, productKey: text((jsonRows(item.Basic_Info, 'Basic_Info')[0] || {}), 'product_key'), fatal: false })));
+  try { parsed = JSON.parse(inputText); } catch { return {model:null,models:[],issues:[{sheet:'JSON',row:1,message:'The file is not valid JSON.'}]}; }
+  if(!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {model:null,models:[],issues:[{sheet:'JSON',row:1,message:'The JSON root must be an object containing the import sections.'}]};
+  const source=parsed as Record<string,unknown>;
+  if('products' in source) {
+    if(!Array.isArray(source.products)) return {model:null,models:[],issues:[{sheet:'JSON',row:1,message:'products must be an array of product import objects.',fatal:true}]};
+    const limits=[...productLimitIssue(source.products.length),...rowLimitIssue('JSON',source.products.reduce((sum,product) => sum+(!product || typeof product !== 'object' ? 0 : IMPORT_SHEETS.reduce((count,sheet) => count+(Array.isArray(product[sheet])?product[sheet].length:0),0)),0))];
+    if(limits.length) return {model:null,models:[],issues:limits};
+    const models:ImportWorkbookModel[]=[],issues:ImportIssue[]=[];
+    source.products.forEach((product,index) => {
+      if(!product || typeof product !== 'object' || Array.isArray(product)) { issues.push({sheet:'JSON',row:index+1,message:'Each products entry must be a product import object.',correction:'Replace this entry with a product object from the sample JSON.',fatal:false});return; }
+      const shape=jsonShapeIssues(product);
+      if(shape.length) {issues.push(...shape.map(issue=>({...issue,productKey:text(jsonRows(product.Basic_Info)[0]||{},'product_key'),fatal:false})));return;}
+      const result=validateImportRows(jsonSections(product));
+      if(result.model)models.push(result.model);
+      issues.push(...result.issues.map(issue=>({...issue,productKey:text(jsonRows(product.Basic_Info)[0]||{},'product_key'),fatal:false})));
     });
-    if (!models.length && issues.length) issues.push({ sheet: 'JSON', row: 1, message: 'No product entries passed validation.' });
-    const productIssues = productLimitIssue(models.length);
-    return productIssues.length ? { model: null, models: [], issues: productIssues } : { model: models.length === 1 ? models[0] : null, models, issues };
+    const duplicates=duplicateContentIssues(models.map(model=>model.basic));
+    if(duplicates.length) return {model:null,models:[],issues:[...issues,...duplicates]};
+    if(!models.length)issues.push({sheet:'JSON',row:1,message:'No product entries passed validation.',fatal:true});
+    return {model:models.length===1?models[0]:null,models,issues};
   }
-  const rows = Object.fromEntries(IMPORT_SHEETS.map((sheet) => [sheet, jsonRows(source[sheet], sheet)]));
-  const rowIssues = rowLimitIssue('JSON', importRowCount(rows));
-  return rowIssues.length ? { model: null, models: [], issues: rowIssues } : validateProductGroups(rows);
+  const limits=rowLimitIssue('JSON',IMPORT_SHEETS.reduce((count,sheet)=>count+(Array.isArray(source[sheet])?source[sheet].length:0),0));
+  const shape=[...limits,...jsonShapeIssues(source)];
+  return shape.length?{model:null,models:[],issues:shape}:validateProductGroups(jsonSections(source));
 }
 
 export function normalizeImportRow(row: ImportRow) {
@@ -498,7 +613,21 @@ export function normalizeImportRow(row: ImportRow) {
 
 export { bool, list, number, text };
 
-export function serverImportIssues(details: unknown[], models: ImportWorkbookModel[]): ImportIssue[] {
+export function serverImportIssues(details: unknown[], models: ImportWorkbookModel[], rateRows: RateUpdateImportRow[] = []): ImportIssue[] {
+  if(rateRows.length) return details.flatMap((entry:any) => {
+    const nested=Array.isArray(entry.issues)?entry.issues:[entry];
+    return nested.flatMap((detail:any) => {
+      const issue=typeof detail==='object' && detail?detail:{message:String(detail)};
+      const product=String(issue.productCode || entry.productCode || '').toUpperCase(), option=String(issue.optionCode || entry.optionCode || '').toUpperCase();
+      const logical=Number(issue.row || entry.row)-2;
+      const matched=rateRows.filter((row,index)=> (!product || row.productCode.toUpperCase()===product) && (!option || row.optionCode.toUpperCase()===option) && (product || option || index===logical));
+      return matched.map(row=>{
+        const source=rateOriginalRows.get(row) || row as unknown as ImportRow;
+        const field=rateFields[issue.field] || issue.field || 'option_code';
+        return locatedIssue({sheet:'Rates',row:logical+2,productKey:row.productCode,message:issue.message || 'Rate validation failed.',field,value:String(source[field] ?? ''),correction:issue.correction || 'Check the highlighted rate row, correct its product/option codes and prices, then validate again.',rowData:source,fatal:true});
+      });
+    });
+  });
   const rowsFor = (model: ImportWorkbookModel, section: string): ImportRow[] => ({ Basic_Info: [model.basic], Experience: [model.experience], Options: model.options, Ticket_Types: model.ticketTypes, Rate_Plans: model.ratePlans, Availability: model.availability, Media: model.media, Booking_Questions: model.bookingQuestions, Fulfilment: [model.fulfilment] }[section] || []);
   return details.flatMap((entry: any) => {
     const model = models.find((item) => text(item.basic, 'product_key').toUpperCase() === String(entry.productKey || '').toUpperCase()) || models[(entry.productIndex || 1) - 1];

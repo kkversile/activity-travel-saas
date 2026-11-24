@@ -8,6 +8,28 @@ import { createSampleWorkbook } from './productImport';
 afterEach(() => vi.restoreAllMocks());
 
 describe('ProductImportModal backend validation flow', () => {
+  it('blocks a misspelled rate-update header before contacting the server', async () => {
+    const request = vi.spyOn(api, 'request');
+    render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Import mode'), { target: { value: 'UPDATE_RATES' } });
+    const contents = 'product_code,option_code,valid_from,valid_to,adult_sell_inrs,child_sell_inr\nPRODUCT,OPTION,2026-12-01,2026-12-31,1800,900';
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([contents], 'rate-header-typo.csv')] } });
+    expect(await screen.findByText(/Unknown column header: adult_sell_inrs/)).toBeInTheDocument();
+    expect(screen.getByText(/Rename this column to adult_sell_inr/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Apply valid rate updates$/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Validate file' })).toBeDisabled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('shows the missing product sheet rather than asking vendors to switch to rate-update mode', async () => {
+    const w = createSampleWorkbook(); delete w.Sheets.Options; w.SheetNames = w.SheetNames.filter((name) => name !== 'Options');
+    render(<ProductImportModal onClose={vi.fn()} onComplete={vi.fn()} allowRateUpdates />);
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'), { target: { files: [new File([XLSX.write(w, { bookType: 'xlsx', type: 'array' })], 'missing-options.xlsx')] } });
+    expect(await screen.findByText(/Missing required sheet: Options/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validate file' })).toBeDisabled();
+    expect(screen.queryByText(/Choose.*Update rates on existing products.*before uploading/)).not.toBeInTheDocument();
+  });
+
   it('explains duplicate product codes using the uploaded sheet and both cell locations', async () => {
     const request = vi.spyOn(api, 'request');
     const workbook = createSampleWorkbook();
@@ -99,6 +121,31 @@ describe('ProductImportModal backend validation flow', () => {
 });
 
 describe('import validation safety', () => {
+  it('shows the entered invalid rate value alongside its source cell and correction',async()=>{
+    render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()}/>);fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File(['product_code,option_code,valid_from,valid_to,adult_sell_inr\n\nPRD,OPT,2026-12-01,2027-01-01,banana'],'rates.csv')]}});
+    expect(await screen.findByText('banana',{exact:true})).toBeInTheDocument();expect(screen.getByText(/CSV!E3/)).toBeInTheDocument();expect(screen.getByText(/Enter a positive INR amount/)).toBeInTheDocument();expect(screen.getByRole('button',{name:'Apply valid rate updates'})).toBeDisabled();
+  });
+  it('retains its submission ID across response-loss retry and changes it for a newly selected file',async()=>{
+    const request=vi.spyOn(api,'request').mockResolvedValueOnce({valid:true} as never).mockRejectedValueOnce(new Error('Response lost')).mockResolvedValueOnce({valid:true} as never).mockResolvedValueOnce({status:'COMPLETED',updatedProductCount:1} as never);
+    const onComplete=vi.fn();render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={onComplete}/>);
+    fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
+    const file=new File(['product_code,option_code,valid_from,valid_to,adult_sell_inr\nPRD,OPT,2026-12-01,2027-01-01,1900'],'rates.csv');
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[file]}});await screen.findByText(/1 valid option rate/);
+    fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
+    fireEvent.click(screen.getByRole('button',{name:'Apply valid rate updates (1)'}));await screen.findByText('Response lost');
+    fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
+    fireEvent.click(screen.getByRole('button',{name:'Apply valid rate updates (1)'}));await waitFor(()=>expect(onComplete).toHaveBeenCalledTimes(1));
+    const ids=request.mock.calls.slice(0,4).map(call=>JSON.parse(String(call[1]?.body)).submissionId);expect(new Set(ids).size).toBe(1);expect(ids[0]).toMatch(/^[a-f0-9-]{36}$/);
+    request.mockResolvedValueOnce({valid:true} as never);fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[file]}});await screen.findByText(/1 valid option rate/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
+    expect(JSON.parse(String(request.mock.calls[4][1]?.body)).submissionId).not.toBe(ids[0]);
+  });
+  it('shows server rate corrections at the physical CSV cell and keeps saving disabled',async()=>{
+    vi.spyOn(api,'request').mockRejectedValue(new ApiError(400,'Invalid rate','RATE_IMPORT_VALIDATION_FAILED',[{row:2,productCode:'PRD',optionCode:'OPT',field:'adultSellInr',message:'Sell price exceeds MRP.',correction:'Enter a price at or below 2000.'}]));
+    render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()}/>);fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File(['product_code,option_code,valid_from,valid_to,adult_sell_inr\n\nPRD,OPT,2026-12-01,2027-01-01,2100'],'rates.csv')]}});
+    await screen.findByText(/1 valid option rate/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));expect(await screen.findByText(/CSV!E3/)).toBeInTheDocument();expect(screen.getByText('Enter a price at or below 2000.')).toBeInTheDocument();expect(screen.getByRole('button',{name:'Apply valid rate updates (1)'})).toBeDisabled();
+  });
   it('retains only unsaved rate groups after a partial update', async () => {
     const request = vi.spyOn(api, 'request').mockResolvedValueOnce({ valid: true } as never).mockResolvedValueOnce({ status: 'PARTIAL', updatedProductCount: 1, failedProductCode: 'SECOND' } as never);
     const onComplete = vi.fn();

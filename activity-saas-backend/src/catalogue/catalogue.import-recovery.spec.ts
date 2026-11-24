@@ -23,6 +23,46 @@ function fixture() {
  return {service,dto,blueprint,prisma,tx,audit};
 }
 describe('JSON import write recovery',()=>{
+ it.each([
+  {kind:'IMAGE',external_url:'https://example.com/image.jpg'},
+  {kind:'IMAGE',external_url:'https://example.com/image.jpg',file_asset_id:'owned-image'},
+  {kind:'VIDEO',external_url:'file:///private/video.mp4'},
+ ])('blocks unsupported media during both preflight and saving before creating any draft',async media=>{
+  const {service,dto}=fixture();dto.Media=[media];
+  for(const validateOnly of [true,false])await expect(service.importJson(vendor,dto,undefined,validateOnly)).rejects.toMatchObject({response:{code:'IMPORT_VALIDATION_FAILED',issues:expect.arrayContaining([expect.objectContaining({section:'Media',correction:expect.any(String)})])}});
+  expect(service.createDraft).not.toHaveBeenCalled();
+ });
+ it.each([null,{mimeType:'video/mp4'}])('rejects foreign, private, archived or wrong-kind image references before writes',async asset=>{
+  const {service,dto,prisma}=fixture();prisma.fileAsset={findFirst:jest.fn().mockResolvedValue(asset)};dto.Media=[{kind:'IMAGE',file_asset_id:'image'}];
+  await expect(service.importJson(vendor,dto,undefined,true)).rejects.toMatchObject({response:{issues:expect.arrayContaining([expect.objectContaining({section:'Media',field:'file_asset_id'})])}});
+  expect(prisma.fileAsset.findFirst).toHaveBeenCalledWith({where:{id:'image',tenantId:'tenant',purpose:'PRODUCT_MEDIA',visibility:'PUBLIC',archivedAt:null}});expect(service.createDraft).not.toHaveBeenCalled();
+ });
+ it('accepts an authorized uploaded image during preflight without creating a draft',async()=>{
+  const {service,dto,prisma}=fixture();prisma.fileAsset={findFirst:jest.fn().mockResolvedValue({mimeType:'image/jpeg'})};dto.Media=[{kind:'IMAGE',file_asset_id:'owned'}];
+  await expect(service.importJson(vendor,dto,undefined,true)).resolves.toMatchObject({valid:true});expect(service.createDraft).not.toHaveBeenCalled();
+ });
+ it('rejects duplicate schedule identities during preflight and save before creating a draft',async()=>{
+  const {service,dto}=fixture();dto.Availability.push({...dto.Availability[0],default_capacity:6,operating_days:'MON|TUE'});
+  for(const validateOnly of [true,false]) await expect(service.importJson(vendor,dto,undefined,validateOnly)).rejects.toMatchObject({response:{code:'IMPORT_VALIDATION_FAILED',issues:expect.arrayContaining([expect.objectContaining({section:'Availability',field:'schedule_code',correction:expect.stringContaining('one Availability row')})])}});
+  expect(service.createDraft).not.toHaveBeenCalled();
+ });
+ it.each([
+  ['Basic_Info','duration_value','-2'],['Basic_Info','duration_value','two'],
+  ['Rate_Plans','adult_price','banana'],['Rate_Plans','adult_price','-1'],['Rate_Plans','adult_price','1.12345'],
+  ['Rate_Plans','valid_from','not-a-date'],['Rate_Plans','valid_from','2026-02-30'],['Rate_Plans','valid_to','2020-01-01'],
+  ['Availability','effective_to','2020-01-01'],['Availability','operating_days','FUNDAY'],['Availability','start_time','25:00'],
+ ])('rejects invalid %s.%s=%s for both preflight and save without creating a draft',async(section,field,value)=>{
+  const {service,dto}=fixture();dto[section][0][field]=value;
+  for(const validateOnly of [true,false]) await expect(service.importJson(vendor,dto,undefined,validateOnly)).rejects.toMatchObject({response:{code:'IMPORT_VALIDATION_FAILED',issues:expect.arrayContaining([expect.objectContaining({section,field,correction:expect.any(String)})])}});
+  expect(service.createDraft).not.toHaveBeenCalled();
+ });
+ it('preflights all product values before creating any draft in a batch',async()=>{
+  const {service,dto}=fixture();const second=JSON.parse(JSON.stringify(dto));
+  for(const rows of Object.values(second))if(Array.isArray(rows))for(const row of rows)if(row&&typeof row==='object')row.product_key='SECOND_PRODUCT';
+  second.Rate_Plans[0].adult_price='banana';
+  await expect(service.importBatch(vendor,{products:[dto,second]})).rejects.toMatchObject({response:{code:'IMPORT_BATCH_VALIDATION_FAILED'}});
+  expect(service.createDraft).not.toHaveBeenCalled();
+ });
  it.each([['Basic_Info','duration_unit'],['Basic_Info','type'],['Options','sharing'],['Rate_Plans','booking_mode'],['Availability','capacity_unit']])('rejects invalid %s.%s before writing drafts',async(section,field)=>{
   const {service,dto}=fixture();dto[section][0][field]='BANANAS';
   await expect(service.importJson(vendor,dto)).rejects.toMatchObject({response:{code:'IMPORT_VALIDATION_FAILED',issues:expect.arrayContaining([expect.objectContaining({section,field,value:'BANANAS',correction:expect.stringContaining('Choose ')})])}});

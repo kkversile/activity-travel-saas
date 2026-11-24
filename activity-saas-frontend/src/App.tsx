@@ -67,6 +67,7 @@ export default function App() {
   useEffect(() => { if (user?.role !== 'VENDOR' || user.mustChangePassword) return; const requested = vendorPageFromPath(window.location.pathname); if (!routePath(window.location.pathname).startsWith('/vendor/')) { window.history.replaceState({}, '', appPath(vendorPaths.dashboard)); setPage('dashboard'); return; } setPage(requested); const onPopState = () => setPage(vendorPageFromPath(window.location.pathname)); window.addEventListener('popstate', onPopState); return () => window.removeEventListener('popstate', onPopState); }, [user?.role, user?.mustChangePassword]);
   useLayoutEffect(() => { if (user?.role === 'VENDOR') window.scrollTo(0, 0); }, [page, user?.role]);
   function navigateVendor(next: VendorPage) { setPage(next); const nextPath = appPath(vendorPaths[next]) + (activeOutletId ? `?outletId=${encodeURIComponent(activeOutletId)}` : ''); if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath); }
+  function openVendorProduct(id: string) { const path = appPath(`/vendor/products/${encodeURIComponent(id)}/edit`) + (activeOutletId ? `?outletId=${encodeURIComponent(activeOutletId)}` : ''); window.history.pushState({}, '', path); setPage('edit-product'); }
   function logout() { const url = new URL(window.location.href); url.searchParams.delete('outletId'); window.history.replaceState({}, '', url); api.setToken(null); api.setActiveOutletId(null); sessionStorage.removeItem('voya_impersonation_original_token'); setUser(null); setProfile(null); setOnboardingStatus(null); setHubCounts({ bookings: 0, products: 0, kyc: 0 }); setOutlets([]); setOutletAccess(null); setActiveOutletId(null); setChangePasswordOpen(false); }
   function navigatePublic(path: string) { window.history.pushState({}, '', appPath(path)); setPublicRoute(path); }
   if (checking || (user?.role === 'VENDOR' && !user.mustChangePassword && !scopeReady)) return <div className={`boot${routePath(window.location.pathname).startsWith('/vendor/') ? ' vendor-theme-scope' : /^\/(admin|agent)\//.test(routePath(window.location.pathname)) ? ' console-theme-scope' : ''}`}>Loading Voya...</div>;
@@ -109,13 +110,13 @@ export default function App() {
     const LegacyComponent = legacyPage.component;
     let content: ReactNode;
     if (page === 'dashboard') content = <PartnerDashboard greetingName={user.fullName || user.email} businessName={profile?.displayName || profile?.legalBusinessName || vendorName} onAddProduct={() => navigateVendor('add-product')} />;
-    else if (page === 'products') content = <PartnerProductsPage onEditRoute={(id) => { window.history.pushState({}, '', appPath(`/vendor/products/${encodeURIComponent(id)}/edit`)); window.dispatchEvent(new PopStateEvent('popstate')); }} onBulkUploadRoute={() => navigateVendor('bulk-upload')} onAddProductRoute={() => navigateVendor('add-product')} />;
+    else if (page === 'products') content = <PartnerProductsPage onEditRoute={openVendorProduct} onBulkUploadRoute={() => navigateVendor('bulk-upload')} onAddProductRoute={() => navigateVendor('add-product')} />;
     else if (page === 'edit-product') content = <PartnerEditProductPage productId={vendorProductIdFromPath(window.location.pathname) || ''} onDone={() => navigateVendor('products')} onChanged={() => undefined} />;
     else if (page === 'bookings') content = <PartnerBookingsPage />;
     else if (page === 'payouts') content = <PartnerPaymentsPage />;
     else if (page === 'onboarding') content = <PartnerOnboardingPage onNavigate={() => navigateVendor('products')} onStatusChange={setOnboardingStatus} />;
     else if (page === 'add-product') content = <PartnerAddProductPage onDone={() => navigateVendor('products')} onChanged={() => undefined} />;
-    else if (page === 'bulk-upload') content = <PartnerBulkUploadPage />;
+    else if (page === 'bulk-upload') content = <PartnerBulkUploadPage onEditRoute={openVendorProduct} />;
     else if (page === 'promotions') content = <PartnerPromotionsPage />;
     else if (page === 'reports') content = <PartnerReportsPage readOnly={Boolean(user.isImpersonating)} />;
     else if (page === 'settings') content = <PartnerSettingsPage canManageTeam={user.organizationRole === 'OWNER'} />;

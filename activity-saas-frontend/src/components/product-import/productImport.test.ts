@@ -76,7 +76,7 @@ describe('product JSON import', () => {
     expect(result.model?.options).toHaveLength(2);
     expect(result.model?.ratePlans).toHaveLength(2);
     expect(result.model?.availability).toHaveLength(2);
-    expect(result.model?.media).toHaveLength(1);
+    expect(result.model?.media).toHaveLength(0); // Images are uploaded and quality-checked in the product editor.
     expect(result.model?.bookingQuestions).toHaveLength(2);
   });
 

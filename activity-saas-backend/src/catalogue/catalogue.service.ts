@@ -6,7 +6,7 @@ import {
   Optional,
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import { normalizeImportChoices } from "../common/product-import-contract";
+import { importMediaIssues, isImportDate, normalizeImportChoices } from "../common/product-import-contract";
 import { fingerprint } from "../bookings/booking-fingerprint";
 import {
   BookingMode,
@@ -57,6 +57,7 @@ import {
   UpdateVariantDto,
   VariantDto,
 } from "./catalogue.dto";
+import { bulkRateHistory, bulkRateSegments } from './bulk-rate-update';
 import { ProductReadinessService } from "./product-readiness.service";
 import { requiredVendorDocumentsForProduct } from "../vendor/vendor-document-requirements";
 import { CommercialService } from "../commercial/commercial.service";
@@ -244,6 +245,7 @@ const startOfToday = () => {
   value.setHours(0, 0, 0, 0);
   return value;
 };
+type BulkRateApplyContext = { payloadFingerprint: string; rows: Map<string, VendorBulkRateUpdateRowDto> };
 type ImportJsonRow = Record<string, unknown>;
 type ImportIdentity = {
   sourceImportKey: string;
@@ -1892,7 +1894,7 @@ export class CatalogueService {
     const questionRows = (source.Booking_Questions ?? []) as ImportJsonRow[];
     const fulfilmentRows = (source.Fulfilment ?? []) as ImportJsonRow[];
     const ticketTypeRows = (source.Ticket_Types ?? []) as ImportJsonRow[];
-    const issues: Array<{ section: string; row: number; message: string }> = [...choiceIssues];
+    const issues: Array<{ section: string; row: number; message: string; field?: string; value?: string; correction?: string }> = [...choiceIssues];
     const issue = (section: string, row: number, message: string) =>
       issues.push({ section, row, message });
 
@@ -2004,8 +2006,18 @@ export class CatalogueService {
       if (mrpMode === "YES" && mrpAmount && ["adult_price", "child_price", "senior_price", "supplier_base_amount"].some((field) => importNumber(row, field, 0) > mrpAmount))
         issue("Rate_Plans", index + 3, "Selling prices cannot exceed mrp_amount.");
     });
+    const scheduleRows = new Map<string, number>();
     availability.forEach((row, index) => {
       const optionCode = importText(row, "option_code");
+      const scheduleCode = importText(row, "schedule_code");
+      if (optionCode && scheduleCode) {
+        const identity = `${optionCode.toUpperCase()}::${scheduleCode.toUpperCase()}`;
+        const firstRow = scheduleRows.get(identity);
+        if (firstRow !== undefined) issues.push({ section: "Availability", row: index + 3, field: "schedule_code", value: scheduleCode,
+          message: `Duplicate schedule_code ${scheduleCode} for option ${optionCode}; first used at Availability row ${firstRow}.`,
+          correction: "Combine slots for the same schedule in one Availability row using slots_json, or use a different schedule_code for a separate schedule." });
+        else scheduleRows.set(identity, index + 3);
+      }
       if (optionCode && !optionCodes.has(optionCode))
         issue("Availability", index + 3, `Unknown option_code: ${optionCode}.`);
       if (
@@ -2047,10 +2059,16 @@ export class CatalogueService {
       if ((ageFrom && (!Number.isInteger(Number(ageFrom)) || Number(ageFrom) < 0)) || (ageTo && (!Number.isInteger(Number(ageTo)) || Number(ageTo) < 0)) || (ageFrom && ageTo && Number(ageTo) < Number(ageFrom)))
         issue("Ticket_Types", index + 3, "Ticket type age range must contain valid non-negative integers in ascending order.");
     });
-    mediaRows.forEach((row, index) => {
-      if (!importText(row, "external_url") && !importText(row, "file_asset_id"))
-        issue("Media", index + 3, "Provide external_url or file_asset_id.");
-    });
+    const tenantId = requireTenant(user);
+    for (const [index,row] of mediaRows.entries()) {
+      const mediaIssues = importMediaIssues(row);
+      issues.push(...mediaIssues.map(item => ({...item,section:'Media',row:index+3})));
+      if (importText(row,'file_asset_id') && !mediaIssues.length) {
+        const asset = await this.prisma.fileAsset.findFirst({where:{id:importText(row,'file_asset_id'),tenantId,purpose:FilePurpose.PRODUCT_MEDIA,visibility:FileVisibility.PUBLIC,archivedAt:null}});
+        if (!asset || (importText(row,'kind') || 'IMAGE') === 'IMAGE' && !asset.mimeType.startsWith('image/') || importText(row,'kind') === 'VIDEO' && !asset.mimeType.startsWith('video/'))
+          issues.push({section:'Media',row:index+3,field:'file_asset_id',value:importText(row,'file_asset_id'),message:'Media asset must be an active, public product-media upload of the matching kind owned by this vendor.',correction:'Upload the image or video in this vendor account and use that file_asset_id.'});
+      }
+    }
     questionRows.forEach((row, index) => {
       if (!importText(row, "code") || !importText(row, "label"))
         issue("Booking_Questions", index + 3, "code and label are required.");
@@ -2063,8 +2081,6 @@ export class CatalogueService {
       });
 
     if (validateOnly) return { valid: true, productKey };
-
-    const tenantId = requireTenant(user);
     const sourceImportKey = productKey.toUpperCase();
     const importFingerprint = importContentFingerprint(basic);
     const stableIdempotencyKey = idempotencyKey?.trim() || undefined;
@@ -2598,6 +2614,16 @@ export class CatalogueService {
 
     const tenantId = requireTenant(user);
     const fingerprints = products.map((product) => importContentFingerprint((product.Basic_Info || [])[0] as any));
+    const duplicateContent = fingerprints.flatMap((value,index) => {
+      const first = fingerprints.indexOf(value);
+      return first === index ? [] : [{productIndex:index+1,productKey:keys[index],issues:[{section:'Basic_Info',row:3,field:'product_name',message:`This product has the same name, type and destination as product ${first+1} (${keys[first]}).`,correction:'Remove the repeated product, or correct its name/type/destination if it is a different experience.'}]}];
+    });
+    if (duplicateContent.length) throw new BadRequestException({code:'IMPORT_BATCH_DUPLICATE_CONTENT',message:'No products were saved. Duplicate product content exists within this batch.',products:duplicateContent});
+    const duplicateIssue = (index:number,field='product_key') => ({productIndex:index+1,productKey:keys[index],issues:[{
+      section:'Basic_Info',row:3,field,value:importText(products[index].Basic_Info?.[0] || {},field),
+      message:'This product already exists for this vendor.',
+      correction:'Open the existing product to edit its content. To change prices, choose Update rates on existing products and use its existing product and option codes.',
+    }]});
     const existing = await this.prisma.product.findMany({
       where: {
         tenantId,
@@ -2613,7 +2639,7 @@ export class CatalogueService {
       throw new ConflictException({
         code: "IMPORT_BATCH_PRODUCT_ALREADY_EXISTS",
         message: "No products were saved because this create batch contains a product already imported for this vendor.",
-        products: existing.map((item: any) => item.sourceImportKey || item.importFingerprint),
+        products: products.flatMap((_product,index) => existing.some(item=>item.sourceImportKey===keys[index] || item.importFingerprint===fingerprints[index]) ? [duplicateIssue(index,existing.some(item=>item.sourceImportKey===keys[index])?'product_key':'product_name')] : []),
       });
     for (let index = 0; index < products.length; index += 1) {
       const basic = (products[index].Basic_Info || [])[0] as any;
@@ -2640,6 +2666,7 @@ export class CatalogueService {
           message: "No products were saved because a product with the same name and destination already exists for this vendor.",
           productIndex: index + 1,
           productKey: keys[index],
+          products: [duplicateIssue(index,'product_name')],
         });
     }
 
@@ -2663,119 +2690,75 @@ export class CatalogueService {
   }
 
   async importRateBatch(user: AuthUser, dto: VendorBulkRateUpdateDto, validateOnly = false) {
-    const rows = Array.isArray(dto?.rows) ? dto.rows : [];
+    const rows = (Array.isArray(dto?.rows) ? dto.rows : []).map(row => ({ ...row, productCode: String(row.productCode || '').trim().toUpperCase(), optionCode: String(row.optionCode || '').trim().toUpperCase() }));
     if (!rows.length || rows.length > 2000)
       throw new BadRequestException({ code: "RATE_IMPORT_ROW_LIMIT", message: "Provide between 1 and 2,000 rate rows." });
-    const rowIssues: Array<{ row: number; productCode: string; optionCode: string; message: string }> = [];
+    const rowIssues: any[] = [];
+    const problem = (row: VendorBulkRateUpdateRowDto, message: string, field?: string, correction = 'Correct this rate row and validate the file again.') => rowIssues.push({ row: rows.indexOf(row) + 2, productCode: row.productCode, optionCode: row.optionCode, message, field, value: field ? (row as any)[field] : undefined, correction });
+    const invalid = () => new BadRequestException({ code: 'RATE_IMPORT_VALIDATION_FAILED', message: 'No rates were saved. Correct the highlighted rate rows.', issues: rowIssues });
     const identities = new Set<string>();
-    rows.forEach((row, index) => {
-      const identity = `${row.productCode.trim().toUpperCase()}::${row.optionCode.trim().toUpperCase()}`;
-      if (identities.has(identity)) rowIssues.push({ row: index + 2, productCode: row.productCode, optionCode: row.optionCode, message: "Only one rate row per product option is allowed in a batch." });
+    rows.forEach(row => {
+      const identity = `${row.productCode}::${row.optionCode}`;
+      if (!row.productCode) problem(row,'product_code is required.','productCode','Use an existing product code from Your products.');
+      if (!row.optionCode) problem(row,'option_code is required.','optionCode','Use an option code belonging to this product.');
+      if (identities.has(identity)) problem(row,'Only one rate row per product option is allowed in a batch.','optionCode','Keep one row for each product and option pair.');
       identities.add(identity);
-      if (new Date(row.validTo) <= new Date(row.validFrom)) rowIssues.push({ row: index + 2, productCode: row.productCode, optionCode: row.optionCode, message: "validTo must be after validFrom." });
-      if (![row.adultSellInr, row.childSellInr, row.seniorSellInr, row.baseSellInr].some((value) => value !== undefined)) rowIssues.push({ row: index + 2, productCode: row.productCode, optionCode: row.optionCode, message: "Provide at least one sell price." });
+      for (const field of ['validFrom','validTo'] as const) if (!isImportDate(row[field])) problem(row, `${field} must be a real calendar date in YYYY-MM-DD format.`, field, 'Enter a real date such as 2026-12-15.');
+      if (isImportDate(row.validFrom) && isImportDate(row.validTo) && row.validTo <= row.validFrom) problem(row,'valid_to must be after valid_from (the end date is exclusive).','validTo','Choose an end date later than the start date.');
+      if (![row.adultSellInr,row.childSellInr,row.seniorSellInr,row.baseSellInr].some(value => value !== undefined)) problem(row,'Provide at least one sell price.','adultSellInr','Use traveller sell columns for per-person pricing, or base_sell_inr for group, booking or resource pricing.');
     });
-    if (rowIssues.length) throw new BadRequestException({ code: "RATE_IMPORT_VALIDATION_FAILED", message: "No rates were saved because the file contains invalid rows.", issues: rowIssues });
-
+    if (rowIssues.length) throw invalid();
     const tenantId = requireTenant(user);
-    const groupedRows = new Map<string, { productCode: string; options: any[]; sourceRows: VendorBulkRateUpdateRowDto[] }>();
     const rowsByCode = new Map<string, VendorBulkRateUpdateRowDto[]>();
-    rows.forEach((row) => {
-      const code = row.productCode.trim().toUpperCase();
-      rowsByCode.set(code, [...(rowsByCode.get(code) || []), row]);
-    });
-    const products = await this.prisma.product.findMany({
-      where: { tenantId, productCode: { in: [...rowsByCode.keys()] }, deletedAt: null },
-      select: { id: true, productCode: true },
-    });
-    const productsByCode = new Map(products.map((product: any) => [String(product.productCode).toUpperCase(), product]));
-    for (const [productCode, productRows] of rowsByCode) {
+    rows.forEach(row => rowsByCode.set(row.productCode,[...(rowsByCode.get(row.productCode)||[]),row]));
+    const products = await this.prisma.product.findMany({ where: { tenantId, productCode: { in: [...rowsByCode.keys()] }, deletedAt: null }, select: { id: true, productCode: true } });
+    const productsByCode = new Map(products.map(product => [String(product.productCode).toUpperCase(),product]));
+    const prepared: Array<{productId:string;productCode:string;dto:ActivityPricesAvailabilityDto;context:BulkRateApplyContext;key:string;replay?:any}> = [];
+    for (const [productCode,productRows] of rowsByCode) {
       const product = productsByCode.get(productCode);
-      if (!product) {
-        productRows.forEach((row) => rowIssues.push({ row: rows.indexOf(row) + 2, productCode: row.productCode, optionCode: row.optionCode, message: "Product code was not found for this vendor." }));
-        continue;
-      }
-      const current = await this.activityPricesAvailability(user, product.id);
-      const optionDtos: any[] = [];
+      if (!product) { productRows.forEach(row => problem(row,'Product code was not found for this vendor.','productCode','Copy the existing product code from Your products.')); continue; }
+      // This read enforces tenant AND outlet permissions before a cached result is examined.
+      const current = await this.activityPricesAvailability(user,product.id);
+      const payloadFingerprint = fingerprint({ rows: productRows });
+      const key = `BULK-V2-${fingerprint({tenantId,productId:product.id,submission:dto.submissionId || payloadFingerprint})}`;
+      const prior = await this.prisma.activityPriceApplyRequest?.findUnique({where:{tenantId_idempotencyKey:{tenantId,idempotencyKey:key}}});
+      if (prior && (prior.productId !== product.id || prior.payloadFingerprint !== payloadFingerprint)) throw new ConflictException({code:'IDEMPOTENCY_KEY_REUSED',message:'This submission ID was already used for different rate rows. Start a new submission for changed rates.'});
+      const context: BulkRateApplyContext = {payloadFingerprint,rows:new Map()};
+      const update:ActivityPricesAvailabilityDto = {options:[]};
+      if (prior) { prepared.push({productId:product.id,productCode,dto:update,context,key,replay:{...(prior.responsePayload as any),replayed:true}}); continue; }
+      const issueCount = rowIssues.length;
       for (const row of productRows) {
-        const option = (current.options || []).find((item: any) => String(item.variantCode).toUpperCase() === row.optionCode.trim().toUpperCase());
-        const editablePlan = option?.ratePlans?.find((plan: any) => plan.editable);
-        const version = editablePlan?.versions?.[0];
-        if (!option || !editablePlan || !version) {
-          rowIssues.push({ row: rows.indexOf(row) + 2, productCode: row.productCode, optionCode: row.optionCode, message: "Product option has no editable rate version." });
-          continue;
+        const option = current.options.find(item => item.variantCode?.toUpperCase() === row.optionCode);
+        const plan = option?.ratePlans.find((item: any) => item.editable);
+        const versions = plan?.versions || [];
+        if (!option || !plan || !versions.length) { problem(row,'Product option has no standard editable rate version.','optionCode','Check the option code. Use advanced pricing for protected or multiple special rate plans.'); continue; }
+        const segments = bulkRateSegments(versions,plan,row,option.variantId);
+        const expectedVersion = Math.max(...versions.map((version: any) => version.versionNumber));
+        for (const segment of segments) {
+          const unit = segment.option.pricingUnit;
+          if (segment.option.currency !== 'INR' || (row.currency && row.currency.toUpperCase() !== 'INR')) problem(row,`This template uses INR; the existing option currency is ${segment.option.currency}.`,'productCode','Use the advanced pricing editor for other currencies.');
+          if (row.pricingUnit && row.pricingUnit !== unit) problem(row,'A rate update cannot change the existing pricing basis.','optionCode','Use the advanced pricing editor to change the pricing basis.');
+          const wrongFields = unit === PricingUnit.PER_PERSON ? ['baseSellInr'] : ['adultSellInr','childSellInr','seniorSellInr'];
+          for (const field of wrongFields) if ((row as any)[field] !== undefined) problem(row,`This sell-price column does not apply to ${unit} pricing.`,field,unit === PricingUnit.PER_PERSON ? 'Use adult_sell_inr, child_sell_inr or senior_sell_inr; leave base_sell_inr blank.' : 'Use base_sell_inr; leave the adult, child and senior sell columns blank.');
+          for (const message of this.activityPriceInput({options:[segment.option]})) problem(row,`${segment.option.effectiveFrom} to ${segment.option.effectiveTo}: ${message}`,/MRP/.test(message)?'mrpInr':undefined,'Keep selling prices within MRP and check the existing option settings in the pricing editor.');
         }
-        const currentCurrency = String(version.currency || editablePlan.currency || "INR").toUpperCase();
-        if (currentCurrency !== "INR" || (row.currency && row.currency.toUpperCase() !== currentCurrency)) {
-          rowIssues.push({ row: rows.indexOf(row) + 2, productCode: row.productCode, optionCode: row.optionCode, message: `This rate template uses INR amounts; the existing option currency is ${currentCurrency}.` });
-          continue;
-        }
-        const sourcePayload = (version.sourcePayload || {}) as Record<string, any>;
-        const existingPrices = version.travellerPrices || [];
-        const price = (travellerType: string, replacement?: string) => {
-          const existingPrice = existingPrices.find((item: any) => item.travellerType === travellerType)?.amount;
-          const amount = replacement ?? existingPrice;
-          return amount === undefined || amount === null ? null : { travellerType, amount: String(amount) };
-        };
-        const pricingUnit = row.pricingUnit || version.pricingUnit || editablePlan.pricingUnit;
-        const travellerPrices = pricingUnit === PricingUnit.PER_PERSON
-          ? [price("ADULT", row.adultSellInr), price("CHILD", row.childSellInr), price("SENIOR", row.seniorSellInr)].filter(Boolean)
-          : [];
-        if (pricingUnit === PricingUnit.PER_PERSON && !travellerPrices.some((item: any) => item.travellerType === "ADULT")) {
-          rowIssues.push({ row: rows.indexOf(row) + 2, productCode: row.productCode, optionCode: row.optionCode, message: "An adult sell price is required for per-person pricing." });
-          continue;
-        }
-        if (pricingUnit !== PricingUnit.PER_PERSON && !(row.baseSellInr || version.supplierBaseAmount)) {
-          rowIssues.push({ row: rows.indexOf(row) + 2, productCode: row.productCode, optionCode: row.optionCode, message: "A base sell price is required for this pricing unit." });
-          continue;
-        }
-        optionDtos.push({
-          variantId: option.variantId,
-          pricingUnit,
-          currency: row.currency || version.currency || editablePlan.currency || "INR",
-          supplierModel: row.supplierModel || version.supplierModel || "NET_RATE",
-          bookingMode: row.bookingMode || version.bookingMode || "INSTANT",
-          effectiveFrom: row.validFrom,
-          effectiveTo: row.validTo,
-          expectedVersion: version.versionNumber,
-          supplierBaseAmount: row.supplierBaseAmount || version.supplierBaseAmount || undefined,
-          minPax: version.minPax || editablePlan.minPax,
-          maxPax: version.maxPax || editablePlan.maxPax,
-          cutOffMinutes: version.cutOffMinutes ?? editablePlan.cutOffMinutes,
-          pricingDays: sourcePayload.pricingDays || ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"],
-          ...(travellerPrices.length ? { travellerPrices } : {}),
-          ...(pricingUnit !== PricingUnit.PER_PERSON ? { supplierBaseAmount: row.baseSellInr || version.supplierBaseAmount } : {}),
-          ...(row.mrpInr || sourcePayload.mrpAmount ? { mrpMode: "YES", mrpAmount: row.mrpInr || sourcePayload.mrpAmount } : { mrpMode: "NO" }),
-          ...(sourcePayload.mrpProof ? { mrpProof: sourcePayload.mrpProof } : {}),
-          ...(sourcePayload.pricingSlotCodes?.length ? { pricingSlotCodes: sourcePayload.pricingSlotCodes } : {}),
-          ...(sourcePayload.visitorPrices?.length ? { visitorPrices: sourcePayload.visitorPrices } : {}),
-          ...(editablePlan.cancellationRules?.length ? { cancellationRules: editablePlan.cancellationRules } : {}),
-        });
+        update.options.push({...segments[0].option,effectiveFrom:row.validFrom,effectiveTo:row.validTo,expectedVersion});
+        context.rows.set(option.variantId,row);
       }
-      if (optionDtos.length) groupedRows.set(product.id, { productCode: product.productCode, options: optionDtos, sourceRows: productRows });
+      if (update.options.length && rowIssues.length === issueCount) {
+        const preview = await this.previewActivityPricesAvailability(user,product.id,update);
+        if (!preview.valid) for (const row of productRows) for (const message of preview.errors) problem(row,message,undefined,'Review this product option in the pricing editor, correct the file and validate again.');
+      }
+      prepared.push({productId:product.id,productCode,dto:update,context,key});
     }
-    if (rowIssues.length) throw new BadRequestException({ code: "RATE_IMPORT_VALIDATION_FAILED", message: "No rates were saved because one or more product or option codes could not be matched.", issues: rowIssues });
-
-    const prepared: Array<{ productId: string; productCode: string; dto: ActivityPricesAvailabilityDto; sourceRows: VendorBulkRateUpdateRowDto[] }> = [];
-    for (const [productId, group] of groupedRows) {
-      const update: ActivityPricesAvailabilityDto = { options: group.options };
-      const preview = await this.previewActivityPricesAvailability(user, productId, update);
-      if (!preview.valid) rowIssues.push(...preview.errors.map((message: string) => ({ row: 0, productCode: group.productCode, optionCode: "", message })));
-      prepared.push({ productId, productCode: group.productCode, dto: update, sourceRows: group.sourceRows });
-    }
-    if (rowIssues.length) throw new BadRequestException({ code: "RATE_IMPORT_VALIDATION_FAILED", message: "No rates were saved because one or more rate updates failed preview validation.", issues: rowIssues });
-
-    if (validateOnly) return { valid: true, productCount: prepared.length };
-    const results: any[] = [];
+    if (rowIssues.length) throw invalid();
+    if (validateOnly) return {valid:true,productCount:prepared.length};
+    const results:any[] = [];
     for (const group of prepared) {
-      try {
-        const idempotencyKey = `BULK-${fingerprint({ tenantId, productId: group.productId, rows: group.sourceRows })}`;
-        results.push(await this.applyActivityPricesAvailability(user, group.productId, group.dto, idempotencyKey));
-      } catch (error: any) {
-        return { status: "PARTIAL", updatedProductCount: results.length, failedProductCode: group.productCode, error: error?.response ?? error?.message ?? "Rate update failed.", products: results };
-      }
+      try { results.push(group.replay || await this.applyActivityPricesAvailability(user,group.productId,group.dto,group.key,group.context)); }
+      catch(error:any) { return {status:'PARTIAL',updatedProductCount:results.length,failedProductCode:group.productCode,error:error?.response ?? error?.message ?? 'Rate update failed.',products:results}; }
     }
-    return { status: "COMPLETED", updatedProductCount: results.length, products: results };
+    return {status:'COMPLETED',updatedProductCount:results.length,products:results};
   }
 
   async readiness(user: AuthUser, productId: string) {
@@ -4857,6 +4840,8 @@ export class CatalogueService {
               supplierModel: version.supplierModel,
               supplierBaseAmount: version.supplierBaseAmount,
               bookingMode: version.bookingMode,
+              confirmationSlaMinutes: version.confirmationSlaMinutes,
+              supplierCommissionPercent: version.supplierCommissionPercent,
               sourcePayload: version.sourcePayload,
               minPax: plan.minPax,
               maxPax: plan.maxPax,
@@ -4882,6 +4867,7 @@ export class CatalogueService {
     productId: string,
     dto: ActivityPricesAvailabilityDto,
     idempotencyKey?: string,
+    bulk?: BulkRateApplyContext,
   ) {
     const product = await this.product(user, productId);
     const tenantId = product.tenantId;
@@ -4915,7 +4901,7 @@ export class CatalogueService {
         details: errors,
       });
     const key = idempotencyKey.trim();
-    const payloadFingerprint = fingerprint(dto);
+    const payloadFingerprint = bulk?.payloadFingerprint || fingerprint(dto);
     const materializationRequests: Array<{
       scheduleId: string;
       dateFrom: Date;
@@ -4926,6 +4912,9 @@ export class CatalogueService {
     let adminEditedRevisionId: string | null = null;
     const response = await this.prisma.$transaction(
       async (tx) => {
+        // Serialize bulk saves for this product: concurrent identical retries
+        // must see the committed result before checking mutable version numbers.
+        if (bulk) await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Product" WHERE "id" = ${productId} FOR UPDATE`);
         const prior = await tx.activityPriceApplyRequest.findUnique({
           where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: key } },
         });
@@ -5076,7 +5065,7 @@ export class CatalogueService {
                 message: `Option ${variant.name} has multiple existing rate plans. Choose the standard offer in advanced pricing before using the simplified editor.`,
               });
           }
-          const cancellationData = option.cancellationRules?.map((rule) => ({
+          const cancellationData = bulk ? undefined : option.cancellationRules?.map((rule) => ({
             minDaysBefore: rule.minDaysBefore,
             maxDaysBefore: rule.maxDaysBefore,
             chargeValue: rule.chargeValue,
@@ -5101,11 +5090,11 @@ export class CatalogueService {
               : effectiveTo;
           // The Rates step is the final editor for these commercial limits. Keep the
           // variant defaults in sync so reopening Options cannot silently revert them.
-          if (
+          if (!bulk && (
             option.minPax !== undefined ||
             option.maxPax !== undefined ||
             option.cutOffMinutes !== undefined
-          ) {
+          )) {
             await tx.productVariant.update({
               where: { id: variant.id },
               data: {
@@ -5127,7 +5116,7 @@ export class CatalogueService {
             currency:
               option.currency || plan?.currency || product.currency || "INR",
             unitType,
-            basePrice: baseAmount || plan?.basePrice || 0,
+            basePrice: bulk && plan ? plan.basePrice : baseAmount || plan?.basePrice || 0,
             minPax: option.minPax ?? variant.minPax ?? plan?.minPax ?? 1,
             maxPax: option.maxPax ?? variant.maxPax ?? plan?.maxPax ?? 99,
             cutOffMinutes:
@@ -5186,10 +5175,10 @@ export class CatalogueService {
               where: { id: plan.id },
               data: planData,
             });
-            await tx.travellerRule.deleteMany({
+            if (!bulk) await tx.travellerRule.deleteMany({
               where: { ratePlanId: plan.id },
             });
-            if (travellerRules.length)
+            if (!bulk && travellerRules.length)
               await tx.travellerRule.createMany({
                 data: travellerRules.map((rule) => ({
                   ...rule,
@@ -5302,17 +5291,41 @@ export class CatalogueService {
               bookingRulesSnapshot,
             ),
           };
-          const history: ActivityPriceHistoryRange<any>[] = editorHistory.map(
+          const history: ActivityPriceHistoryRange<any>[] = (bulk ? bulkRateHistory(editableVersions).map(range => ({...range.value,effectiveFrom:range.effectiveFrom,effectiveTo:range.effectiveTo})) : editorHistory).map(
             (version) => ({
               effectiveFrom: version.effectiveFrom,
               effectiveTo: version.effectiveTo || effectiveTo,
               value: { kind: "existing", version },
             }),
           );
-          const desired = splitActivityPriceHistory(history, {
-            effectiveFrom,
-            effectiveTo,
-            value: { kind: "candidate", option, data: candidateData },
+          const patch = bulk?.rows.get(variant.id);
+          let desired: ActivityPriceHistoryRange<any>[];
+          if (patch) {
+            desired = history;
+            for (const segment of bulkRateSegments(editableVersions,plan,patch,variant.id)) {
+              const wrongPrices = segment.option.pricingUnit === PricingUnit.PER_PERSON
+                ? patch.baseSellInr !== undefined
+                : [patch.adultSellInr,patch.childSellInr,patch.seniorSellInr].some(value=>value !== undefined);
+              if (wrongPrices || segment.option.currency !== 'INR' || patch.pricingUnit && patch.pricingUnit !== segment.option.pricingUnit)
+                throw new ConflictException({code:'ACTIVITY_PRICES_VERSION_CONFLICT',message:'The option pricing basis or currency changed. Reload and validate the file again.'});
+              const errors = this.activityPriceInput({options:[segment.option]});
+              if (errors.length) throw new BadRequestException({code:'ACTIVITY_PRICES_INVALID',message:'Rate settings changed. Validate the file again.',details:errors});
+              const saved = segment.version, value = segment.option;
+              const data = {
+                ...candidateData,
+                supplierModel:value.supplierModel, currency:value.currency, pricingUnit:value.pricingUnit,
+                supplierBaseAmount:value.supplierBaseAmount ?? value.travellerPrices?.[0]?.amount,
+                supplierCommissionPercent:value.supplierCommissionPercent,
+                bookingMode:value.bookingMode, confirmationSlaMinutes:value.confirmationSlaMinutes,
+                sourcePayload:buildActivityEditorSourcePayload({...saved.sourcePayload},undefined,value,{
+                  bookingMode:value.bookingMode,confirmationSlaMinutes:value.confirmationSlaMinutes ?? null,
+                  cancellationRules:value.cancellationRules || previousCancellationRules,
+                }),
+              };
+              desired = splitActivityPriceHistory(desired,{effectiveFrom:segment.effectiveFrom,effectiveTo:segment.effectiveTo,value:{kind:'candidate',option:value,data}});
+            }
+          } else desired = splitActivityPriceHistory(history, {
+            effectiveFrom,effectiveTo,value:{kind:'candidate',option,data:candidateData},
           });
           const used = new Set<string>();
           let latestNumber = Math.max(
@@ -5358,7 +5371,7 @@ export class CatalogueService {
                   },
                 }
               : {
-                  ...candidateData,
+                  ...(range.value?.data || candidateData),
                   effectiveFrom: range.effectiveFrom,
                   effectiveTo: range.effectiveTo,
                 };
@@ -5382,9 +5395,9 @@ export class CatalogueService {
                           })),
                         }
                       : undefined
-                    : travellerPrices.length
+                    : (range.value?.option?.travellerPrices || travellerPrices).length
                       ? {
-                          create: travellerPrices.map((price) => ({
+                          create: (range.value?.option?.travellerPrices || travellerPrices).map((price: any) => ({
                             travellerType: price.travellerType,
                             amount: price.amount,
                           })),
@@ -5394,7 +5407,7 @@ export class CatalogueService {
               });
             } else {
               latestNumber += 1;
-              const prices = value?.travellerPrices || travellerPrices;
+              const prices = value?.travellerPrices || range.value?.option?.travellerPrices || travellerPrices;
               version = await tx.ratePlanCommercialVersion.create({
                 data: {
                   ratePlanId: plan.id,

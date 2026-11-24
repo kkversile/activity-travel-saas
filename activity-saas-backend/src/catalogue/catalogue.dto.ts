@@ -2,7 +2,7 @@ import { BookingMode, BookingQuestionType, CapacityUnit, ChargeType, EvidenceMat
 import { Transform, Type } from 'class-transformer';
 import { canonicalDuration, DURATION_UNITS } from '../common/product-import-contract';
 import { OmitType, PartialType } from '@nestjs/swagger';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsDefined, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsDefined, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, IsUUID, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class ProductFulfilmentPolicyDto {
   @IsOptional() @IsEnum(FulfilmentMode) mode?: FulfilmentMode;
@@ -164,8 +164,8 @@ export class ImportProductBatchDto {
 export class VendorBulkRateUpdateRowDto {
   @IsString() productCode!: string;
   @IsString() optionCode!: string;
-  @IsDateString() validFrom!: string;
-  @IsDateString() validTo!: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/) @IsDateString({ strict: true }) validFrom!: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/) @IsDateString({ strict: true }) validTo!: string;
   @IsOptional() @IsEnum(PricingUnit) pricingUnit?: PricingUnit;
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsEnum(BookingMode) bookingMode?: BookingMode;
@@ -179,6 +179,8 @@ export class VendorBulkRateUpdateRowDto {
 }
 
 export class VendorBulkRateUpdateDto {
+  /** Reuse for response-loss retries; choose a new UUID for an intentional new submission. */
+  @IsOptional() @IsUUID() submissionId?: string;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(2000) @ValidateNested({ each: true }) @Type(() => VendorBulkRateUpdateRowDto)
   rows!: VendorBulkRateUpdateRowDto[];
 }

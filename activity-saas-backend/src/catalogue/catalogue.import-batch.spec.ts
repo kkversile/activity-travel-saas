@@ -19,6 +19,11 @@ function createService() {
 }
 
 describe('CatalogueService batch product import', () => {
+  it('locates already imported products with an actionable edit/rate-update correction',async()=>{
+    const {service,prisma}=createService();prisma.product.findMany.mockResolvedValue([{sourceImportKey:'ONE',importFingerprint:null}]);const spy=jest.spyOn(service,'importJson').mockResolvedValue({valid:true} as any);
+    await expect(service.importBatch(vendor,{products:[productImport('ONE')]} as any,true)).rejects.toMatchObject({response:{code:'IMPORT_BATCH_PRODUCT_ALREADY_EXISTS',products:[{productIndex:1,productKey:'ONE',issues:[expect.objectContaining({section:'Basic_Info',row:3,field:'product_key',value:'ONE',correction:expect.stringContaining('Update rates on existing products')})]}]}});
+    expect(spy.mock.calls.every(call=>call[3]===true)).toBe(true);
+  });
   it('rejects a single JSON import above the 2,000-row API limit', async () => {
     const { service } = createService();
     const tooManyRows = productImport('LARGE');
@@ -70,6 +75,12 @@ describe('CatalogueService batch product import', () => {
     expect(importSpy).not.toHaveBeenCalled();
   });
 
+  it('rejects duplicate content under different codes during preflight and saving, without writes',async()=>{
+    const {service,prisma}=createService();const spy=jest.spyOn(service,'importJson').mockResolvedValue({valid:true} as any);const first=productImport('ONE'),second=productImport('TWO');second.Basic_Info[0].product_name=first.Basic_Info[0].product_name;
+    for(const validate of [true,false])await expect(service.importBatch(vendor,{products:[first,second]} as any,validate)).rejects.toMatchObject({response:{code:'IMPORT_BATCH_DUPLICATE_CONTENT',products:[expect.objectContaining({productIndex:2,issues:[expect.objectContaining({field:'product_name'})]})]}});
+    expect(spy.mock.calls.every(call=>call[3]===true)).toBe(true);expect(prisma.product.findMany).not.toHaveBeenCalled();
+  });
+
   it('writes valid products only after every item has completed preflight', async () => {
     const { service, prisma } = createService();
     const order: string[] = [];
@@ -92,13 +103,35 @@ describe('CatalogueService bulk rate update import', () => {
   const rateRow = (optionCode = 'OPT-1') => ({ productCode: 'TA-GA-0318', optionCode, validFrom: '2026-12-01', validTo: '2027-01-01', adultSellInr: '750', mrpInr: '1000' });
 
   function rateService() {
-    const prisma: any = { product: { findMany: jest.fn().mockResolvedValue([{ id: 'p1', productCode: 'TA-GA-0318' }]) } };
+    const prisma: any = { product: { findMany: jest.fn().mockResolvedValue([{ id: 'p1', productCode: 'TA-GA-0318' }]) }, activityPriceApplyRequest:{findUnique:jest.fn().mockResolvedValue(null)} };
     const service = attachCatalogueTestOutletAccess(new CatalogueService(prisma, {} as any, {} as any, {} as any));
     jest.spyOn(service, 'activityPricesAvailability').mockResolvedValue({ options: [{ variantId: 'v1', variantCode: 'OPT-1', ratePlans: [{ editable: true, currency: 'INR', pricingUnit: 'PER_PERSON', minPax: 1, maxPax: 20, cancellationRules: [], versions: [{ versionNumber: 4, pricingUnit: 'PER_PERSON', currency: 'INR', supplierModel: 'NET_RATE', bookingMode: 'INSTANT', supplierBaseAmount: '500', travellerPrices: [{ travellerType: 'ADULT', amount: '500' }], sourcePayload: { pricingDays: ['MON', 'TUE'], mrpMode: 'YES', mrpAmount: '1000' } }] }] }] } as any);
     const preview = jest.spyOn(service, 'previewActivityPricesAvailability').mockResolvedValue({ valid: true } as any);
     const apply = jest.spyOn(service, 'applyActivityPricesAvailability').mockResolvedValue({ saved: true } as any);
     return { service, prisma, preview, apply };
   }
+
+  it('replays identical rows after version numbers change without applying again',async()=>{
+    const {service,prisma,apply,preview}=rateService(); const dto:any={submissionId:'600d3b8f-282c-4ea2-b193-a846e649ae82',rows:[rateRow()]};
+    apply.mockImplementation(async (_user,_product,_update,_key,context:any)=>{prisma.activityPriceApplyRequest.findUnique.mockResolvedValue({productId:'p1',payloadFingerprint:context.payloadFingerprint,responsePayload:{saved:true}});return {saved:true} as any;});
+    await service.importRateBatch(vendor,dto);await service.importRateBatch(vendor,dto,true);const result=await service.importRateBatch(vendor,dto);
+    expect(result).toMatchObject({status:'COMPLETED',updatedProductCount:1,products:[{replayed:true}]});expect(apply).toHaveBeenCalledTimes(1);expect(preview).toHaveBeenCalledTimes(1);
+    await expect(service.importRateBatch(vendor,{...dto,rows:[{...rateRow(),adultSellInr:'800'}]})).rejects.toMatchObject({response:{code:'IDEMPOTENCY_KEY_REUSED'}});
+  });
+  it('allows an intentional new submission of the same rate rows',async()=>{
+    const {service,apply}=rateService();await service.importRateBatch(vendor,{submissionId:'600d3b8f-282c-4ea2-b193-a846e649ae82',rows:[rateRow()]});await service.importRateBatch(vendor,{submissionId:'600d3b8f-282c-4ea2-b193-a846e649ae83',rows:[rateRow()]});
+    expect(apply.mock.calls[0][3]).not.toBe(apply.mock.calls[1][3]);
+  });
+  it.each(['baseSellInr'])('rejects incompatible %s instead of silently ignoring the entered price',async field=>{
+    const {service,apply}=rateService();await expect(service.importRateBatch(vendor,{rows:[{...rateRow(),adultSellInr:undefined,[field]:'800'}]} as any)).rejects.toMatchObject({response:{issues:expect.arrayContaining([expect.objectContaining({row:2,field,correction:expect.stringContaining('adult_sell_inr')})])}});expect(apply).not.toHaveBeenCalled();
+  });
+  it('reports missing product with its source row, field and correction',async()=>{
+    const {service,prisma,apply}=rateService();prisma.product.findMany.mockResolvedValue([]);
+    await expect(service.importRateBatch(vendor,{rows:[rateRow()]})).rejects.toMatchObject({response:{issues:[expect.objectContaining({row:2,field:'productCode',optionCode:'OPT-1',correction:expect.any(String)})]}});expect(apply).not.toHaveBeenCalled();
+  });
+  it.each(['2026-02-30','2026-12-01T00:00:00Z'])('rejects impossible or non-date-only API values %s without reads or writes',async date=>{
+    const {service,prisma,apply}=rateService();await expect(service.importRateBatch(vendor,{rows:[{...rateRow(),validFrom:date}]})).rejects.toMatchObject({response:{issues:expect.arrayContaining([expect.objectContaining({field:'validFrom'})])}});expect(prisma.product.findMany).not.toHaveBeenCalled();expect(apply).not.toHaveBeenCalled();
+  });
 
   it('validates rates without applying any prices', async () => {
     const { service, preview, apply } = rateService();
@@ -114,7 +147,7 @@ describe('CatalogueService bulk rate update import', () => {
 
     expect(result).toMatchObject({ status: 'COMPLETED', updatedProductCount: 1 });
     expect(preview).toHaveBeenCalledWith(vendor, 'p1', expect.objectContaining({ options: [expect.objectContaining({ variantId: 'v1', expectedVersion: 4, mrpMode: 'YES', mrpAmount: '1000', travellerPrices: [{ travellerType: 'ADULT', amount: '750' }] })] }));
-    expect(apply).toHaveBeenCalledWith(vendor, 'p1', expect.any(Object), expect.stringMatching(/^BULK-/));
+    expect(apply).toHaveBeenCalledWith(vendor, 'p1', expect.any(Object), expect.stringMatching(/^BULK-/), expect.objectContaining({payloadFingerprint:expect.any(String),rows:expect.any(Map)}));
   });
 
   it('does not apply any rate group when preview validation finds an invalid product', async () => {

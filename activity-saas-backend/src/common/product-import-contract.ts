@@ -35,7 +35,47 @@ export function canonicalDuration(value: unknown): unknown {
   return ({ HOUR: 'HOURS', HR: 'HOURS', HRS: 'HOURS', DAY: 'DAYS' } as Record<string, string>)[key] || key;
 }
 
-export type ChoiceIssue = { field: string; value: string; allowedValues: readonly string[]; message: string; correction: string };
+export type ChoiceIssue = { field: string; value: string; allowedValues?: readonly string[]; message: string; correction: string };
+export type ImportNumberRule = { min: number; max?: number; integer?: boolean; exclusiveMin?: boolean; decimals?: number };
+const money: ImportNumberRule = { min: 0, decimals: 4 };
+const count: ImportNumberRule = { min: 0, integer: true };
+export const importNumberRules: Record<string, Record<string, ImportNumberRule>> = {
+  Basic_Info: { duration_value: { min: 0, exclusiveMin: true } },
+  Options: { duration_minutes: count },
+  Ticket_Types: { age_from: count, age_to: count },
+  Rate_Plans: {
+    adult_price: money, child_price: money, senior_price: money, supplier_base_amount: money, mrp_amount: money,
+    min_pax: { min: 1, integer: true }, max_pax: { min: 1, integer: true }, cutoff_minutes: count,
+    adult_min_count: count, adult_max_count: count, child_min_count: count, child_max_count: count, group_min_count: count, group_max_count: count,
+    cancel_7_days_pct: { min: 0, max: 100 }, cancel_3_days_pct: { min: 0, max: 100 }, cancel_0_days_pct: { min: 0, max: 100 },
+  },
+  Availability: { default_capacity: count }, Media: { rank: count }, Booking_Questions: { rank: count },
+};
+export const IMPORT_OPERATING_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
+export const isImportDate = (value: unknown): boolean => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+};
+
+export const importProductContentKey = (row: Record<string, unknown>) => JSON.stringify([
+  String(row.product_name ?? '').trim().toLowerCase(), String(row.type ?? '').trim().toUpperCase(),
+  ...['city','state','country'].map(field => String(row[field] ?? '').trim().toLowerCase()),
+]);
+
+export function importMediaIssues(row: Record<string, unknown>) {
+  const value = (key:string) => String(row[key] ?? '').trim();
+  const url = value('external_url'), asset = value('file_asset_id');
+  const issues: Array<{field:string;value:string;message:string;correction:string}> = [];
+  const problem = (field:string,message:string,correction:string) => issues.push({field,value:value(field),message,correction});
+  if (Boolean(url) === Boolean(asset)) problem('file_asset_id','Provide exactly one of file_asset_id or external_url.','For images use an uploaded file_asset_id. For videos provide either an uploaded asset or a supported HTTP/HTTPS URL.');
+  if (url && (value('kind').toUpperCase() || 'IMAGE') === 'IMAGE') problem('external_url','Images require an uploaded, validated image asset.','Remove external_url and enter the file_asset_id of an image uploaded by this vendor, or add images in the product editor after import.');
+  if (url) { try { const parsed = new URL(url); if (!['http:','https:'].includes(parsed.protocol) || !parsed.hostname) throw new Error(); } catch { problem('external_url','external_url must be a valid HTTP or HTTPS URL.','Use a complete HTTP/HTTPS video URL, or an uploaded file_asset_id.'); } }
+  return issues;
+}
+const isImportTime = (value: unknown): boolean => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+const present = (value: unknown) => value !== undefined && value !== null && String(value).trim() !== '';
+
 export function normalizeImportChoices(section: string, original: Record<string, unknown>) {
   const row = { ...original };
   const issues: ChoiceIssue[] = [];
@@ -48,6 +88,57 @@ export function normalizeImportChoices(section: string, original: Record<string,
     if (canonical === undefined) {
       issues.push({ field, value: String(row[field]), allowedValues, message: `“${String(row[field])}” is not a valid ${field}.`, correction: `Choose ${allowedValues.join(', ')}.` });
     } else row[field] = boolean ? canonical === 'true' : canonical;
+  }
+  const problem = (field: string, correction: string, message = `“${String(row[field] ?? '')}” is not a valid ${field}.`) =>
+    issues.push({ field, value: String(row[field] ?? ''), message, correction });
+  for (const [field, rule] of Object.entries(importNumberRules[section] || {})) {
+    if (!present(row[field])) continue;
+    const raw = String(row[field]).trim(); const number = Number(raw);
+    const fraction = raw.split('.')[1]?.length || 0;
+    if (!/^-?\d+(\.\d+)?$/.test(raw) || !Number.isFinite(number) || Math.abs(number) > Number.MAX_SAFE_INTEGER ||
+        (rule.integer && !Number.isSafeInteger(number)) || (rule.exclusiveMin ? number <= rule.min : number < rule.min) ||
+        (rule.max !== undefined && number > rule.max) || (rule.decimals !== undefined && fraction > rule.decimals)) {
+      problem(field, `Enter a ${rule.integer ? 'whole number' : 'number'} ${rule.exclusiveMin ? 'greater than' : 'at least'} ${rule.min}${rule.max === undefined ? '' : ` and at most ${rule.max}`}${rule.decimals === undefined ? '' : `, with up to ${rule.decimals} decimal places`}. Do not enter words, symbols or thousands separators.`);
+    } else if (typeof row[field] === 'string') row[field] = raw;
+  }
+  const dateFields = section === 'Rate_Plans' ? ['valid_from', 'valid_to'] : section === 'Availability' ? ['effective_from', 'effective_to'] : [];
+  for (const field of dateFields) {
+    if (!present(row[field])) continue;
+    if (typeof row[field] === 'string') row[field] = (row[field] as string).trim();
+    if (!isImportDate(row[field])) problem(field, 'Enter a real calendar date as YYYY-MM-DD, for example 2026-12-15.');
+  }
+  if (dateFields.length && isImportDate(row[dateFields[0]]) && isImportDate(row[dateFields[1]])) {
+    const [from, to] = dateFields;
+    if (section === 'Rate_Plans' ? String(row[to]) <= String(row[from]) : String(row[to]) < String(row[from])) {
+      problem(to, `Set ${to} ${section === 'Rate_Plans' ? 'after' : 'on or after'} ${from}.`, `${to} is before the allowed start of this date range.`);
+    }
+  }
+  if (section === 'Rate_Plans') {
+    for (const [min, max] of [['min_pax', 'max_pax'], ['adult_min_count', 'adult_max_count'], ['child_min_count', 'child_max_count'], ['group_min_count', 'group_max_count']]) {
+      if (present(row[min]) && present(row[max]) && Number(row[max]) < Number(row[min])) problem(max, `Set ${max} to at least ${min}.`);
+    }
+  }
+  if (section === 'Availability') {
+    if (present(row.operating_days)) {
+      const days = Array.isArray(row.operating_days) ? row.operating_days : String(row.operating_days).split('|');
+      const normalized = days.map((value) => String(value).trim().toUpperCase());
+      if (normalized.some((value) => !IMPORT_OPERATING_DAYS.includes(value as typeof IMPORT_OPERATING_DAYS[number]))) {
+        problem('operating_days', `Use ${IMPORT_OPERATING_DAYS.join(', ')} separated by |, for example MON|WED|FRI.`);
+      } else row.operating_days = [...new Set(normalized)].join('|');
+    }
+    for (const field of ['start_time', 'end_time']) {
+      if (!present(row[field])) continue;
+      if (!isImportTime(row[field])) problem(field, 'Enter a 24-hour time as HH:mm, from 00:00 to 23:59.');
+    }
+    if (isImportTime(row.start_time) && isImportTime(row.end_time) && String(row.end_time) <= String(row.start_time)) problem('end_time', 'Set end_time after start_time.');
+    if (present(row.slots_json)) {
+      try {
+        const slots = JSON.parse(String(row.slots_json));
+        if (Array.isArray(slots)) slots.forEach((slot, index) => {
+          if (!isImportTime(slot?.startTime) || !isImportTime(slot?.endTime) || slot.endTime <= slot.startTime) problem('slots_json', `Correct slot ${index + 1}: use valid HH:mm times with endTime after startTime.`);
+        });
+      } catch { /* The structural JSON validator supplies the syntax error. */ }
+    }
   }
   return { row, issues };
 }

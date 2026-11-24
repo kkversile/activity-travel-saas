@@ -8,6 +8,7 @@ export const productImportJsonSample = {
     'Edit the demo rows, keep the section names and field names, then upload this JSON from Products.',
     'The upload creates a DRAFT product. Review it in the normal six-step wizard and submit it manually.',
     'List fields use | as the separator. Boolean values use true or false. Dates use YYYY-MM-DD.',
+    'Images require an uploaded, validated image asset. Add images in the product editor after creating the draft, or use an owned file_asset_id.',
   ],
   Basic_Info: [{
     product_key: 'MUNNAR_SUNRISE_SPICE',
@@ -163,13 +164,8 @@ export const productImportJsonSample = {
       materialize: true,
     },
   ],
-  Media: [{
-    product_key: 'MUNNAR_SUNRISE_SPICE',
-    kind: 'IMAGE',
-    external_url: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80',
-    description: 'Sunrise over the green hills and spice gardens of Munnar',
-    rank: 1,
-  }],
+  // Images are uploaded and quality-checked in the product editor; no external image sample.
+  Media: [],
   Booking_Questions: [
     { product_key: 'MUNNAR_SUNRISE_SPICE', code: 'lead_phone', label: 'Lead traveller phone', type: 'TEXT', required: true, applies_per_traveller: false, rank: 1 },
     { product_key: 'MUNNAR_SUNRISE_SPICE', code: 'dietary_requirements', label: 'Dietary or allergy requirements', type: 'TEXT', required: false, applies_per_traveller: false, rank: 2 },

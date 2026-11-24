@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { importChoices } from '../../../../activity-saas-backend/src/common/product-import-contract';
+import { importChoices, importNumberRules } from '../../../../activity-saas-backend/src/common/product-import-contract';
 import { createSampleWorkbook } from './productImport';
 
 const sections: Record<string, string> = { Products: 'Basic_Info', Options: 'Options', 'Ticket types': 'Ticket_Types', Rates: 'Rate_Plans', 'Time slots': 'Availability' };
@@ -13,7 +13,9 @@ export function createProductTemplateBytes(): Uint8Array {
     ['VOYA product import — instructions'],
     ['One row per product in Products. Each product_code must be unique, ignoring letter case.'],
     ['Repeat the product_code in linked Options, Ticket types, Rates and Time slots rows.'],
+    ['For one schedule_code, repeat its schedule settings or leave later settings blank to inherit the first row. Use a new schedule_code for different capacity, days or dates.'],
     ['Select dropdown values in controlled columns. Pasted values are checked again during upload.'],
+    ['Prices must be non-negative numbers with up to 4 decimals. Duration must be greater than 0 when provided.'],
     ['Hours, Days and Flexible are the supported duration units. Use numeric duration_value with Hours or Days.'],
     ['Use YYYY-MM-DD for dates, HH:mm for times, and | to separate list entries.'],
     ['Keep product and option codes as text, including leading zeros. Do not rename sheet headers.'],
@@ -32,6 +34,14 @@ export function createProductTemplateBytes(): Uint8Array {
       const letter = XLSX.utils.encode_col(column);
       return [`<dataValidation type="list" errorStyle="stop" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="Choose an allowed value" error="${xml(`Choose ${choices.join(', ')}.`)}" promptTitle="${xml(field)}" prompt="${xml(`Allowed: ${choices.join(', ')}`)}" sqref="${letter}2:${letter}2001"><formula1>${xml(`"${choices.join(',')}"`)}</formula1></dataValidation>`];
     });
+    for (const [field, rule] of Object.entries(importNumberRules[sections[name]] || {})) {
+      const column = columns.indexOf(field);
+      if (column < 0) continue;
+      const letter = XLSX.utils.encode_col(column);
+      const operator = rule.max !== undefined ? 'between' : rule.exclusiveMin ? 'greaterThan' : 'greaterThanOrEqual';
+      const message = `Enter a ${rule.integer ? 'whole number' : 'number'} ${rule.exclusiveMin ? 'greater than' : 'at least'} ${rule.min}${rule.max === undefined ? '' : ` and at most ${rule.max}`}.`;
+      validations.push(`<dataValidation type="${rule.integer ? 'whole' : 'decimal'}" operator="${operator}" errorStyle="stop" allowBlank="1" showErrorMessage="1" errorTitle="Invalid number" error="${xml(message)}" sqref="${letter}2:${letter}2001"><formula1>${rule.min}</formula1>${rule.max === undefined ? '' : `<formula2>${rule.max}</formula2>`}</dataValidation>`);
+    }
     if (!validations.length) return;
     const index = archive.FullPaths.findIndex((path: string) => path.endsWith(`/xl/worksheets/sheet${sheetIndex + 1}.xml`));
     if (index < 0) throw new Error(`Template worksheet is missing: ${name}`);
