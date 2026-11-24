@@ -1,7 +1,7 @@
 // Readiness review: writes only to a guarded disposable local PostgreSQL copy.
 const path = require('node:path'), fs = require('node:fs'), assert = require('node:assert/strict'), crypto = require('node:crypto');
 const root = path.resolve(__dirname, '../..'), rb = require('node:module').createRequire(path.join(root, 'activity-saas-backend/package.json'));
-const evidence = path.join(root, 'outputs/import-nine-fixes-20261124/staging'); fs.mkdirSync(evidence, { recursive: true });
+const evidence = path.resolve(process.env.BULK_IMPORT_EVIDENCE_DIR || path.join(root, 'outputs/import-nine-fixes-20261124/staging')); fs.mkdirSync(evidence, { recursive: true });
 const database = process.env.BULK_IMPORT_STAGING_DATABASE_URL || 'postgresql://voya_staging@127.0.0.1:55445/voya_import_fixes_20261124?schema=public';
 const target=new URL(database); assert(target.hostname==='127.0.0.1' && target.port==='55445' && target.username==='voya_staging' && /^\/voya_import_fixes_\d+$/.test(target.pathname),'Only a disposable local bulk-import staging database is permitted');
 const serve=process.argv.includes('--serve');
@@ -227,6 +227,21 @@ async function main() {
   await productRecoveryChecks(owner,outlet);
   await publishedChecks(owner,outlet);
   await extendedChecks(owner,employee,outlet,product,option,rate);
+  await check('public product codes from Your products and public option codes validate and save with tenant/outlet isolation',async()=>{
+    // Imported options use their supplier code; also rehearse an option with a
+    // public alias, as assigned by the existing identifier/backfill system.
+    const {ensurePublicIdentifier}=require('../dist/common/public-identifiers');
+    await ensurePublicIdentifier(db,'VARIANT',option.variantId,'DEMO-OPTION-'+crypto.randomUUID().toUpperCase());
+    const publicProduct=await db.publicIdentifier.findUniqueOrThrow({where:{entityType_entityId:{entityType:'PRODUCT',entityId:product.id}}}),publicOption=await db.publicIdentifier.findUniqueOrThrow({where:{entityType_entityId:{entityType:'VARIANT',entityId:option.variantId}}});
+    const listing=await request(owner,'/products/listing?search='+encodeURIComponent(publicProduct.publicCode));assert.equal(listing.status,200);assert(listing.body.items.some(item=>item.id===product.id&&item.productCode===publicProduct.publicCode));
+    const row={...rate,productCode:publicProduct.publicCode,optionCode:publicOption.publicCode,adultSellInr:'2060'},dto={submissionId:crypto.randomUUID(),rows:[row]};
+    const preview=await request(owner,'/products/rates/import/batch/validate',dto);assert.equal(preview.status,201,JSON.stringify(preview));const saved=await request(owner,'/products/rates/import/batch',dto);assert.equal(saved.body.status,'COMPLETED',JSON.stringify(saved));assert.deepEqual(saved.body.completedProductCodes,[publicProduct.publicCode]);
+    const count=await db.ratePlanCommercialVersion.count();const duplicate=await request(owner,'/products/rates/import/batch',{rows:[row,{...row,productCode:product.productCode,optionCode:option.variantCode}]});assert.equal(duplicate.status,400);assert.equal(await db.ratePlanCommercialVersion.count(),count);
+    const sibling=await db.productVariant.findFirstOrThrow({where:{productId:product.id,id:{not:option.variantId}}});
+    const mixed=await request(owner,'/products/rates/import/batch',{submissionId:crypto.randomUUID(),rows:[{...row,productCode:product.productCode},{...row,optionCode:sibling.variantCode,adultSellInr:undefined,baseSellInr:'7300'}]});assert.equal(mixed.body.status,'COMPLETED',JSON.stringify(mixed));assert.equal(mixed.body.updatedProductCount,1);assert.deepEqual(mixed.body.completedProductCodes,[product.productCode,publicProduct.publicCode]);
+    const foreignOutlet=await db.product.findFirstOrThrow({where:{tenantId:owner.tenantId,outletId:{not:outlet.id},sourceImportKey:{startsWith:'REVIEW-'}}}),foreignPublic=await db.publicIdentifier.findUniqueOrThrow({where:{entityType_entityId:{entityType:'PRODUCT',entityId:foreignOutlet.id}}});
+    for(const actor of [employee,foreign]){const denied=await request(actor,'/products/rates/import/batch/validate',{rows:[{...row,productCode:foreignPublic.publicCode}]});assert([400,403,404].includes(denied.status),JSON.stringify(denied));}
+  });
   await browserFixtures(owner,outlet,tag);
   await check('final protected booking and finance hash comparison',async()=>assert.deepEqual(await hashFinance(),before));
 }

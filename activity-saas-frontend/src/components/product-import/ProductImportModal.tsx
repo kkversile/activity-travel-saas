@@ -52,7 +52,7 @@ export async function importWorkbook(models: ImportWorkbookModel[], onProgress: 
 
 export async function importRateUpdates(rows: RateUpdateImportRow[], onProgress: (value: string) => void, submissionId?: string) {
   onProgress(`Preview-validating ${rows.length} rate update${rows.length === 1 ? '' : 's'}…`);
-  const result = await api.request<{ status: 'COMPLETED' | 'PARTIAL'; updatedProductCount: number; failedProductCode?: string; error?: unknown }>('/products/rates/import/batch', { method: 'POST', body: JSON.stringify({ rows, submissionId }) });
+  const result = await api.request<{ status: 'COMPLETED' | 'PARTIAL'; updatedProductCount: number; completedProductCodes?: string[]; failedProductCode?: string; error?: unknown }>('/products/rates/import/batch', { method: 'POST', body: JSON.stringify({ rows, submissionId }) });
   onProgress(result.status === 'PARTIAL'
     ? `Rate updates stopped at product ${result.failedProductCode}; ${result.updatedProductCount} product groups were applied. The remaining rows must be retried separately. ${importFailureMessage(result.error)}`
     : `Rate update complete. ${result.updatedProductCount} product groups were updated.`);
@@ -116,7 +116,7 @@ export default function ProductImportModal({ onClose, onComplete, allowRateUpdat
       if (rateRows.length) {
         const result = await importRateUpdates(rateRows, setProgress, rateSubmissionId.current);
         if (result.status === 'PARTIAL') {
-          const done = new Set([...new Set(rateRows.map(row => row.productCode.toUpperCase()))].slice(0, result.updatedProductCount));
+          const done = new Set((result.completedProductCodes ?? [...new Set(rateRows.map(row => row.productCode.toUpperCase()))].slice(0, result.updatedProductCount)).map(code=>code.toUpperCase()));
           setRateRows(rateRows.filter(row => !done.has(row.productCode.toUpperCase())));
           setRecovery(true); setValidated(false); setIssues([]);
         } else onComplete(null, result.updatedProductCount, result.status, result.failedProductCode, 'RATES');

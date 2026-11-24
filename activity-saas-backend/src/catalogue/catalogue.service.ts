@@ -2709,14 +2709,18 @@ export class CatalogueService {
     });
     if (rowIssues.length) throw invalid();
     const tenantId = requireTenant(user);
-    const rowsByCode = new Map<string, VendorBulkRateUpdateRowDto[]>();
-    rows.forEach(row => rowsByCode.set(row.productCode,[...(rowsByCode.get(row.productCode)||[]),row]));
-    const products = await this.prisma.product.findMany({ where: { tenantId, productCode: { in: [...rowsByCode.keys()] }, deletedAt: null }, select: { id: true, productCode: true } });
-    const productsByCode = new Map(products.map(product => [String(product.productCode).toUpperCase(),product]));
-    const prepared: Array<{productId:string;productCode:string;dto:ActivityPricesAvailabilityDto;context:BulkRateApplyContext;key:string;replay?:any}> = [];
-    for (const [productCode,productRows] of rowsByCode) {
-      const product = productsByCode.get(productCode);
-      if (!product) { productRows.forEach(row => problem(row,'Product code was not found for this vendor.','productCode','Copy the existing product code from Your products.')); continue; }
+    const sourceCodes = [...new Set(rows.map(row=>row.productCode))];
+    const publicProducts = await this.prisma.publicIdentifier?.findMany({where:{entityType:PublicEntity.PRODUCT,publicCode:{in:sourceCodes}},select:{entityId:true,publicCode:true}}) || [];
+    // Public codes are global, so resolve their IDs through the vendor-scoped
+    // Product query before exposing any match or looking up an apply result.
+    const products = await this.prisma.product.findMany({where:{tenantId,deletedAt:null,OR:[{productCode:{in:sourceCodes}},{id:{in:publicProducts.map(item=>item.entityId)}}]},select:{id:true,productCode:true}});
+    const productsByCode = new Map(products.map(product=>[product.productCode.toUpperCase(),product]));
+    for(const alias of publicProducts){const product=products.find(item=>item.id===alias.entityId);if(product)productsByCode.set(alias.publicCode.toUpperCase(),product);}
+    const grouped = new Map<string,{product:typeof products[number];rows:VendorBulkRateUpdateRowDto[]}>();
+    for(const row of rows){const product=productsByCode.get(row.productCode);if(!product){problem(row,'Product code was not found for this vendor.','productCode','Copy the existing product code from Your products.');continue;}const group=grouped.get(product.id)||{product,rows:[]};group.rows.push(row);grouped.set(product.id,group);}
+    const prepared: Array<{productId:string;productCode:string;sourceCodes:string[];dto:ActivityPricesAvailabilityDto;context:BulkRateApplyContext;key:string;replay?:any}> = [];
+    for (const {product,rows:productRows} of grouped.values()) {
+      const productCode=productRows[0].productCode, sourceCodes=[...new Set(productRows.map(row=>row.productCode))];
       // This read enforces tenant AND outlet permissions before a cached result is examined.
       const current = await this.activityPricesAvailability(user,product.id);
       const payloadFingerprint = fingerprint({ rows: productRows });
@@ -2725,10 +2729,16 @@ export class CatalogueService {
       if (prior && (prior.productId !== product.id || prior.payloadFingerprint !== payloadFingerprint)) throw new ConflictException({code:'IDEMPOTENCY_KEY_REUSED',message:'This submission ID was already used for different rate rows. Start a new submission for changed rates.'});
       const context: BulkRateApplyContext = {payloadFingerprint,rows:new Map()};
       const update:ActivityPricesAvailabilityDto = {options:[]};
-      if (prior) { prepared.push({productId:product.id,productCode,dto:update,context,key,replay:{...(prior.responsePayload as any),replayed:true}}); continue; }
+      if (prior) { prepared.push({productId:product.id,productCode,sourceCodes,dto:update,context,key,replay:{...(prior.responsePayload as any),replayed:true}}); continue; }
       const issueCount = rowIssues.length;
+      const publicOptions=await this.prisma.publicIdentifier?.findMany({where:{entityType:PublicEntity.VARIANT,entityId:{in:current.options.map(option=>option.variantId)},publicCode:{in:productRows.map(row=>row.optionCode)}},select:{entityId:true,publicCode:true}}) || [];
+      const optionsByCode=new Map(current.options.map(option=>[option.variantCode?.toUpperCase(),option]));
+      for(const alias of publicOptions){const option=current.options.find(item=>item.variantId===alias.entityId);if(option)optionsByCode.set(alias.publicCode.toUpperCase(),option);}
+      const seenOptions=new Set<string>();
       for (const row of productRows) {
-        const option = current.options.find(item => item.variantCode?.toUpperCase() === row.optionCode);
+        const option = optionsByCode.get(row.optionCode);
+        if(option && seenOptions.has(option.variantId)){problem(row,'Only one rate row per product option is allowed, including public/internal code aliases.','optionCode','Keep one row per actual option. Public and internal codes identify the same option.');continue;}
+        if(option)seenOptions.add(option.variantId);
         const plan = option?.ratePlans.find((item: any) => item.editable);
         const versions = plan?.versions || [];
         if (!option || !plan || !versions.length) { problem(row,'Product option has no standard editable rate version.','optionCode','Check the option code. Use advanced pricing for protected or multiple special rate plans.'); continue; }
@@ -2749,16 +2759,16 @@ export class CatalogueService {
         const preview = await this.previewActivityPricesAvailability(user,product.id,update);
         if (!preview.valid) for (const row of productRows) for (const message of preview.errors) problem(row,message,undefined,'Review this product option in the pricing editor, correct the file and validate again.');
       }
-      prepared.push({productId:product.id,productCode,dto:update,context,key});
+      prepared.push({productId:product.id,productCode,sourceCodes,dto:update,context,key});
     }
     if (rowIssues.length) throw invalid();
     if (validateOnly) return {valid:true,productCount:prepared.length};
-    const results:any[] = [];
+    const results:any[] = [], completedProductCodes:string[] = [];
     for (const group of prepared) {
-      try { results.push(group.replay || await this.applyActivityPricesAvailability(user,group.productId,group.dto,group.key,group.context)); }
-      catch(error:any) { return {status:'PARTIAL',updatedProductCount:results.length,failedProductCode:group.productCode,error:error?.response ?? error?.message ?? 'Rate update failed.',products:results}; }
+      try { results.push(group.replay || await this.applyActivityPricesAvailability(user,group.productId,group.dto,group.key,group.context));completedProductCodes.push(...group.sourceCodes); }
+      catch(error:any) { return {status:'PARTIAL',updatedProductCount:results.length,completedProductCodes,failedProductCode:group.productCode,error:error?.response ?? error?.message ?? 'Rate update failed.',products:results}; }
     }
-    return {status:'COMPLETED',updatedProductCount:results.length,products:results};
+    return {status:'COMPLETED',updatedProductCount:results.length,completedProductCodes,products:results};
   }
 
   async readiness(user: AuthUser, productId: string) {

@@ -140,6 +140,35 @@ describe('CatalogueService bulk rate update import', () => {
     expect(apply).not.toHaveBeenCalled();
   });
 
+  function aliases(prisma:any){
+    prisma.publicIdentifier={findMany:jest.fn().mockImplementation(async({where}:any)=>where.entityType==='PRODUCT'?[{entityId:'p1',publicCode:'TA-KL-0031'}]:[{entityId:'v1',publicCode:'OPT-KL-0031'}])};
+  }
+  it('accepts the public product and option codes shown in the vendor interface',async()=>{
+    const {service,prisma,apply}=rateService();aliases(prisma);
+    const result=await service.importRateBatch(vendor,{rows:[{...rateRow(),productCode:'ta-kl-0031',optionCode:'opt-kl-0031'}]});
+    expect(result).toMatchObject({status:'COMPLETED',updatedProductCount:1,completedProductCodes:['TA-KL-0031']});expect(apply).toHaveBeenCalledWith(vendor,'p1',expect.objectContaining({options:[expect.objectContaining({variantId:'v1'})]}),expect.any(String),expect.any(Object));
+    expect(prisma.product.findMany.mock.calls[0][0].where).toMatchObject({tenantId:'tenant-1',deletedAt:null,OR:expect.arrayContaining([{id:{in:['p1']}}])});
+    expect(prisma.publicIdentifier.findMany.mock.calls[1][0].where).toMatchObject({entityType:'VARIANT',entityId:{in:['v1']}});
+  });
+  it('rejects duplicate rows using different aliases for the same product option',async()=>{
+    const {service,prisma,apply}=rateService();aliases(prisma);
+    await expect(service.importRateBatch(vendor,{rows:[rateRow(),{...rateRow(),productCode:'TA-KL-0031',optionCode:'OPT-KL-0031'}]})).rejects.toMatchObject({response:{issues:expect.arrayContaining([expect.objectContaining({field:'optionCode',message:expect.stringContaining('aliases')})])}});expect(apply).not.toHaveBeenCalled();
+  });
+  it('groups distinct options under public/internal aliases into one product save and reports both source codes',async()=>{
+    const {service,prisma,apply}=rateService();aliases(prisma);
+    const existing:any=await service.activityPricesAvailability(vendor,'p1');existing.options.push({...existing.options[0],variantId:'v2',variantCode:'OPT-2'});jest.spyOn(service,'activityPricesAvailability').mockResolvedValue(existing);
+    const result=await service.importRateBatch(vendor,{rows:[rateRow(),{...rateRow('OPT-2'),productCode:'TA-KL-0031'}]});
+    expect(result).toMatchObject({updatedProductCount:1,completedProductCodes:['TA-GA-0318','TA-KL-0031']});expect(apply).toHaveBeenCalledTimes(1);expect(apply.mock.calls[0][2].options).toHaveLength(2);
+  });
+  it('does not resolve another vendor product through a global public code',async()=>{
+    const {service,prisma,apply}=rateService();aliases(prisma);prisma.product.findMany.mockResolvedValue([]);
+    await expect(service.importRateBatch(vendor,{rows:[{...rateRow(),productCode:'TA-KL-0031'}]})).rejects.toMatchObject({response:{code:'RATE_IMPORT_VALIDATION_FAILED'}});expect(apply).not.toHaveBeenCalled();expect(prisma.activityPriceApplyRequest.findUnique).not.toHaveBeenCalled();
+  });
+  it('enforces outlet authorization before looking up cached results for a public code',async()=>{
+    const {service,prisma,apply}=rateService();aliases(prisma);jest.spyOn(service,'activityPricesAvailability').mockRejectedValue(new BadRequestException('Outlet not authorized'));
+    await expect(service.importRateBatch(vendor,{rows:[{...rateRow(),productCode:'TA-KL-0031'}]})).rejects.toThrow('Outlet not authorized');expect(prisma.activityPriceApplyRequest.findUnique).not.toHaveBeenCalled();expect(apply).not.toHaveBeenCalled();
+  });
+
   it('maps product and option codes to editable versions and previews all updates before applying', async () => {
     const { service, preview, apply } = rateService();
 

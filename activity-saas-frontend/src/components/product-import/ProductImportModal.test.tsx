@@ -121,6 +121,13 @@ describe('ProductImportModal backend validation flow', () => {
 });
 
 describe('import validation safety', () => {
+  it('removes every completed public/internal alias after a partial product-group update',async()=>{
+    const request=vi.spyOn(api,'request').mockResolvedValueOnce({valid:true} as never).mockResolvedValueOnce({status:'PARTIAL',updatedProductCount:1,completedProductCodes:['PRD-FIRST','TA-KL-FIRST'],failedProductCode:'SECOND'} as never).mockResolvedValueOnce({valid:true} as never);
+    render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()}/>);fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
+    const csv='product_code,option_code,valid_from,valid_to,adult_sell_inr\nPRD-FIRST,OPT1,2026-12-01,2027-01-01,1900\nTA-KL-FIRST,OPT2,2026-12-01,2027-01-01,1800\nSECOND,OPT3,2026-12-01,2027-01-01,1700';
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File([csv],'aliases.csv')]}});await screen.findByText(/3 valid option rates/);fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);fireEvent.click(screen.getByRole('button',{name:'Apply valid rate updates (3)'}));await screen.findByText(/Only unsaved records remain/);
+    expect(screen.getByRole('button',{name:'Apply valid rate updates (1)'})).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);expect(JSON.parse(String(request.mock.calls[2][1]?.body)).rows.map((row:any)=>row.productCode)).toEqual(['SECOND']);
+  });
   it('shows the entered invalid rate value alongside its source cell and correction',async()=>{
     render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()}/>);fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
     fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File(['product_code,option_code,valid_from,valid_to,adult_sell_inr\n\nPRD,OPT,2026-12-01,2027-01-01,banana'],'rates.csv')]}});
