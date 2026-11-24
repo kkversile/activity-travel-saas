@@ -134,7 +134,25 @@ read-only transaction. Without `--baseline`, it checks the resulting browser
 fixtures, draft/approved prices, financial hashes and downloaded corrections.
 Set `BULK_IMPORT_EVIDENCE_DIR` to the evidence directory when running it.
 
-## Limits
+## Live verification follow-up — 25 November 2026
+
+The first live draft check exposed a pre-existing commercial-version edge case:
+editing the exact original imported date range reused its older draft version
+number. A later bulk rate save could therefore read the newer active version and
+miss the draft's additional traveller or visitor prices. Reused draft edits now
+advance the version number, including for optimistic concurrency checks.
+
+The PostgreSQL/HTTP regression creates an imported product, edits the same date
+range through the normal prices API, rejects the stale expected version, then
+applies an adult/child bulk update and checks all other traveller and visitor
+prices plus approved-version immutability. The follow-up passed 881 backend
+tests, 353 frontend tests and 45 isolated staging checks. Evidence is under
+`outputs/bulk-six-live-deploy-20261125/` (`followup-*`). No schema migration is
+required. Live verification uses clearly labelled, unpublished demonstration
+drafts and compares existing catalogue, upload and protected financial data with
+the pre-deployment baseline.
+
+## Verification limits
 
 Staging was cloned from the previously restored snapshot, not freshly copied
 from today's live database. Native Microsoft Excel's interactive dropdown/formula

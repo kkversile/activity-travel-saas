@@ -5461,6 +5461,10 @@ export class CatalogueService {
                 where: { id: existing.id },
                 data: {
                   ...data,
+                  // Reusing a matching date range is still a new edit. Advance
+                  // its version so an older imported draft cannot stay behind
+                  // the approved version or evade optimistic conflict checks.
+                  versionNumber: ++latestNumber,
                   status: "DRAFT",
                   travellerPrices: value
                     ? value.travellerPrices?.length

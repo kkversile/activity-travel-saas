@@ -52,6 +52,17 @@ module.exports=async function sixFixChecks(context){
   const quote=(version,travellers,visitorCategory)=>new CommercialCalculatorService().calculate({serviceDate:'2026-12-15',travellers,units:1,visitorCategory,visitorEligibilityVerified:true,agentFacingRequired:false},version,[]);
   const activeVersions=target=>db.ratePlanCommercialVersion.findMany({where:{ratePlan:{variantId:target.option.variantId},status:'ACTIVE'},include:{travellerPrices:{orderBy:{travellerType:'asc'}}},orderBy:{id:'asc'}});
 
+  await check('six fixes: editing the exact imported date range advances its draft version and preserves new categories in a later bulk upload',async()=>{
+    // No direct price seeding: reproduce the imported v1 draft / v2 active pair
+    // and edit precisely that same date range through the canonical vendor API.
+    const target=await fixture('EXACT-RANGE'),previous=Math.max(...target.plan.versions.map(item=>item.versionNumber));
+    await seed(target,{travellerPrices:[{travellerType:'ADULT',amount:'1800'},{travellerType:'CHILD',amount:'900'},{travellerType:'SENIOR',amount:'1400'},{travellerType:'INFANT',amount:'0'},{travellerType:'YOUTH',amount:'1200'},{travellerType:'GROUP',amount:'2000'}],visitorPrices:[{travellerType:'ADULT',indian:'1800',foreign:'2600'}],visitorVerificationMode:'NONE'},true);
+    const edited=await latest(target);assert(edited.versionNumber>previous,'Edited draft retained an older version number');assert.equal(amounts(edited).YOUTH,'1200');
+    const stale=await request(owner,'/products/'+target.product.id+'/prices-availability/apply',{options:[{variantId:target.option.variantId,expectedVersion:previous,pricingUnit:'PER_PERSON',currency:'INR',supplierModel:'NET_RATE',bookingMode:'INSTANT',effectiveFrom:target.plan.validFrom.slice(0,10),effectiveTo:target.plan.validTo.slice(0,10),travellerPrices:[{travellerType:'ADULT',amount:'1850'}]}]},{'Idempotency-Key':'SIX-STALE-'+crypto.randomUUID()});assert.equal(stale.status,409,JSON.stringify(stale));
+    const approvedBefore=await activeVersions(target);await apply(target,[row(target,{adultSellInr:'2000',childSellInr:'0'})]);const saved=await latest(target);
+    assert.deepEqual(amounts(saved),{ADULT:'2000',CHILD:'0',SENIOR:'1400',INFANT:'0',YOUTH:'1200',GROUP:'2000'});assert.equal(saved.sourcePayload.visitorPrices[0].indian,'2000');assert.equal(saved.sourcePayload.visitorPrices[0].foreign,'2600');assert.deepEqual(await activeVersions(target),approvedBefore);
+  });
+
   await check('six fixes: infant youth group and zero prices survive repeated date-limited rate saves and approval',async()=>{
     const target=await fixture('TRAVELLERS',true);
     await seed(target,{travellerPrices:[{travellerType:'ADULT',amount:'1800'},{travellerType:'CHILD',amount:'900'},{travellerType:'SENIOR',amount:'1400'},{travellerType:'INFANT',amount:'0'},{travellerType:'YOUTH',amount:'1200'},{travellerType:'GROUP',amount:'2000'}]});
