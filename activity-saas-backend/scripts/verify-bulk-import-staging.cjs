@@ -5,6 +5,10 @@ const evidence = path.resolve(process.env.BULK_IMPORT_EVIDENCE_DIR || path.join(
 const database = process.env.BULK_IMPORT_STAGING_DATABASE_URL || 'postgresql://voya_staging@127.0.0.1:55445/voya_import_fixes_20261124?schema=public';
 const target=new URL(database); assert(target.hostname==='127.0.0.1' && target.port==='55445' && target.username==='voya_staging' && /^\/voya_import_fixes_\d+$/.test(target.pathname),'Only a disposable local bulk-import staging database is permitted');
 const serve=process.argv.includes('--serve');
+const stagingPort=Number(process.env.BULK_IMPORT_STAGING_PORT || 4048);
+assert(Number.isInteger(stagingPort) && stagingPort>=1024 && stagingPort<=65535,'Invalid loopback staging port');
+const uiOrigin=process.env.BULK_IMPORT_STAGING_UI_ORIGIN || 'http://127.0.0.1:3040';
+assert(/^http:\/\/127\.0\.0\.1:\d+$/.test(uiOrigin),'Only a loopback staging UI origin is permitted');
 const protectedRoot=path.join(process.env.TEMP || process.env.TMP || '', 'voya-approved-migration-20261119-170201'), saved={};
 for(const name of ['environment-0.env','environment-1.env']){const file=path.join(protectedRoot,name);if(fs.existsSync(file))Object.assign(saved,rb('dotenv').parse(fs.readFileSync(file)));}
 
@@ -147,9 +151,9 @@ async function main() {
   const { RequestContextService } = require('../dist/common/request-context.service'), { CorrelationIdMiddleware } = require('../dist/common/correlation-id.middleware');
   app = await NestFactory.create(AppModule, { logger: ['error'] });
   const middleware = new CorrelationIdMiddleware(app.get(RequestContextService)); app.use((req,res,next) => middleware.use(req,res,next));
-  app.enableCors({origin:'http://127.0.0.1:3040'}); app.setGlobalPrefix('api'); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true })); await app.init();
+  app.enableCors({origin:uiOrigin}); app.setGlobalPrefix('api'); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true })); await app.init();
   for (const name of app.get(SchedulerRegistry).getCronJobs().keys()) app.get(SchedulerRegistry).deleteCronJob(name);
-  await app.listen(serve ? 4048 : 0, '127.0.0.1'); base = 'http://127.0.0.1:' + app.getHttpServer().address().port + '/api';
+  await app.listen(serve ? stagingPort : 0, '127.0.0.1'); base = 'http://127.0.0.1:' + app.getHttpServer().address().port + '/api';
   const savedFetch = global.fetch; global.fetch = (url, options) => { assert(String(url).startsWith(base + '/'), 'External HTTP forbidden'); return savedFetch(url, options); };
   const owner = await db.user.findUniqueOrThrow({ where: { email: 'owner@harbour-trails.example.com' } });
   const employee = await db.user.findUniqueOrThrow({ where: { email: 'kochi@harbour-trails.example.com' } });
@@ -242,6 +246,7 @@ async function main() {
     const foreignOutlet=await db.product.findFirstOrThrow({where:{tenantId:owner.tenantId,outletId:{not:outlet.id},sourceImportKey:{startsWith:'REVIEW-'}}}),foreignPublic=await db.publicIdentifier.findUniqueOrThrow({where:{entityType_entityId:{entityType:'PRODUCT',entityId:foreignOutlet.id}}});
     for(const actor of [employee,foreign]){const denied=await request(actor,'/products/rates/import/batch/validate',{rows:[{...row,productCode:foreignPublic.publicCode}]});assert([400,403,404].includes(denied.status),JSON.stringify(denied));}
   });
+  await require('./verify-bulk-import-six-cases.cjs')({check,request,db,owner,outlet,tag,sample,parsing,XLSX,evidence,base,token,hashFinance});
   await browserFixtures(owner,outlet,tag);
   await check('final protected booking and finance hash comparison',async()=>assert.deepEqual(await hashFinance(),before));
 }
@@ -293,6 +298,6 @@ main().catch(error=>{findings.push({fatal:error.message,stack:error.stack});cons
   if(!pass)process.exitCode=1;
   fs.writeFileSync(path.join(evidence,'staging-verification.json'),JSON.stringify({checkedAt:new Date().toISOString(),pass,database:target.pathname,externalDeliveryDisabled:true,checks,findings},null,2));
   await db.$disconnect();
-  if(serve && pass) console.log('STAGING_READY http://127.0.0.1:4048/api; external delivery and all scheduled workers disabled.');
+  if(serve && pass) console.log(`STAGING_READY ${base}; external delivery and all scheduled workers disabled.`);
   else await app?.close();
 });

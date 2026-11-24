@@ -19,10 +19,24 @@ export function bulkRateHistory(versions: BulkRateVersion[]): ActivityPriceHisto
 export function bulkRateOption(row: VendorBulkRateUpdateRowDto, version: BulkRateVersion, plan: BulkRateVersion, variantId: string): ActivityPriceOptionDto {
   const source = version.sourcePayload || {}, rules = source.bookingRules || {};
   const unit = String(version.pricingUnit || plan.pricingUnit).toUpperCase() as ActivityPriceOptionDto['pricingUnit'];
-  const prices = ['ADULT','CHILD','SENIOR'].flatMap((type,index) => {
-    const replacement = [row.adultSellInr,row.childSellInr,row.seniorSellInr][index];
-    const amount = replacement ?? version.travellerPrices?.find((price:any) => price.travellerType === type)?.amount;
-    return amount == null ? [] : [{travellerType:type,amount:String(amount)}];
+  const replacements: Record<string, string | undefined> = {
+    ADULT: row.adultSellInr, CHILD: row.childSellInr, SENIOR: row.seniorSellInr,
+  };
+  // Columns omitted from the template must not remove other supported types.
+  const amounts = new Map<string, string>((version.travellerPrices || []).map(
+    (price: any) => [price.travellerType, String(price.amount)],
+  ));
+  for (const [type, amount] of Object.entries(replacements)) {
+    if (amount !== undefined) amounts.set(type, amount);
+  }
+  const prices = [...amounts].map(([travellerType, amount]) => ({travellerType, amount}));
+  // The ordinary per-person amount is the Indian price in the editor. Foreign
+  // amounts and untouched categories keep their existing segment-specific terms.
+  const visitorPrices = source.visitorPrices?.map((price: any) => {
+    const replacement = replacements[price.travellerType];
+    return unit === 'PER_PERSON' && replacement !== undefined
+      ? {...price, indian: replacement}
+      : {...price};
   });
   return {
     variantId, pricingUnit:unit, currency:version.currency || plan.currency || 'INR',
@@ -41,7 +55,7 @@ export function bulkRateOption(row: VendorBulkRateUpdateRowDto, version: BulkRat
     ...(unit === 'PER_PERSON' ? {travellerPrices:prices as any} : {}),
     mrpMode:row.mrpInr ? 'YES' : source.mrpMode || (source.mrpAmount ? 'YES' : 'NO'),
     mrpAmount:row.mrpInr ?? source.mrpAmount, mrpProof:source.mrpProof,
-    visitorPrices:source.visitorPrices, visitorEligibilityBasis:source.visitorEligibilityBasis, visitorVerificationMode:source.visitorVerificationMode,
+    visitorPrices, visitorEligibilityBasis:source.visitorEligibilityBasis, visitorVerificationMode:source.visitorVerificationMode,
     cancellationRules:rules.cancellationRules ?? plan.cancellationRules,
   };
 }

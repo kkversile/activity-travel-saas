@@ -19,7 +19,7 @@ describe('release import regression cases',()=>{
   });
   it('shows exact numeric cell, original value and actionable correction',()=>{
     const parsed=parseRateUpdateCsv(csv.replace('1900','banana'))!;
-    expect(parsed.issues[0]).toMatchObject({sheet:'CSV',row:3,cell:'E3',field:'adult_sell_inr',value:'banana',message:expect.stringContaining('adult_sell_inr'),correction:expect.stringContaining('positive INR amount')});
+    expect(parsed.issues[0]).toMatchObject({sheet:'CSV',row:3,cell:'E3',field:'adult_sell_inr',value:'banana',message:expect.stringContaining('adult_sell_inr'),correction:expect.stringContaining('non-negative amount')});
   });
   it.each([null,42,'not an object',[]])('reports malformed optional JSON row %j rather than dropping it',value=>{
     const sample:any=createSampleImportJson();sample.Media=[value];const result=parseProductJson(JSON.stringify(sample));

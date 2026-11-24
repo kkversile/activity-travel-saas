@@ -6,7 +6,7 @@ import {
   Optional,
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import { importMediaIssues, isImportDate, normalizeImportChoices } from "../common/product-import-contract";
+import { importMediaIssues, isImportDate, isMoneyAmount, MONEY_AMOUNT_GUIDANCE, normalizeImportChoices } from "../common/product-import-contract";
 import { fingerprint } from "../bookings/booking-fingerprint";
 import {
   BookingMode,
@@ -2590,6 +2590,13 @@ export class CatalogueService {
         code: "IMPORT_BATCH_DUPLICATE_PRODUCT_KEY",
         message: "Each product_key must be unique within the batch.",
         productKeys: [...new Set(duplicateKeys)],
+        products: products.flatMap((product, index) => duplicateKeys.includes(keys[index]) ? [{
+          productIndex: index + 1, productKey: keys[index],
+          issues: [{section: 'Basic_Info', row: 3, field: 'product_key',
+            value: importText(product.Basic_Info?.[0] || {}, 'product_key'),
+            message: `Product ${index + 1} repeats product_key ${keys[index]}.`,
+            correction: 'Give each product a unique product_key and update its linked rows, or remove the repeated product.'}],
+        }] : []),
       });
 
     const validationIssues: Array<{ productIndex: number; productKey: string; issues: unknown }> = [];
@@ -2706,23 +2713,63 @@ export class CatalogueService {
       for (const field of ['validFrom','validTo'] as const) if (!isImportDate(row[field])) problem(row, `${field} must be a real calendar date in YYYY-MM-DD format.`, field, 'Enter a real date such as 2026-12-15.');
       if (isImportDate(row.validFrom) && isImportDate(row.validTo) && row.validTo <= row.validFrom) problem(row,'valid_to must be after valid_from (the end date is exclusive).','validTo','Choose an end date later than the start date.');
       if (![row.adultSellInr,row.childSellInr,row.seniorSellInr,row.baseSellInr].some(value => value !== undefined)) problem(row,'Provide at least one sell price.','adultSellInr','Use traveller sell columns for per-person pricing, or base_sell_inr for group, booking or resource pricing.');
+      for (const field of ['adultSellInr','childSellInr','seniorSellInr','baseSellInr','mrpInr','supplierBaseAmount'] as const) {
+        if (row[field] !== undefined && !isMoneyAmount(row[field])) problem(row, 'Amount is outside the supported non-negative money range.', field, MONEY_AMOUNT_GUIDANCE);
+      }
     });
     if (rowIssues.length) throw invalid();
     const tenantId = requireTenant(user);
     const sourceCodes = [...new Set(rows.map(row=>row.productCode))];
-    const publicProducts = await this.prisma.publicIdentifier?.findMany({where:{entityType:PublicEntity.PRODUCT,publicCode:{in:sourceCodes}},select:{entityId:true,publicCode:true}}) || [];
+    const publicProducts = await this.prisma.publicIdentifier?.findMany({where:{entityType:PublicEntity.PRODUCT,publicCode:{in:sourceCodes,mode:'insensitive'}},select:{entityId:true,publicCode:true}}) || [];
     // Public codes are global, so resolve their IDs through the vendor-scoped
     // Product query before exposing any match or looking up an apply result.
-    const products = await this.prisma.product.findMany({where:{tenantId,deletedAt:null,OR:[{productCode:{in:sourceCodes}},{id:{in:publicProducts.map(item=>item.entityId)}}]},select:{id:true,productCode:true}});
-    const productsByCode = new Map(products.map(product=>[product.productCode.toUpperCase(),product]));
-    for(const alias of publicProducts){const product=products.find(item=>item.id===alias.entityId);if(product)productsByCode.set(alias.publicCode.toUpperCase(),product);}
+    const products = await this.prisma.product.findMany({where:{tenantId,deletedAt:null,OR:[{productCode:{in:sourceCodes,mode:'insensitive'}},{id:{in:publicProducts.map(item=>item.entityId)}}]},select:{id:true,productCode:true}});
+    const productsByCode = new Map<string, typeof products[number]>();
+    const ambiguousProducts = new Set<string>();
+    const addProductCode = (code: string, product: typeof products[number]) => {
+      const normalized = code.toUpperCase(), previous = productsByCode.get(normalized);
+      if (previous && previous.id !== product.id) ambiguousProducts.add(normalized);
+      else productsByCode.set(normalized, product);
+    };
+    for (const product of products) addProductCode(product.productCode, product);
+    for (const alias of publicProducts) {
+      const product = products.find(item => item.id === alias.entityId);
+      if (product) addProductCode(alias.publicCode, product);
+    }
     const grouped = new Map<string,{product:typeof products[number];rows:VendorBulkRateUpdateRowDto[]}>();
-    for(const row of rows){const product=productsByCode.get(row.productCode);if(!product){problem(row,'Product code was not found for this vendor.','productCode','Copy the existing product code from Your products.');continue;}const group=grouped.get(product.id)||{product,rows:[]};group.rows.push(row);grouped.set(product.id,group);}
+    for (const row of rows) {
+      if (ambiguousProducts.has(row.productCode)) {
+        problem(row, 'Product code matches more than one product.', 'productCode', 'Use a different, unambiguous public or internal code for the intended product. Contact support if the codes need correction.');
+        continue;
+      }
+      const product = productsByCode.get(row.productCode);
+      if (!product) { problem(row,'Product code was not found for this vendor.','productCode','Copy the existing product code from Your products.'); continue; }
+      const group = grouped.get(product.id) || {product,rows:[]};
+      group.rows.push(row); grouped.set(product.id,group);
+    }
     const prepared: Array<{productId:string;productCode:string;sourceCodes:string[];dto:ActivityPricesAvailabilityDto;context:BulkRateApplyContext;key:string;replay?:any}> = [];
     for (const {product,rows:productRows} of grouped.values()) {
       const productCode=productRows[0].productCode, sourceCodes=[...new Set(productRows.map(row=>row.productCode))];
       // This read enforces tenant AND outlet permissions before a cached result is examined.
       const current = await this.activityPricesAvailability(user,product.id);
+      const publicOptions = await this.prisma.publicIdentifier?.findMany({where:{entityType:PublicEntity.VARIANT,entityId:{in:current.options.map(option=>option.variantId)},publicCode:{in:productRows.map(row=>row.optionCode),mode:'insensitive'}},select:{entityId:true,publicCode:true}}) || [];
+      const optionsByCode = new Map<string, typeof current.options[number]>();
+      const ambiguousOptions = new Set<string>();
+      const addOptionCode = (code: string | undefined, option: typeof current.options[number]) => {
+        if (!code) return;
+        const normalized = code.toUpperCase(), previous = optionsByCode.get(normalized);
+        if (previous && previous.variantId !== option.variantId) ambiguousOptions.add(normalized);
+        else optionsByCode.set(normalized, option);
+      };
+      for (const option of current.options) addOptionCode(option.variantCode, option);
+      for (const alias of publicOptions) {
+        const option = current.options.find(item => item.variantId === alias.entityId);
+        if (option) addOptionCode(alias.publicCode, option);
+      }
+      for (const row of productRows) if (ambiguousOptions.has(row.optionCode)) {
+        problem(row, 'Option code matches more than one option in this product.', 'optionCode', 'Use a different, unambiguous code for the intended option, or contact support to correct its codes.');
+      }
+      if (productRows.some(row => ambiguousOptions.has(row.optionCode))) continue;
       const payloadFingerprint = fingerprint({ rows: productRows });
       const key = `BULK-V2-${fingerprint({tenantId,productId:product.id,submission:dto.submissionId || payloadFingerprint})}`;
       const prior = await this.prisma.activityPriceApplyRequest?.findUnique({where:{tenantId_idempotencyKey:{tenantId,idempotencyKey:key}}});
@@ -2731,9 +2778,6 @@ export class CatalogueService {
       const update:ActivityPricesAvailabilityDto = {options:[]};
       if (prior) { prepared.push({productId:product.id,productCode,sourceCodes,dto:update,context,key,replay:{...(prior.responsePayload as any),replayed:true}}); continue; }
       const issueCount = rowIssues.length;
-      const publicOptions=await this.prisma.publicIdentifier?.findMany({where:{entityType:PublicEntity.VARIANT,entityId:{in:current.options.map(option=>option.variantId)},publicCode:{in:productRows.map(row=>row.optionCode)}},select:{entityId:true,publicCode:true}}) || [];
-      const optionsByCode=new Map(current.options.map(option=>[option.variantCode?.toUpperCase(),option]));
-      for(const alias of publicOptions){const option=current.options.find(item=>item.variantId===alias.entityId);if(option)optionsByCode.set(alias.publicCode.toUpperCase(),option);}
       const seenOptions=new Set<string>();
       for (const row of productRows) {
         const option = optionsByCode.get(row.optionCode);
@@ -2766,7 +2810,15 @@ export class CatalogueService {
     const results:any[] = [], completedProductCodes:string[] = [];
     for (const group of prepared) {
       try { results.push(group.replay || await this.applyActivityPricesAvailability(user,group.productId,group.dto,group.key,group.context));completedProductCodes.push(...group.sourceCodes); }
-      catch(error:any) { return {status:'PARTIAL',updatedProductCount:results.length,completedProductCodes,failedProductCode:group.productCode,error:error?.response ?? error?.message ?? 'Rate update failed.',products:results}; }
+      catch(error:any) {
+        // Expected validation/conflict responses are useful to vendors. Storage
+        // diagnostics are not a correction instruction and can expose internals.
+        const failure = typeof error?.getResponse === 'function' ? error.getResponse() : {
+          code: 'RATE_IMPORT_SAVE_FAILED',
+          message: 'This product could not be saved. No rates for this product were changed. Validate the remaining rows again; contact support if the problem continues.',
+        };
+        return {status:'PARTIAL',updatedProductCount:results.length,completedProductCodes,failedProductCode:group.productCode,error:failure,products:results};
+      }
     }
     return {status:'COMPLETED',updatedProductCount:results.length,completedProductCodes,products:results};
   }
@@ -4392,6 +4444,20 @@ export class CatalogueService {
           `options[${index}]: selling end must be after selling start (the end date is exclusive)`,
         );
       const prices = option.travellerPrices || [];
+      const amounts = [
+        ...prices.map(price => ({name: `${price.travellerType} price`, value: price.amount})),
+        {name: 'base amount', value: option.supplierBaseAmount},
+        {name: 'MRP / gate price', value: option.mrpAmount},
+        ...(option.visitorPrices || []).flatMap(price => [
+          {name: `${price.travellerType} Indian price`, value: price.indian},
+          {name: `${price.travellerType} foreign price`, value: price.foreign},
+        ]),
+      ];
+      for (const amount of amounts) {
+        if (amount.value !== undefined && amount.value !== null && amount.value !== '' && !isMoneyAmount(amount.value)) {
+          errors.push(`${optionNames.get(option.variantId) || `Option ${index + 1}`}: ${amount.name} is outside the supported range. ${MONEY_AMOUNT_GUIDANCE}`);
+        }
+      }
       if (option.pricingUnit === PricingUnit.PER_PERSON && !prices.length)
         errors.push(
           `options[${index}]: add at least one traveller price for per-traveller pricing`,

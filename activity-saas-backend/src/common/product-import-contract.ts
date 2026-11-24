@@ -1,6 +1,12 @@
 // Pure contract shared with the browser's Excel/CSV/JSON importer.
 // Keep this module free of server dependencies so templates and API checks agree.
 export const DURATION_UNITS = ['HOURS', 'DAYS', 'FLEXIBLE'] as const;
+// PostgreSQL decimal(18,4). Compare the decimal string, not a rounded JS number.
+export const MONEY_AMOUNT_PATTERN = /^0*\d{1,14}(\.\d{1,4})?$/;
+export const MAX_MONEY_AMOUNT = '99999999999999.9999';
+export const MONEY_AMOUNT_GUIDANCE = `Enter a non-negative amount from 0 to ${MAX_MONEY_AMOUNT}, with up to four decimal places and no currency symbol or thousands separators.`;
+export const isMoneyAmount = (value: unknown): boolean =>
+  value !== null && value !== undefined && MONEY_AMOUNT_PATTERN.test(String(value));
 export const importChoices: Record<string, Record<string, readonly string[]>> = {
   Basic_Info: {
     type: ['ACTIVITY', 'MEALS', 'TRANSFER', 'PACKAGE_ADDON', 'OTHERS'],
@@ -36,8 +42,8 @@ export function canonicalDuration(value: unknown): unknown {
 }
 
 export type ChoiceIssue = { field: string; value: string; allowedValues?: readonly string[]; message: string; correction: string };
-export type ImportNumberRule = { min: number; max?: number; integer?: boolean; exclusiveMin?: boolean; decimals?: number };
-const money: ImportNumberRule = { min: 0, decimals: 4 };
+export type ImportNumberRule = { min: number; max?: number; integer?: boolean; exclusiveMin?: boolean; decimals?: number; money?: boolean };
+const money: ImportNumberRule = { min: 0, decimals: 4, money: true };
 const count: ImportNumberRule = { min: 0, integer: true };
 export const importNumberRules: Record<string, Record<string, ImportNumberRule>> = {
   Basic_Info: { duration_value: { min: 0, exclusiveMin: true } },
@@ -94,6 +100,10 @@ export function normalizeImportChoices(section: string, original: Record<string,
   for (const [field, rule] of Object.entries(importNumberRules[section] || {})) {
     if (!present(row[field])) continue;
     const raw = String(row[field]).trim(); const number = Number(raw);
+    if (rule.money && !isMoneyAmount(raw)) {
+      problem(field, MONEY_AMOUNT_GUIDANCE);
+      continue;
+    }
     const fraction = raw.split('.')[1]?.length || 0;
     if (!/^-?\d+(\.\d+)?$/.test(raw) || !Number.isFinite(number) || Math.abs(number) > Number.MAX_SAFE_INTEGER ||
         (rule.integer && !Number.isSafeInteger(number)) || (rule.exclusiveMin ? number <= rule.min : number < rule.min) ||

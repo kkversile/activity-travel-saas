@@ -19,6 +19,14 @@ function createService() {
 }
 
 describe('CatalogueService batch product import', () => {
+  it('locates both normalized duplicate keys with their entered values and correction before reads or writes',async()=>{
+    const {service,prisma}=createService();const spy=jest.spyOn(service,'importJson');
+    await expect(service.importBatch(vendor,{products:[productImport(' DUP '),productImport('dup')]} as any,true)).rejects.toMatchObject({response:{productKeys:['DUP'],products:[
+      {productIndex:1,productKey:'DUP',issues:[expect.objectContaining({field:'product_key',value:'DUP',correction:expect.stringContaining('unique product_key')})]},
+      {productIndex:2,productKey:'DUP',issues:[expect.objectContaining({field:'product_key',value:'dup',correction:expect.stringContaining('unique product_key')})]},
+    ]}});
+    expect(spy).not.toHaveBeenCalled();expect(prisma.product.findMany).not.toHaveBeenCalled();
+  });
   it('locates already imported products with an actionable edit/rate-update correction',async()=>{
     const {service,prisma}=createService();prisma.product.findMany.mockResolvedValue([{sourceImportKey:'ONE',importFingerprint:null}]);const spy=jest.spyOn(service,'importJson').mockResolvedValue({valid:true} as any);
     await expect(service.importBatch(vendor,{products:[productImport('ONE')]} as any,true)).rejects.toMatchObject({response:{code:'IMPORT_BATCH_PRODUCT_ALREADY_EXISTS',products:[{productIndex:1,productKey:'ONE',issues:[expect.objectContaining({section:'Basic_Info',row:3,field:'product_key',value:'ONE',correction:expect.stringContaining('Update rates on existing products')})]}]}});
@@ -110,6 +118,36 @@ describe('CatalogueService bulk rate update import', () => {
     const apply = jest.spyOn(service, 'applyActivityPricesAvailability').mockResolvedValue({ saved: true } as any);
     return { service, prisma, preview, apply };
   }
+
+  it('rejects a public/internal product-code collision before applying or replaying either product',async()=>{
+    const {service,prisma,apply}=rateService();
+    prisma.product.findMany.mockResolvedValue([{id:'p1',productCode:'TA-GA-0318'},{id:'p2',productCode:'PRD-TWO'}]);
+    prisma.publicIdentifier={findMany:jest.fn().mockResolvedValue([{entityId:'p2',publicCode:'TA-GA-0318'}])};
+    for(const validateOnly of [true,false]) await expect(service.importRateBatch(vendor,{rows:[rateRow()]},validateOnly)).rejects.toMatchObject({response:{issues:[expect.objectContaining({row:2,field:'productCode',value:'TA-GA-0318',correction:expect.stringContaining('unambiguous')})]}});
+    expect(prisma.activityPriceApplyRequest.findUnique).not.toHaveBeenCalled();expect(apply).not.toHaveBeenCalled();
+  });
+  it('rejects ambiguous option aliases before a cached result can bypass identifier validation',async()=>{
+    const {service,prisma,apply}=rateService();
+    const current:any=await service.activityPricesAvailability(vendor,'p1');current.options.push({...current.options[0],variantId:'v2',variantCode:'OTHER'});
+    prisma.publicIdentifier={findMany:jest.fn().mockImplementation(async args=>args.where.entityType==='VARIANT'?[{entityId:'v2',publicCode:'OPT-1'}]:[])};
+    for(const validateOnly of [true,false])await expect(service.importRateBatch(vendor,{rows:[rateRow()]},validateOnly)).rejects.toMatchObject({response:{issues:[expect.objectContaining({field:'optionCode',value:'OPT-1',correction:expect.stringContaining('unambiguous')})]}});
+    expect(prisma.activityPriceApplyRequest.findUnique).not.toHaveBeenCalled();expect(apply).not.toHaveBeenCalled();
+  });
+  it('allows a public code equal to the internal code of the same entity',async()=>{
+    const {service,prisma,apply}=rateService();prisma.publicIdentifier={findMany:jest.fn().mockImplementation(async args=>args.where.entityType==='PRODUCT'?[{entityId:'p1',publicCode:'TA-GA-0318'}]:[{entityId:'v1',publicCode:'OPT-1'}])};
+    await expect(service.importRateBatch(vendor,{rows:[rateRow()]})).resolves.toMatchObject({status:'COMPLETED'});expect(apply).toHaveBeenCalledTimes(1);
+  });
+  it.each(['adultSellInr','childSellInr','seniorSellInr','baseSellInr','mrpInr','supplierBaseAmount'])('rejects overflowing %s for internal callers before querying or saving products',async field=>{
+    const {service,prisma,apply}=rateService();
+    await expect(service.importRateBatch(vendor,{rows:[{...rateRow(),[field]:'100000000000000'}]} as any)).rejects.toMatchObject({response:{issues:expect.arrayContaining([expect.objectContaining({field,correction:expect.stringContaining('99999999999999.9999')})])}});
+    expect(prisma.product.findMany).not.toHaveBeenCalled();expect(apply).not.toHaveBeenCalled();
+  });
+  it('keeps storage diagnostics out of a failed rate group and provides retry guidance',async()=>{
+    const {service,apply}=rateService();apply.mockRejectedValue(new Error('Invalid prisma write: ConnectorError secret database details'));
+    const result=await service.importRateBatch(vendor,{rows:[rateRow()]});
+    expect(result).toMatchObject({status:'PARTIAL',updatedProductCount:0,completedProductCodes:[],error:{code:'RATE_IMPORT_SAVE_FAILED',message:expect.stringContaining('Validate the remaining rows')}});
+    expect(JSON.stringify(result)).not.toMatch(/prisma|ConnectorError|secret/);
+  });
 
   it('replays identical rows after version numbers change without applying again',async()=>{
     const {service,prisma,apply,preview}=rateService(); const dto:any={submissionId:'600d3b8f-282c-4ea2-b193-a846e649ae82',rows:[rateRow()]};

@@ -3,11 +3,37 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as XLSX from 'xlsx';
 import { api, ApiError } from '../../api';
 import ProductImportModal from './ProductImportModal';
-import { createSampleWorkbook } from './productImport';
+import { createSampleWorkbook, createSampleImportJson } from './productImport';
 
 afterEach(() => vi.restoreAllMocks());
 
 describe('ProductImportModal backend validation flow', () => {
+  it('validates and saves an explicit zero child price without replacing it with a blank',async()=>{
+    const request=vi.spyOn(api,'request').mockResolvedValueOnce({valid:true} as never).mockResolvedValueOnce({status:'COMPLETED',updatedProductCount:1} as never),complete=vi.fn();
+    render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={complete}/>);
+    fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File(['product_code,option_code,valid_from,valid_to,child_sell_inr\nPRD,OPT,2026-12-01,2027-01-01,0'],'free-child.csv')]}});
+    await screen.findByRole('button',{name:'Apply valid rate updates (1)'});
+    fireEvent.click(screen.getByRole('button',{name:'Validate file'}));await screen.findByText(/Server validation passed/);
+    fireEvent.click(screen.getByRole('button',{name:'Apply valid rate updates (1)'}));
+    await waitFor(()=>expect(complete).toHaveBeenCalledWith(null,1,'COMPLETED',undefined,'RATES'));
+    expect(JSON.parse(String(request.mock.calls[1][1]?.body)).rows).toEqual([{productCode:'PRD',optionCode:'OPT',validFrom:'2026-12-01',validTo:'2027-01-01',childSellInr:'0'}]);
+  });
+  it('blocks oversized money locally with the original value and supported maximum',async()=>{
+    const request=vi.spyOn(api,'request');render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()}/>);
+    fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File(['product_code,option_code,valid_from,valid_to,adult_sell_inr\nPRD,OPT,2026-12-01,2027-01-01,100000000000000'],'amount.csv')]}});
+    await screen.findByText('100000000000000',{exact:true});expect(screen.getByText(/CSV!E2/)).toBeInTheDocument();expect(screen.getByText(/99999999999999.9999/)).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Validate file'})).toBeDisabled();expect(request).not.toHaveBeenCalled();
+  });
+  it('shows both duplicate JSON key paths and offers the corrective error download',async()=>{
+    const request=vi.spyOn(api,'request'),first:any=createSampleImportJson(),second=structuredClone(first);
+    second.Basic_Info[0].product_name='Different coastal walk';
+    render(<ProductImportModal onClose={vi.fn()} onComplete={vi.fn()}/>);
+    fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File([JSON.stringify({products:[first,second]})],'duplicates.json')]}});
+    await screen.findByText(/products\[0\]\.Basic_Info\[0\]\.product_key/);expect(screen.getByText(/products\[1\]\.Basic_Info\[0\]\.product_key/)).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Download error rows'})).toBeEnabled();expect(screen.getByRole('button',{name:'Validate file'})).toBeDisabled();expect(request).not.toHaveBeenCalled();
+  });
   it('blocks a misspelled rate-update header before contacting the server', async () => {
     const request = vi.spyOn(api, 'request');
     render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()} />);
@@ -131,7 +157,7 @@ describe('import validation safety', () => {
   it('shows the entered invalid rate value alongside its source cell and correction',async()=>{
     render(<ProductImportModal allowRateUpdates onClose={vi.fn()} onComplete={vi.fn()}/>);fireEvent.change(screen.getByLabelText('Import mode'),{target:{value:'UPDATE_RATES'}});
     fireEvent.change(screen.getByLabelText('Completed Excel, CSV or JSON file'),{target:{files:[new File(['product_code,option_code,valid_from,valid_to,adult_sell_inr\n\nPRD,OPT,2026-12-01,2027-01-01,banana'],'rates.csv')]}});
-    expect(await screen.findByText('banana',{exact:true})).toBeInTheDocument();expect(screen.getByText(/CSV!E3/)).toBeInTheDocument();expect(screen.getByText(/Enter a positive INR amount/)).toBeInTheDocument();expect(screen.getByRole('button',{name:'Apply valid rate updates'})).toBeDisabled();
+    expect(await screen.findByText('banana',{exact:true})).toBeInTheDocument();expect(screen.getByText(/CSV!E3/)).toBeInTheDocument();expect(screen.getByText(/Enter a non-negative amount/)).toBeInTheDocument();expect(screen.getByRole('button',{name:'Apply valid rate updates'})).toBeDisabled();
   });
   it('retains its submission ID across response-loss retry and changes it for a newly selected file',async()=>{
     const request=vi.spyOn(api,'request').mockResolvedValueOnce({valid:true} as never).mockRejectedValueOnce(new Error('Response lost')).mockResolvedValueOnce({valid:true} as never).mockResolvedValueOnce({status:'COMPLETED',updatedProductCount:1} as never);

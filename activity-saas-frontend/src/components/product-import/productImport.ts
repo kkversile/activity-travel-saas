@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { importMediaIssues, importProductContentKey, isImportDate, normalizeImportChoices } from '../../../../activity-saas-backend/src/common/product-import-contract';
+import { importMediaIssues, importProductContentKey, isImportDate, isMoneyAmount, MONEY_AMOUNT_GUIDANCE, normalizeImportChoices } from '../../../../activity-saas-backend/src/common/product-import-contract';
 import { importSheetHeaders, inspectImportHeaders } from './productImportStructure';
 
 export const IMPORT_SHEETS = ['Basic_Info', 'Experience', 'Options', 'Ticket_Types', 'Rate_Plans', 'Availability', 'Media', 'Booking_Questions', 'Fulfilment'] as const;
@@ -8,8 +8,8 @@ export const MAX_IMPORT_ROWS = 2000;
 export const MAX_IMPORT_PRODUCTS = 200;
 
 export type ImportRow = Record<string, unknown>;
-export type ImportIssue = { sheet: string; row: number; message: string; fatal?: boolean; productKey?: string; rowData?: ImportRow; field?: string; cell?: string; value?: string; correction?: string };
-type RowSource = { sheet: string; row: number; columns: string[] };
+export type ImportIssue = { sheet: string; row: number; message: string; fatal?: boolean; productKey?: string; rowData?: ImportRow; field?: string; cell?: string; path?: string; value?: string; correction?: string };
+type RowSource = { sheet: string; row: number; columns: string[]; path?: string };
 const rowSources = new WeakMap<ImportRow, RowSource>();
 const rowChoiceIssues = new WeakMap<ImportRow, ImportIssue[]>();
 function inheritSource(row: ImportRow, original: ImportRow): ImportRow {
@@ -33,7 +33,7 @@ function locatedIssue(issue: ImportIssue): ImportIssue {
   issue = { ...issue, field: issue.field || inferredField };
   const field = source.columns.includes(issue.field || '') ? issue.field : issue.field === 'product_key' && source.columns.includes('product_code') ? 'product_code' : undefined;
   const column = field ? source.columns.indexOf(field) : -1;
-  return { ...issue, sheet: source.sheet, row: source.row, field: field || issue.field, ...(column >= 0 ? { cell: XLSX.utils.encode_cell({ r: source.row - 1, c: column }) } : {}), message: issue.message.replaceAll('product_key', source.columns.includes('product_code') ? 'product_code' : 'product_key') };
+  return { ...issue, sheet: source.sheet, row: source.row, field: field || issue.field, ...(source.path ? {path: `${source.path}${issue.field ? `.${issue.field}` : ''}`} : {}), ...(column >= 0 ? { cell: XLSX.utils.encode_cell({ r: source.row - 1, c: column }) } : {}), message: issue.message.replaceAll('product_key', source.columns.includes('product_code') ? 'product_code' : 'product_key') };
 }
 function workbookRows(workbook: XLSX.WorkBook, name: string, headerRow = 0): ImportRow[] {
   const sheet = workbook.Sheets[name];
@@ -216,6 +216,8 @@ export function createRateUpdateWorkbook() {
     ['Fill one row per existing product option. Use product and option codes from Your products.'],
     ['Rates are preview-validated for all rows before any update is applied.'],
     ['validTo is exclusive. Leave child/senior prices blank to retain the current values.'],
+    [MONEY_AMOUNT_GUIDANCE],
+    ['Blank retains the current price; 0 sets an explicit free price. Other traveller categories and foreign visitor prices are retained.'],
   ]);
   XLSX.utils.book_append_sheet(workbook, readme, 'README');
   const rates = XLSX.utils.aoa_to_sheet([rateUpdateHeaders]);
@@ -270,7 +272,7 @@ function normalizeRateRows(sourceRows: ImportRow[]): RateUpdateParseResult {
     if (![row.adultSellInr, row.childSellInr, row.seniorSellInr, row.baseSellInr].some(Boolean)) problem('Provide at least one sell price.');
     for (const field of ['adultSellInr', 'childSellInr', 'seniorSellInr', 'baseSellInr', 'mrpInr'] as const) {
       const value = row[field];
-      if (value !== undefined && (!/^\d+(\.\d{1,4})?$/.test(value) || Number(value) <= 0)) problem(`${rateFields[field]} must be a positive amount with up to four decimals.`,rateFields[field],'Enter a positive INR amount, for example 1250.50, with no currency symbol and at most four decimal places.');
+      if (value !== undefined && !isMoneyAmount(value)) problem(`${rateFields[field]} must be a non-negative amount within the supported range, with up to four decimals.`,rateFields[field],MONEY_AMOUNT_GUIDANCE);
     }
     if (seen.has(identity)) problem('Only one row per product option is allowed in this rate batch.','option_code','Keep one rate row for each product and option pair.');
     seen.add(identity);
@@ -576,8 +578,12 @@ function jsonShapeIssues(source: Record<string,unknown>): ImportIssue[] {
     return value.flatMap((row,index) => !row || typeof row !== 'object' || Array.isArray(row) ? [{sheet:section,row:index+1,message:`${section}[${index}] must be a row object.`,correction,value:JSON.stringify(row),fatal:true}] : []);
   });
 }
-function jsonSections(source:Record<string,unknown>) {
-  return Object.fromEntries(IMPORT_SHEETS.map(sheet => [sheet,jsonRows(source[sheet]).map(row => {const index=(source[sheet] as unknown[]).indexOf(row);rowSources.set(row,{sheet,row:index+1,columns:[]});return row;})]));
+function jsonSections(source:Record<string,unknown>, productIndex?:number) {
+  return Object.fromEntries(IMPORT_SHEETS.map(sheet => [sheet,jsonRows(source[sheet]).map(row => {
+    const index=(source[sheet] as unknown[]).indexOf(row);
+    rowSources.set(row,{sheet,row:index+1,columns:[],path:`${productIndex === undefined ? '' : `products[${productIndex}].`}${sheet}[${index}]`});
+    return row;
+  })]));
 }
 export function parseProductJson(inputText: string): ProductImportParseResult {
   let parsed: unknown;
@@ -593,10 +599,20 @@ export function parseProductJson(inputText: string): ProductImportParseResult {
       if(!product || typeof product !== 'object' || Array.isArray(product)) { issues.push({sheet:'JSON',row:index+1,message:'Each products entry must be a product import object.',correction:'Replace this entry with a product object from the sample JSON.',fatal:false});return; }
       const shape=jsonShapeIssues(product);
       if(shape.length) {issues.push(...shape.map(issue=>({...issue,productKey:text(jsonRows(product.Basic_Info)[0]||{},'product_key'),fatal:false})));return;}
-      const result=validateImportRows(jsonSections(product));
+      const result=validateImportRows(jsonSections(product,index));
       if(result.model)models.push(result.model);
       issues.push(...result.issues.map(issue=>({...issue,productKey:text(jsonRows(product.Basic_Info)[0]||{},'product_key'),fatal:false})));
     });
+    const keys = models.map(model => text(model.basic,'product_key').toUpperCase());
+    const duplicateKeys = new Set(keys.filter((key,index) => key && keys.indexOf(key) !== index));
+    if (duplicateKeys.size) {
+      const duplicateIssues = models.flatMap((model,index) => duplicateKeys.has(keys[index]) ? [locatedIssue({
+        sheet:'Basic_Info',row:1,field:'product_key',productKey:keys[index],value:text(model.basic,'product_key'),rowData:model.basic,fatal:true,
+        message:`Repeated product_key ${keys[index]} identifies more than one product in this JSON file.`,
+        correction:'Give each product a unique product_key and update its linked rows, or remove the repeated product.',
+      })] : []);
+      return {model:null,models:[],issues:[...issues,...duplicateIssues]};
+    }
     const duplicates=duplicateContentIssues(models.map(model=>model.basic));
     if(duplicates.length) return {model:null,models:[],issues:[...issues,...duplicates]};
     if(!models.length)issues.push({sheet:'JSON',row:1,message:'No product entries passed validation.',fatal:true});
@@ -630,7 +646,7 @@ export function serverImportIssues(details: unknown[], models: ImportWorkbookMod
   });
   const rowsFor = (model: ImportWorkbookModel, section: string): ImportRow[] => ({ Basic_Info: [model.basic], Experience: [model.experience], Options: model.options, Ticket_Types: model.ticketTypes, Rate_Plans: model.ratePlans, Availability: model.availability, Media: model.media, Booking_Questions: model.bookingQuestions, Fulfilment: [model.fulfilment] }[section] || []);
   return details.flatMap((entry: any) => {
-    const model = models.find((item) => text(item.basic, 'product_key').toUpperCase() === String(entry.productKey || '').toUpperCase()) || models[(entry.productIndex || 1) - 1];
+    const model = (entry.productIndex ? models[entry.productIndex - 1] : undefined) || models.find((item) => text(item.basic, 'product_key').toUpperCase() === String(entry.productKey || '').toUpperCase()) || models[0];
     const nested = Array.isArray(entry.issues) ? entry.issues : [entry];
     return nested.map((detail: any) => {
       const issue = typeof detail === 'object' && detail ? detail : { message: String(detail) };
@@ -643,7 +659,7 @@ export function serverImportIssues(details: unknown[], models: ImportWorkbookMod
 
 export function importErrorsCsv(issues: ImportIssue[]): string {
   const rowFields = [...new Set(issues.flatMap((issue) => Object.keys(issue.rowData || {})))];
-  const columns = [...new Set(['sheet', 'row', 'cell', 'field', 'product_key', 'value', 'message', 'correction', ...rowFields])];
+  const columns = [...new Set(['sheet', 'row', 'cell', 'field', 'product_key', 'value', 'message', 'correction', 'path', ...rowFields])];
   const quote = (value: unknown) => { const text = String(value ?? ''); return `"${(/^[\s\u0000-\u001f]*[=+@-]/.test(text) ? "'" : '') + text.replaceAll('"', '""')}"`; };
   return [columns.map(quote).join(','), ...issues.map((issue) => columns.map((column) => quote(column === 'product_key' ? issue.productKey || issue.rowData?.product_key || issue.rowData?.product_code : column in issue ? (issue as unknown as ImportRow)[column] : issue.rowData?.[column])).join(','))].join('\r\n');
 }

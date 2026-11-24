@@ -1,6 +1,6 @@
 import { BookingMode, BookingQuestionType, CapacityUnit, ChargeType, EvidenceMatchMode, FulfilmentEvidenceKind, FulfilmentMode, MeetingModel, MediaKind, OperatingModel, PricingUnit, ProductRevisionStatus, ProductType, SupplierCommercialModel, TravellerType } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
-import { canonicalDuration, DURATION_UNITS } from '../common/product-import-contract';
+import { canonicalDuration, DURATION_UNITS, MONEY_AMOUNT_PATTERN, MONEY_AMOUNT_GUIDANCE } from '../common/product-import-contract';
 import { OmitType, PartialType } from '@nestjs/swagger';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsDateString, IsDefined, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUrl, IsUUID, Matches, Max, Min, MinLength, ValidateNested } from 'class-validator';
 
@@ -141,7 +141,7 @@ export class UpdateProductCurrencyDto {
  * canonical catalogue APIs, while this DTO still rejects unknown top-level
  * sections through the global ValidationPipe.
  */
-const MONEY = /^\d+(\.\d{1,4})?$/;
+const MONEY = MONEY_AMOUNT_PATTERN;
 
 export class ImportProductJsonDto {
   @IsOptional() @IsArray() @IsString({ each: true }) README?: string[];
@@ -170,12 +170,12 @@ export class VendorBulkRateUpdateRowDto {
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsEnum(BookingMode) bookingMode?: BookingMode;
   @IsOptional() @IsEnum(SupplierCommercialModel) supplierModel?: SupplierCommercialModel;
-  @IsOptional() @IsString() @Matches(MONEY) adultSellInr?: string;
-  @IsOptional() @IsString() @Matches(MONEY) childSellInr?: string;
-  @IsOptional() @IsString() @Matches(MONEY) seniorSellInr?: string;
-  @IsOptional() @IsString() @Matches(MONEY) baseSellInr?: string;
-  @IsOptional() @IsString() @Matches(MONEY) mrpInr?: string;
-  @IsOptional() @IsString() @Matches(MONEY) supplierBaseAmount?: string;
+  @IsOptional() @IsString() @Matches(MONEY, {message: MONEY_AMOUNT_GUIDANCE}) adultSellInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY, {message: MONEY_AMOUNT_GUIDANCE}) childSellInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY, {message: MONEY_AMOUNT_GUIDANCE}) seniorSellInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY, {message: MONEY_AMOUNT_GUIDANCE}) baseSellInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY, {message: MONEY_AMOUNT_GUIDANCE}) mrpInr?: string;
+  @IsOptional() @IsString() @Matches(MONEY, {message: MONEY_AMOUNT_GUIDANCE}) supplierBaseAmount?: string;
 }
 
 export class VendorBulkRateUpdateDto {

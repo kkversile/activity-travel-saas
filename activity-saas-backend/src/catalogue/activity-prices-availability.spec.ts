@@ -14,6 +14,16 @@ function makeService() {
 }
 
 describe('simplified prices and availability editor', () => {
+  it.each(['traveller','base','mrp','visitor'])('rejects an overflowing %s amount in canonical previews before any writes',async kind=>{
+    const {service,prisma}=makeService();prisma.product.findFirst.mockResolvedValue({id:'p1',tenantId:'t1'});prisma.productVariant.findMany.mockResolvedValue([{id:'v1',name:'Standard'}]);
+    const option:any={variantId:'v1',pricingUnit:PricingUnit.PER_PERSON,travellerPrices:[{travellerType:'ADULT',amount:'100'}]};
+    if(kind==='traveller')option.travellerPrices[0].amount='100000000000000';
+    if(kind==='base')option.supplierBaseAmount='100000000000000';
+    if(kind==='mrp'){option.mrpMode='YES';option.mrpAmount='100000000000000';}
+    if(kind==='visitor')option.visitorPrices=[{travellerType:'ADULT',indian:'100',foreign:'100000000000000'}];
+    const result=await service.previewActivityPricesAvailability(vendor,'p1',{options:[option]});
+    expect(result.valid).toBe(false);expect(result.errors).toContainEqual(expect.stringContaining('99999999999999.9999'));
+  });
   it('clears stale visitor pricing when the feature is disabled', () => {
     const payload = buildActivityEditorSourcePayload({
       createdFromActivityEditor: true,

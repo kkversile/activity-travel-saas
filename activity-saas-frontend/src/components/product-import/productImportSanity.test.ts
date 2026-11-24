@@ -101,6 +101,7 @@ describe('product import sanity checks', () => {
     const zip = XLSX.CFB.read(createProductTemplateBytes(), { type: 'buffer' });
     const sheet = (index: number) => new DOMParser().parseFromString(new TextDecoder().decode(new Uint8Array(zip.FileIndex[zip.FullPaths.findIndex((p: string) => p.endsWith(`/xl/worksheets/sheet${index}.xml`))].content)), 'application/xml');
     expect(sheet(1).querySelector('dataValidation[type="decimal"][operator="greaterThan"] formula1')?.textContent).toBe('0');
-    expect(sheet(4).querySelector('dataValidation[type="decimal"][operator="greaterThanOrEqual"]')?.getAttribute('errorStyle')).toBe('stop');
+    expect(sheet(4).querySelector('dataValidation[type="custom"]')?.getAttribute('errorStyle')).toBe('stop');
+    expect(sheet(4).querySelector('dataValidation[type="custom"] formula1')?.textContent).toContain('<100000000000000');
   });
 });
