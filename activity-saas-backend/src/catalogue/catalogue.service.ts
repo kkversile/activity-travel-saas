@@ -4689,6 +4689,7 @@ export class CatalogueService {
               },
               include: {
                 cancellationRules: { orderBy: { minDaysBefore: "desc" } },
+                travellerRules: true,
                 commercialVersions: {
                   where: { status: { in: ["DRAFT", "ACTIVE"] } },
                   include: { travellerPrices: true },
@@ -5128,6 +5129,7 @@ export class CatalogueService {
             where: { variantId: variant.id, ratePlanCode: planCode },
             include: {
               cancellationRules: true,
+              travellerRules: true,
               commercialVersions: {
                 where: { status: { in: ["DRAFT", "ACTIVE"] } },
                 orderBy: { versionNumber: "desc" },

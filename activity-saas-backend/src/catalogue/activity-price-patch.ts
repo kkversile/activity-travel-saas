@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { PricingUnit } from '@prisma/client';
 import type { ActivityPriceOptionDto } from './catalogue.dto';
 import { bulkRateSegments, type BulkRateVersion } from './bulk-rate-update';
@@ -26,6 +26,14 @@ export function activityPricePatchSegments(versions: BulkRateVersion[], plan: Bu
     };
     const sameBasis = option.pricingUnit === inherited.pricingUnit;
     const amounts = new Map((sameBasis ? inherited.travellerPrices || [] : []).map(price => [price.travellerType, price.amount]));
+    if (sameBasis && option.pricingUnit === PricingUnit.PER_PERSON) {
+      const removed = (removeTravellerTypes || []).find(type => amounts.has(type) ||
+        (plan.travellerRules || []).some((rule: any) => rule.type === type && rule.maxCount > 0));
+      if (removed) throw new BadRequestException({
+        code: 'TRAVELLER_PRICE_REQUIRED',
+        message: `${removed} already has a saved price or is enabled for this option. Keep a price for ${option.effectiveFrom} to ${option.effectiveTo}, or enter 0 for free admission. Existing ticket types cannot be removed by clearing a rate.`,
+      });
+    }
     for (const type of removeTravellerTypes || []) amounts.delete(type);
     for (const price of patch.travellerPrices || []) amounts.set(price.travellerType, price.amount);
     option.travellerPrices = option.pricingUnit === PricingUnit.PER_PERSON

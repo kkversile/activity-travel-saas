@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, type Product, type ProductReadiness, type ProductRevision } from '../../api';
 import ExperienceWizardModal, { activityContentSettingsPath, productBuilderStatus, selectProductRevision, shouldPersistBeforeStepChange } from './ExperienceWizardModal';
@@ -6,6 +6,41 @@ import ExperienceWizardModal, { activityContentSettingsPath, productBuilderStatu
 const revision = (id: string, status: string) => ({ id, status } as ProductRevision);
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+describe('pricing save coordination', () => {
+  it.each([false, true])('locks wizard navigation until pricing finishes and preserves the unload warning on failure (%s)', async fail => {
+    const draft = { ...revision('draft-lock', 'DRAFT'), productName: 'Harbour pricing', type: 'ACTIVITY', subType: 'WALK', meetingModel: 'FIXED_MEETING_POINT' } as ProductRevision;
+    const option: any = { id: 'variant-lock', productId: 'product-lock', name: 'Harbour walk', variantCode: 'WALK', status: 'ACTIVE', version: 1 };
+    const product: Product = { id: 'product-lock', tenantId: 'vendor-lock', productCode: 'ACT-LOCK', currency: 'INR', status: 'DRAFT', revisions: [draft], variants: [option] };
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const request = vi.spyOn(api, 'request').mockImplementation(async path => {
+      if (path === '/products/product-lock') return product as never;
+      if (path.endsWith('/booking-questions')) return [] as never;
+      if (path === '/vendor/activity-content-settings') return { terms: [], howToRedeem: [], bookingQuestions: [] } as never;
+      if (path.endsWith('/prices-availability')) return { options: [{ variantId: option.id, ratePlans: [{ editable: true, currency: 'INR', versions: [{ status: 'DRAFT', versionNumber: 1, pricingUnit: 'PER_PERSON', effectiveFrom: '2026-12-01', effectiveTo: '2027-03-01', travellerPrices: [{ travellerType: 'ADULT', amount: '1800' }] }] }] }] } as never;
+      if (path.endsWith('/preview')) return { valid: true, errors: [] } as never;
+      if (path.endsWith('/apply')) { await gate; if (fail) throw new Error('Interrupted pricing save'); return {} as never; }
+      return {} as never;
+    });
+    render(<ExperienceWizardModal product={product} initialStep={5} fullPage onDone={vi.fn()} onChanged={vi.fn()} />);
+    const price = await screen.findByLabelText('Harbour walk adult or base price');
+    await waitFor(() => expect(price).toHaveValue(1800));
+    fireEvent.change(price, { target: { value: '1952' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Save draft' })[0]);
+    await waitFor(() => expect(request.mock.calls.some(([path]) => path.endsWith('/apply'))).toBe(true));
+    expect(price).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Go to activity section' })).toBeDisabled();
+    for (const button of within(screen.getByRole('navigation', { name: 'Experience setup steps' })).getAllByRole('button')) expect(button).toBeDisabled();
+    expect(screen.queryByText('Draft saved successfully.')).not.toBeInTheDocument();
+    const pending = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(pending); expect(pending.defaultPrevented).toBe(true);
+    await act(async () => release());
+    await waitFor(() => expect(price).toBeEnabled());
+    const completed = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(completed); expect(completed.defaultPrevented).toBe(fail);
+    if (fail) expect(screen.getByText(/Not saved.*Interrupted pricing save/)).toBeInTheDocument();
+    else expect(screen.getByText('Draft saved successfully. Pricing and availability saved.')).toBeInTheDocument();
+  });
+});
 
 describe('ExperienceWizardModal readiness mapping', () => {
   it('keeps saved Photos complete when the only media/fulfilment blocker is FULFILMENT_POLICY_MISSING', async () => {

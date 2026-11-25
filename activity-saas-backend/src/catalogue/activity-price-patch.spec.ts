@@ -62,11 +62,41 @@ describe('activity editor field patches', () => {
     expect(option.visitorPrices).toContainEqual({ travellerType: 'CHILD', indian: '880', foreign: '2600' });
     expect(option.visitorPrices).toContainEqual({ travellerType: 'ADULT', indian: '1950', foreign: '2600' });
   });
-  it('can clear an optional traveller category without dropping other hidden categories', () => {
-    const option = resolve({ removeTravellerTypes: ['CHILD'] })[0].option;
-    expect(option.travellerPrices!.map(price => price.travellerType)).not.toContain('CHILD');
-    expect(option.visitorPrices!.map(price => price.travellerType)).not.toContain('CHILD');
+  it.each(['CHILD', 'SENIOR', 'ADULT'])('rejects removing an existing %s price with actionable guidance', type => {
+    expect(() => resolve({ removeTravellerTypes: [type] })).toThrow(/Keep a price.*enter 0 for free admission/);
+  });
+  it('rejects removing an enabled category even if a legacy version is already missing its price', () => {
+    const saved = version(); saved.travellerPrices = saved.travellerPrices.filter(price => price.travellerType !== 'CHILD');
+    expect(() => activityPricePatchSegments([saved], { travellerRules: [{ type: 'CHILD', maxCount: 99 }] }, patch({ removeTravellerTypes: ['CHILD'] })))
+      .toThrow('CHILD already has a saved price or is enabled');
+  });
+  it('allows absent unconfigured categories and zero prices without deleting enabled ticket types', () => {
+    const saved = version(); saved.travellerPrices = saved.travellerPrices.filter(price => price.travellerType !== 'CHILD');
+    const [{ option }] = activityPricePatchSegments([saved], {}, patch({ removeTravellerTypes: ['CHILD'], travellerPrices: [{ travellerType: 'SENIOR', amount: '0' }] }));
+    expect(option.travellerPrices).toContainEqual({ travellerType: 'SENIOR', amount: '0' });
     expect(option.travellerPrices).toContainEqual({ travellerType: 'YOUTH', amount: '1200.1234' });
+  });
+  it('preserves each period cancellation policy when only confirmation mode or SLA is edited', () => {
+    const versions = [version(), version(true)].map((v, index) => ({ ...v, confirmationSlaMinutes: index ? 120 : 60,
+      sourcePayload: { ...v.sourcePayload, bookingRules: { cancellationRules: [{ minDaysBefore: index ? 0 : 7, chargeValue: index ? '100' : '0', chargeType: 'PERCENTAGE' }] } } }));
+    for (const changes of [{ bookingMode: 'MANUAL_ON_REQUEST' }, { confirmationSlaMinutes: 90 }]) {
+      const segments = activityPricePatchSegments(versions, {}, patch(changes));
+      segments.forEach(({ option }, index) => {
+        expect(option.cancellationRules).toEqual(versions[index].sourcePayload.bookingRules.cancellationRules);
+        expect(option.bookingMode).toBe(changes.bookingMode || 'INSTANT');
+        expect(option.confirmationSlaMinutes).toBe(changes.confirmationSlaMinutes || (index ? 120 : 60));
+      });
+    }
+  });
+  it('applies an explicit cancellation change without copying confirmation mode or SLA across periods', () => {
+    const versions = [version(), version(true)].map((v, index) => ({ ...v, bookingMode: index ? 'VENDOR_CONFIRMATION' : 'MANUAL_ON_REQUEST', confirmationSlaMinutes: index ? 120 : 60 }));
+    const rules = [{ minDaysBefore: 3, chargeValue: '25', chargeType: 'PERCENTAGE' }];
+    const segments = activityPricePatchSegments(versions, {}, patch({ cancellationRules: rules }));
+    segments.forEach(({ option }, index) => {
+      expect(option.cancellationRules).toEqual(rules);
+      expect(option.bookingMode).toBe(versions[index].bookingMode);
+      expect(option.confirmationSlaMinutes).toBe(versions[index].confirmationSlaMinutes);
+    });
   });
   it('retains a newer draft only inside its interval and never mutates original versions', () => {
     const active = { ...version(), status: 'ACTIVE', versionNumber: 1, effectiveTo: new Date('2027-03-01') };

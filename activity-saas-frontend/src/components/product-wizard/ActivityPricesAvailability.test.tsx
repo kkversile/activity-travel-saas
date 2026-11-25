@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../api';
@@ -339,7 +339,9 @@ describe('activity pricing preservation and preview regressions', () => {
     ['PER_UNIT', 'per resource / vehicle'], ['GROUP', 'per group'],
   ])('renders the correct %s basis for positive, zero and blank values', async (unit, suffix) => {
     const response: any = structuredClone(saved); response.options = [response.options[0]];
+    response.options[0].ratePlans[0].currency = 'INR';
     Object.assign(response.options[0].ratePlans[0].versions[0], { pricingUnit: unit, supplierBaseAmount: '7300',
+      currency: 'INR',
       travellerPrices: [{ travellerType: 'ADULT', amount: '7300' }],
       supplierCommissionPercent: '0', sourcePayload: { maxPassengersPerResource: 6, mrpMode: 'YES', mrpAmount: '8500' } });
     renderEditor(vi.fn(), response, [variants[0]]);
@@ -399,5 +401,157 @@ describe('activity pricing preservation and preview regressions', () => {
     const body = JSON.parse(String(request.mock.calls.find(([path]) => path.endsWith('/apply'))?.[1]?.body));
     expect(body.options[0]).toMatchObject({ updateMode: 'PATCH', effectiveFrom: '2026-12-10', expectedVersion: 3, travellerPrices: [{ travellerType: 'ADULT', amount: '1950' }] });
     expect(body.options[0]).not.toHaveProperty('visitorPrices');
+  });
+});
+
+describe('expanded live audit regressions', () => {
+  it.each(['', '0', '1.5', '525601'])('blocks an invalid edited SLA (%s) rather than reporting success with the old value', async value => {
+    const response: any = structuredClone(saved); response.options = [response.options[0]];
+    Object.assign(response.options[0].ratePlans[0].versions[0], { bookingMode: 'MANUAL_ON_REQUEST', confirmationSlaMinutes: 60 });
+    const onError = vi.fn(), request = vi.spyOn(api, 'request').mockImplementation(async path => path.endsWith('/prices-availability') ? response as never : { valid: true, errors: [] } as never);
+    render(<EditorHarness onError={onError} editorVariants={[variants[0]]} section="policies" />);
+    const sla = await screen.findByLabelText('Confirmation SLA (minutes)');
+    fireEvent.change(sla, { target: { value } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('1 to 525600 whole minutes'));
+    expect(request.mock.calls.some(([path]) => path.endsWith('/apply'))).toBe(false);
+    fireEvent.change(sla, { target: { value: '90' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request.mock.calls.some(([path]) => path.endsWith('/apply'))).toBe(true));
+    const option = JSON.parse(String(request.mock.calls.find(([path]) => path.endsWith('/apply'))?.[1]?.body)).options[0];
+    expect(option.confirmationSlaMinutes).toBe(90); expect(option).not.toHaveProperty('cancellationRules');
+  });
+
+  it('locks all controls from draft saving through pricing readback, then saves the next edit', async () => {
+    let releaseDraft!: (value: boolean) => void, releaseApply!: () => void, releaseRead!: () => void;
+    const draftGate = new Promise<boolean>(resolve => { releaseDraft = resolve; });
+    const applyGate = new Promise<void>(resolve => { releaseApply = resolve; });
+    const readGate = new Promise<void>(resolve => { releaseRead = resolve; });
+    let applied = 0, persisted = '900', save!: () => Promise<boolean>;
+    const onError = vi.fn(), onPricingSaved = vi.fn(), onSaveDraft = vi.fn(() => draftGate);
+    const request = vi.spyOn(api, 'request').mockImplementation(async (path, init) => {
+      if (path.endsWith('/preview')) return { valid: true, errors: [] } as never;
+      if (path.endsWith('/apply')) {
+        if (!applied) await applyGate;
+        persisted = JSON.parse(String(init?.body)).options[0].travellerPrices[0].amount;
+        applied++;
+        return { saved: [{ variantId: 'v1', commercialVersionId: 'own-' + applied }] } as never;
+      }
+      if (path.endsWith('/prices-availability')) {
+        if (applied === 1) await readGate;
+        const response: any = structuredClone(saved); response.options = [response.options[0]];
+        Object.assign(response.options[0].ratePlans[0].versions[0], { id: 'own-' + applied, versionNumber: 1 + applied, travellerPrices: [{ travellerType: 'ADULT', amount: persisted }] });
+        return response as never;
+      }
+      return {} as never;
+    });
+    render(<ActivityPricesAvailability snapshot={{ product: { id: 'p1' } as any, revision: null, variants: [variants[0]], schedules: [] }}
+      locked={false} revisionForm={{ ...emptyRevisionForm }} fulfilment={{ ...emptyFulfilmentForm }}
+      onSaveDraft={onSaveDraft} onRevisionChange={vi.fn()} onFulfilmentChange={vi.fn()} onRefresh={async () => undefined}
+      onError={onError} onPricingSaved={onPricingSaved} onRegisterPricingSave={handler => { if (handler) save = handler; }} />);
+    const input = await screen.findByLabelText('Entry Only adult or base price');
+    await waitFor(() => expect(input).toHaveValue(900));
+    fireEvent.change(input, { target: { value: '1951' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    expect(input).toBeDisabled();
+    expect(screen.getByRole('group', { name: 'Prices, availability and policies' })).toHaveAttribute('aria-busy', 'true');
+    expect(await save()).toBe(false);
+    expect(onSaveDraft).toHaveBeenCalledTimes(1);
+    await act(async () => releaseDraft(true));
+    await waitFor(() => expect(request.mock.calls.some(([path]) => path.endsWith('/apply'))).toBe(true));
+    expect(input).toBeDisabled(); expect(onPricingSaved).not.toHaveBeenCalled();
+    await act(async () => releaseApply());
+    await waitFor(() => expect(applied).toBe(1));
+    expect(input).toBeDisabled(); expect(onPricingSaved).not.toHaveBeenCalled();
+    await act(async () => releaseRead());
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(onPricingSaved).toHaveBeenCalledTimes(1);
+    fireEvent.change(input, { target: { value: '1952' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(onPricingSaved).toHaveBeenCalledTimes(2));
+    expect(persisted).toBe('1952'); expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('unlocks after a rejected save and retains the edited fields for retry', async () => {
+    let fail = true;
+    const onError = vi.fn(), request = renderEditor(onError, { options: [saved.options[0]] }, [variants[0]]);
+    request.mockImplementation(async path => {
+      if (path.endsWith('/prices-availability')) return { options: [saved.options[0]] } as never;
+      if (path.endsWith('/preview')) return { valid: true, errors: [] } as never;
+      if (path.endsWith('/apply') && fail) throw new Error('Staging save interruption');
+      return {} as never;
+    });
+    const input = await screen.findByLabelText('Entry Only adult or base price');
+    await waitFor(() => expect(input).toHaveValue(900));
+    fireEvent.change(input, { target: { value: '1952' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('Staging save interruption'));
+    expect(input).toBeEnabled(); fail = false;
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request.mock.calls.filter(([path]) => path.endsWith('/apply'))).toHaveLength(2));
+    expect(JSON.parse(String(request.mock.calls.filter(([path]) => path.endsWith('/apply'))[1][1]?.body)).options[0].travellerPrices).toEqual([{ travellerType: 'ADULT', amount: '1952' }]);
+  });
+
+  it.each(['mode', 'sla', 'cancellation'])('sends only the %s policy control actually edited', async field => {
+    const response: any = structuredClone(saved); response.options = response.options.slice(0, 2);
+    response.options.forEach((option: any, index: number) => Object.assign(option.ratePlans[0].versions[0], { bookingMode: 'MANUAL_ON_REQUEST', confirmationSlaMinutes: index ? 120 : 60 }));
+    const request = vi.spyOn(api, 'request').mockImplementation(async path => path.endsWith('/prices-availability') ? response as never : { valid: true, errors: [] } as never);
+    render(<EditorHarness onError={vi.fn()} editorVariants={variants.slice(0, 2)} section="policies" />);
+    await screen.findByText(/Mixed booking policies:/);
+    if (field === 'mode') fireEvent.change(screen.getByLabelText('Confirmation method'), { target: { value: 'VENDOR_CONFIRMATION' } });
+    if (field === 'sla') fireEvent.change(screen.getByLabelText('Confirmation SLA (minutes)'), { target: { value: '90' } });
+    if (field === 'cancellation') fireEvent.click(screen.getByRole('button', { name: 'Non-refundable' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request.mock.calls.some(([path]) => path.endsWith('/apply'))).toBe(true));
+    const body = JSON.parse(String(request.mock.calls.find(([path]) => path.endsWith('/apply'))?.[1]?.body));
+    for (const option of body.options) {
+      expect(option).toHaveProperty(field === 'mode' ? 'bookingMode' : field === 'sla' ? 'confirmationSlaMinutes' : 'cancellationRules');
+      for (const key of ['bookingMode', 'confirmationSlaMinutes', 'cancellationRules'].filter(key => key !== (field === 'mode' ? 'bookingMode' : field === 'sla' ? 'confirmationSlaMinutes' : 'cancellationRules'))) expect(option).not.toHaveProperty(key);
+    }
+  });
+
+  it('blocks clearing an existing child price with inline guidance and accepts zero instead', async () => {
+    const response: any = structuredClone(saved); response.options = [response.options[0]];
+    response.options[0].ratePlans[0].versions[0].travellerPrices.push({ travellerType: 'CHILD', amount: '450' });
+    const onError = vi.fn(), request = renderEditor(onError, response, [variants[0]]);
+    const child = await screen.findByLabelText('Entry Only child price');
+    await waitFor(() => expect(child).toHaveValue(450));
+    fireEvent.change(child, { target: { value: '' } });
+    expect(child).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('enter 0 for free admission'));
+    expect(request.mock.calls.some(([path]) => path.endsWith('/apply'))).toBe(false);
+    fireEvent.change(child, { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request.mock.calls.some(([path]) => path.endsWith('/apply'))).toBe(true));
+    expect(JSON.parse(String(request.mock.calls.find(([path]) => path.endsWith('/apply'))?.[1]?.body)).options[0]).toMatchObject({ travellerPrices: [{ travellerType: 'CHILD', amount: '0' }] });
+  });
+
+  it('ignores validation errors in unselected options while still blocking invalid selected options', async () => {
+    const onError = vi.fn(), request = renderEditor(onError);
+    await waitFor(() => expect(screen.getByLabelText('Private Jeep Safari adult or base price')).toHaveValue(3500));
+    fireEvent.change(screen.getByLabelText('Private Jeep Safari adult or base price'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining('Private Jeep Safari'));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Private Jeep Safari' }));
+    expect(screen.getByLabelText('Private Jeep Safari adult or base price')).toHaveAttribute('aria-invalid', 'false');
+    fireEvent.change(screen.getByLabelText('Entry Only adult or base price'), { target: { value: '950' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request.mock.calls.some(([path]) => path.endsWith('/apply'))).toBe(true));
+    const body = JSON.parse(String(request.mock.calls.find(([path]) => path.endsWith('/apply'))?.[1]?.body));
+    expect(body.options.map((option: any) => option.variantId)).toEqual(['v1', 'v2']);
+  });
+
+  it('formats mixed-currency sell, commission, net, MRP and seasonal previews using each offer currency', async () => {
+    const response: any = structuredClone(saved); response.options = response.options.slice(0, 2);
+    response.options.forEach((option: any) => Object.assign(option.ratePlans[0].versions[0], { supplierCommissionPercent: '10', sourcePayload: { mrpMode: 'YES', mrpAmount: '2000', ratePeriods: [{ name: 'Peak', from: '2026-11-01', to: '2026-12-01', days: 'ALL', adjustmentType: 'FLAT', adjustmentValue: '100' }] } }));
+    renderEditor(vi.fn(), response, variants.slice(0, 2));
+    await waitFor(() => expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900));
+    const rows = Array.from(document.querySelectorAll('.prototype-rate-breakdown-row'));
+    expect(rows[0].textContent).toContain('$900.00'); expect(rows[0].textContent).toContain('$90.00'); expect(rows[0].textContent).toContain('$810.00'); expect(rows[0].textContent).toContain('$2000.00'); expect(rows[0].textContent).not.toContain('₹');
+    expect(rows[1].textContent).toContain('₹1200.00'); expect(rows[1].textContent).toContain('₹120.00');
+    const seasonal = Array.from(document.querySelectorAll('.prototype-rate-period-preview')).map(element => element.textContent);
+    expect(seasonal).toEqual(expect.arrayContaining([expect.stringContaining('$1000.00'), expect.stringContaining('₹1300.00')]));
+    expect(within(document.querySelector('.prototype-final-price-preview') as HTMLElement).getByText(/\$900.00/)).toBeInTheDocument();
   });
 });

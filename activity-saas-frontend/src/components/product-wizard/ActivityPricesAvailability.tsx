@@ -191,12 +191,15 @@ const today = () => new Date().toISOString().slice(0, 10);
 const nextYear = () =>
   new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10);
 const text = (value: unknown) => (value == null ? "" : String(value));
-const formatPrice = (value: string, currency: string) => {
-  if (!value) return "Not set";
-  const amount = Number(value);
-  return Number.isFinite(amount)
-    ? `${currency || "INR"} ${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-    : value;
+const formatMoney = (amount: number, currency: string) => {
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency", currency: currency || "INR", useGrouping: false,
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
 };
 const emptyRow = (variant: ProductVariant): PriceRow => ({
   variantId: variant.id,
@@ -259,6 +262,7 @@ export default function ActivityPricesAvailability({
   onError,
   onPricingSaved,
   onPricingDirty,
+  onPricingBusyChange,
   onRegisterPricingSave,
   section = "pricing",
 }: WizardStepProps & { section?: EditorSection }) {
@@ -268,6 +272,7 @@ export default function ActivityPricesAvailability({
   const sharedChanges = useRef(new Set<string>());
   const savedPriceData = useRef<SavedPriceResponse>({});
   const [mixedPricingRules, setMixedPricingRules] = useState(false);
+  const [mixedBookingPolicies, setMixedBookingPolicies] = useState(false);
   const isPricing = section === "pricing";
   const isPolicies = section === "policies";
   const [dateFrom, setDateFrom] = useState(today());
@@ -328,7 +333,7 @@ export default function ActivityPricesAvailability({
   const [showExistingRates, setShowExistingRates] = useState(false);
   const [protectedRateCount, setProtectedRateCount] = useState(0);
   const [advancedRateCount, setAdvancedRateCount] = useState(0);
-  const [bookingRulesTouched, setBookingRulesTouched] = useState(false);
+  const savingRef = useRef(false);
   const [visitorPricingSettings, setVisitorPricingSettings] =
     useState<VisitorPricingSettings>({
       showEligibilityBasis: false,
@@ -362,12 +367,12 @@ export default function ActivityPricesAvailability({
     () => variants.map((variant) => variant.id).join(","),
     [variants],
   );
-  const periodAdultSell = (period: RatePeriod) => {
-    const row = rows.find((item) => selectedVariantIds.includes(item.variantId)) || rows[0];
-    if (!row) return null;
-    const base = Number(row.pricingUnit === "PER_PERSON" ? row.adult : row.base);
+  const periodSell = (period: RatePeriod, row: PriceRow) => {
+    const price = row.pricingUnit === "PER_PERSON" ? row.adult : row.base;
+    if (!enteredPrice(price)) return null;
+    const base = Number(price);
     const adjustment = Number(period.adjustmentValue || 0);
-    if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(adjustment)) return null;
+    if (!Number.isFinite(base) || !Number.isFinite(adjustment)) return null;
     const result = period.adjustmentType === "FLAT" ? base + adjustment : base * (1 + adjustment / 100);
     return Number.isFinite(result) ? result : null;
   };
@@ -483,7 +488,7 @@ export default function ActivityPricesAvailability({
     setCancellationRules((old) =>
       old.map((rule, i) => (i === index ? { ...rule, [key]: value } : rule)),
     );
-    dirty();
+    dirty("cancellationRules");
   };
   const selectCancellationPreset = (preset: CancellationPreset) => {
     onRevisionChange("cancellationPreset", preset);
@@ -493,8 +498,7 @@ export default function ActivityPricesAvailability({
     if (preset !== "CUSTOM" && option)
       setCancellationRules(option.rules.map((rule) => ({ ...rule })));
     setCancellationEnabled(true);
-    setBookingRulesTouched(true);
-    dirty();
+    dirty("cancellationRules");
   };
   const toggleTravellerDetail = (detail: string) => {
     const selected = new Set(
@@ -522,8 +526,7 @@ export default function ActivityPricesAvailability({
       },
     ]);
     setCancellationEnabled(true);
-    setBookingRulesTouched(true);
-    dirty();
+    dirty("cancellationRules");
   };
   const addRatePeriod = () => {
     setRatePeriods((old) => [
@@ -555,8 +558,7 @@ export default function ActivityPricesAvailability({
     setCancellationRules((old) =>
       old.length > 1 ? old.filter((_, i) => i !== index) : old,
     );
-    setBookingRulesTouched(true);
-    dirty();
+    dirty("cancellationRules");
   };
   const moneyError = (value: string, label: string, required = false) => {
     if (!value) return required ? `Enter ${label}.` : "";
@@ -568,6 +570,18 @@ export default function ActivityPricesAvailability({
     row: PriceRow,
     key: "adult" | "child" | "senior" | "base" | "maxPassengers",
   ) => {
+    if (!selectedVariantIds.includes(row.variantId)) return "";
+    if ((key === "child" || key === "senior") && row.pricingUnit === "PER_PERSON" && row[key] === "") {
+      const type = key.toUpperCase();
+      const plans = savedPriceData.current.options?.find(option => option.variantId === row.variantId)?.ratePlans || [];
+      const hasSavedPrice = plans.filter(plan => plan.editable).some(plan => plan.versions?.some(version =>
+        ["DRAFT", "ACTIVE"].includes(version.status) && version.pricingUnit === "PER_PERSON" &&
+        text(version.effectiveFrom).slice(0, 10) < dateTo &&
+        (!version.effectiveTo || text(version.effectiveTo).slice(0, 10) > dateFrom) &&
+        version.travellerPrices?.some((price: any) => price.travellerType === type),
+      ));
+      if (hasSavedPrice) return `Keep a ${key} price for this selling period, or enter 0 for free admission. Existing ticket types cannot be removed by clearing a rate.`;
+    }
     if (key === "adult")
       return row.pricingUnit === "PER_PERSON"
         ? moneyError(row.adult, "an adult price", true)
@@ -622,9 +636,16 @@ export default function ActivityPricesAvailability({
     dateFrom && dateTo && dateTo <= dateFrom
       ? "Selling end must be after selling start (exclusive)."
       : "";
+  const confirmationSlaError = bookingMode !== "INSTANT" &&
+    (sharedChanges.current.has("bookingMode") || sharedChanges.current.has("confirmationSlaMinutes") ||
+      rows.some(row => selectedVariantIds.includes(row.variantId) && !row.expectedVersion)) &&
+    (!/^[1-9]\d*$/.test(confirmationSlaMinutes) || Number(confirmationSlaMinutes) > 525600)
+    ? "Enter a confirmation SLA from 1 to 525600 whole minutes, or choose Instant confirmation."
+    : "";
   const validationErrors = () => {
     const optionErrors = isPricing
       ? rows
+          .filter(row => selectedVariantIds.includes(row.variantId))
           .map((row) => {
             const error = rowError(row);
             return error
@@ -633,7 +654,7 @@ export default function ActivityPricesAvailability({
           })
           .filter(Boolean)
       : [];
-    const errors = [...optionErrors, !isPolicies ? dateError : ""].filter(
+    const errors = [...optionErrors, !isPolicies ? dateError : "", confirmationSlaError].filter(
       Boolean,
     ) as string[];
     if (!selectedVariantIds.length)
@@ -814,7 +835,13 @@ export default function ActivityPricesAvailability({
             0,
           ),
         );
-        setBookingRulesTouched(!hasExistingRateData);
+        setMixedBookingPolicies(new Set(editablePlans.flatMap(plan => (plan.versions || [])
+          .filter(version => ["DRAFT", "ACTIVE"].includes(version.status))
+          .map(version => JSON.stringify([
+            version.bookingMode, version.confirmationSlaMinutes,
+            (version.sourcePayload?.bookingRules?.cancellationRules ?? plan.cancellationRules ?? [])
+              .map((rule: any) => [rule.minDaysBefore, rule.maxDaysBefore ?? null, text(rule.chargeValue), rule.chargeType]),
+          ])))).size > 1);
         const firstPlan = editablePlans[0];
         const firstVersion = latestVersion(firstPlan);
         if (firstVersion) {
@@ -921,7 +948,7 @@ export default function ActivityPricesAvailability({
               : [{ slotCode: "10:00", startTime: "10:00", endTime: "12:00" }],
           );
         }
-        const rules = firstPlan?.cancellationRules || [];
+        const rules = firstVersion?.sourcePayload?.bookingRules?.cancellationRules ?? firstPlan?.cancellationRules ?? [];
         if (rules.length) {
           setCancellationEnabled(true);
           setCancellationRules(
@@ -984,12 +1011,11 @@ export default function ActivityPricesAvailability({
           })), ...row.additionalVisitorPrices]
       : [];
     const selectedSlots = slotScope === "SELECTED" ? pricingSlotCodes : [];
-    const bookingRules = bookingRulesTouched
-      ? {
-          bookingMode,
-          ...(confirmationSlaMinutes
-            ? { confirmationSlaMinutes: Number(confirmationSlaMinutes) }
-            : {}),
+    const bookingRules = {
+      ...(!row.expectedVersion || sharedChanges.current.has("bookingMode") ? { bookingMode } : {}),
+      ...(bookingMode !== "INSTANT" && confirmationSlaMinutes && (!row.expectedVersion || sharedChanges.current.has("confirmationSlaMinutes"))
+        ? { confirmationSlaMinutes: Number(confirmationSlaMinutes) } : {}),
+      ...(!row.expectedVersion || sharedChanges.current.has("cancellationRules") ? {
           cancellationRules: cancellationEnabled
             ? cancellationRules.map((rule) => ({
                 minDaysBefore: Number(rule.minDaysBefore),
@@ -1000,8 +1026,8 @@ export default function ActivityPricesAvailability({
                 chargeType: rule.chargeType,
               }))
             : [],
-        }
-      : {};
+        } : {}),
+    };
     const availability =
       includeAvailability && (availabilityTouched || alsoUpdateCapacity)
         ? {
@@ -1126,6 +1152,7 @@ export default function ActivityPricesAvailability({
     }
   }
   async function saveAll(): Promise<boolean> {
+    if (savingRef.current || busy) return false;
     if (loadingExisting) { onError("Wait for saved rates and availability to finish loading."); return false; }
     const clientErrors = validationErrors();
     if (clientErrors.length) {
@@ -1147,39 +1174,42 @@ export default function ActivityPricesAvailability({
       );
       return false;
     }
-    const savedDraft = await (onSaveDraftWithId
-      ? onSaveDraftWithId()
-      : onSaveDraft());
-    if (!savedDraft) return false;
-    const productId =
-      snapshot.product?.id ||
-      (typeof savedDraft === "string" ? savedDraft : "");
-    if (!productId) {
-      onError(
-        "The product draft was saved, but its ID was not available for pricing. Reopen the draft and try again.",
-      );
-      return false;
-    }
-    let proofOverride = mrpProof;
-    if (mrpProofFile) {
-      setMrpProofUploading(true);
-      try {
-        const upload = new FormData();
-        upload.append("file", mrpProofFile);
-        const result = await api.request<{ fileAssetId: string }>(`/product-revisions/${snapshot.revision?.id}/rate-proof/upload`, { method: "POST", body: upload });
-        proofOverride = `fileAsset:${result.fileAssetId}`;
-        setMrpProof(proofOverride);
-        setMrpProofFile(null);
-      } catch (error) {
-        onError(error instanceof Error ? error.message : String(error));
-        return false;
-      } finally {
-        setMrpProofUploading(false);
-      }
-    }
-    const body = requestBody(proofOverride);
+    savingRef.current = true;
     setBusy(true);
+    onPricingBusyChange?.(true);
+    let saveSucceeded = false;
     try {
+      const savedDraft = await (onSaveDraftWithId
+        ? onSaveDraftWithId()
+        : onSaveDraft());
+      if (!savedDraft) return false;
+      const productId =
+        snapshot.product?.id ||
+        (typeof savedDraft === "string" ? savedDraft : "");
+      if (!productId) {
+        onError(
+          "The product draft was saved, but its ID was not available for pricing. Reopen the draft and try again.",
+        );
+        return false;
+      }
+      let proofOverride = mrpProof;
+      if (mrpProofFile) {
+        setMrpProofUploading(true);
+        try {
+          const upload = new FormData();
+          upload.append("file", mrpProofFile);
+          const result = await api.request<{ fileAssetId: string }>(`/product-revisions/${snapshot.revision?.id}/rate-proof/upload`, { method: "POST", body: upload });
+          proofOverride = `fileAsset:${result.fileAssetId}`;
+          setMrpProof(proofOverride);
+          setMrpProofFile(null);
+        } catch (error) {
+          onError(error instanceof Error ? error.message : String(error));
+          return false;
+        } finally {
+          setMrpProofUploading(false);
+        }
+      }
+      const body = requestBody(proofOverride);
       const result = await api.request<Preview>(
         `/products/${productId}/prices-availability/preview`,
         { method: "POST", body: JSON.stringify(body) },
@@ -1215,16 +1245,18 @@ export default function ActivityPricesAvailability({
       setSaved(true);
       setAvailabilityTouched(false);
       setAlsoUpdateCapacity(false);
-      setBookingRulesTouched(false);
       selectedVariantIds.forEach(id => { delete rowChanges.current[id]; });
       sharedChanges.current.clear();
       onPricingSaved?.();
+      saveSucceeded = true;
       return true;
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
       return false;
     } finally {
+      savingRef.current = false;
       setBusy(false);
+      onPricingBusyChange?.(false, saveSucceeded);
     }
   }
   useEffect(() => {
@@ -1234,7 +1266,9 @@ export default function ActivityPricesAvailability({
 
   if (loadingExisting) return <div className="experience-step-card" role="status">Loading saved prices, availability and policies…</div>;
   return (
-    <div className={`experience-step-stack activity-editor-section-${section}`}>
+    <fieldset className={`experience-step-stack activity-editor-section-${section}`}
+      disabled={locked || busy} aria-label="Prices, availability and policies" aria-busy={busy}
+      style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div className="experience-step-card activity-prices-card">
         <div className="experience-card-heading">
           <div>
@@ -1310,8 +1344,11 @@ export default function ActivityPricesAvailability({
                 <Field label="From"><SharedDatePicker value={period.from} onChange={(value) => updateRatePeriod(index, 'from', value)} disabled={locked} placeholder="From" /></Field>
                 <Field label="To"><SharedDatePicker value={period.to} onChange={(value) => updateRatePeriod(index, 'to', value)} disabled={locked} placeholder="To" /></Field>
                 <Field label="Days"><select value={period.days} onChange={(event) => updateRatePeriod(index, 'days', event.target.value)} disabled={locked}><option value="ALL">All days</option><option value="WEEKDAYS">Weekdays</option><option value="WEEKENDS">Weekends</option></select></Field>
-                <Field label="Adjustment"><div className="prototype-adjustment"><input value={period.adjustmentValue} onChange={(event) => updateRatePeriod(index, 'adjustmentValue', event.target.value)} disabled={locked} placeholder="0" /><select value={period.adjustmentType} onChange={(event) => updateRatePeriod(index, 'adjustmentType', event.target.value as RatePeriod['adjustmentType'])} disabled={locked}><option value="PERCENT">%</option><option value="FLAT">₹</option></select></div></Field>
-                <div className="prototype-rate-period-preview"><small>Adult sell</small><b>{periodAdultSell(period) == null ? "—" : `₹${periodAdultSell(period)!.toFixed(2)}`}</b></div>
+                <Field label="Adjustment"><div className="prototype-adjustment"><input value={period.adjustmentValue} onChange={(event) => updateRatePeriod(index, 'adjustmentValue', event.target.value)} disabled={locked} placeholder="0" /><select aria-label="Adjustment type" value={period.adjustmentType} onChange={(event) => updateRatePeriod(index, 'adjustmentType', event.target.value as RatePeriod['adjustmentType'])} disabled={locked}><option value="PERCENT">%</option><option value="FLAT">Amount</option></select></div></Field>
+                {rows.filter(row => selectedVariantIds.includes(row.variantId)).map(row => {
+                  const sell = periodSell(period, row);
+                  return <div className="prototype-rate-period-preview" key={row.variantId}><small>{byId.get(row.variantId)?.name || "Option"} sell ({row.currency || "INR"})</small><b>{sell == null ? "—" : formatMoney(sell, row.currency)}</b></div>;
+                })}
                 {!locked && <button type="button" className="link-button" onClick={() => { setRatePeriods((old) => old.filter((_, periodIndex) => periodIndex !== index)); dirty("ratePeriods"); }}>Remove</button>}
               </div>)}</div> : <p className="experience-help">No rate periods configured. The base rate applies to the selling dates above.</p>}
             </div>
@@ -1869,12 +1906,12 @@ export default function ActivityPricesAvailability({
               const hasCommission = commissionPercent.trim() !== "" && Number.isFinite(Number(commissionPercent));
               const fee = sell * Number(commissionPercent || 0) / 100;
               const saving = mrp > 0 && hasSell ? Math.max(0, (mrp - sell) / mrp * 100) : null;
-              return <div className="prototype-rate-breakdown-row" key={`breakdown-${row.variantId}`}><b>{byId.get(row.variantId)?.name || "Option"}</b><span>{mrp > 0 ? `₹${mrp.toFixed(2)}` : "—"}</span><span>{hasSell ? `₹${sell.toFixed(2)}` : "—"}</span><span>{hasSell && hasCommission ? `₹${fee.toFixed(2)}` : "—"}</span><span>{hasSell && hasCommission ? `₹${(sell - fee).toFixed(2)}` : "—"}</span><span>{saving !== null ? `${saving.toFixed(1)}%` : "—"}</span></div>;
+              return <div className="prototype-rate-breakdown-row" key={`breakdown-${row.variantId}`}><b>{byId.get(row.variantId)?.name || "Option"} ({row.currency || "INR"})</b><span>{mrp > 0 ? formatMoney(mrp, row.currency) : "—"}</span><span>{hasSell ? formatMoney(sell, row.currency) : "—"}</span><span>{hasSell && hasCommission ? formatMoney(fee, row.currency) : "—"}</span><span>{hasSell && hasCommission ? formatMoney(sell - fee, row.currency) : "—"}</span><span>{saving !== null ? `${saving.toFixed(1)}%` : "—"}</span></div>;
             })}
           </div>
           <div className="prototype-final-price-preview"><b>Final price preview</b>{rows.map(row => {
             const value = row.pricingUnit === "PER_PERSON" ? row.adult : row.base;
-            return <span key={`final-${row.variantId}`}>{byId.get(row.variantId)?.name || "Option"}: <strong>{enteredPrice(value) ? `₹${Number(value).toFixed(2)}` : "Enter a sell price"}</strong> {priceBasisLabel[row.pricingUnit]}</span>;
+            return <span key={`final-${row.variantId}`}>{byId.get(row.variantId)?.name || "Option"}: <strong>{enteredPrice(value) ? formatMoney(Number(value), row.currency) : "Enter a sell price"}</strong> {row.currency || "INR"} {priceBasisLabel[row.pricingUnit]}</span>;
           })}</div>
         </section>}
       </div>
@@ -2145,17 +2182,17 @@ export default function ActivityPricesAvailability({
           <span>Confirmation, traveller limits and cancellation policy</span>
         </summary>
         <p className="experience-help">
-          These rules are unchanged for existing options until you edit this
-          section. When changed, they apply to the selected options.
+          Only the controls you edit apply to the selected options. Untouched
+          confirmation and cancellation settings keep each option's saved terms.
         </p>
+        {mixedBookingPolicies && <p className="experience-notice" role="status">Mixed booking policies: options or selling periods have different confirmation or cancellation terms. Controls initially show the first option's terms. Editing confirmation does not change cancellation; edit a cancellation control only to apply that policy to the selected options.</p>}
         <div className="experience-form-grid three">
           <Field label="Confirmation method">
             <select
               value={bookingMode}
               onChange={(e) => {
                 setBookingMode(e.target.value);
-                setBookingRulesTouched(true);
-                dirty();
+                dirty("bookingMode");
               }}
               disabled={locked}
             >
@@ -2165,15 +2202,15 @@ export default function ActivityPricesAvailability({
             </select>
           </Field>
           {bookingMode !== "INSTANT" && (
-            <Field label="Confirmation SLA (minutes)">
+            <Field label="Confirmation SLA (minutes)" error={confirmationSlaError || undefined}>
               <input
                 type="number"
                 min="1"
+                max="525600"
                 value={confirmationSlaMinutes}
                 onChange={(e) => {
                   setConfirmationSlaMinutes(e.target.value);
-                  setBookingRulesTouched(true);
-                  dirty();
+                  dirty("confirmationSlaMinutes");
                 }}
                 disabled={locked}
                 placeholder="Required"
@@ -2186,8 +2223,7 @@ export default function ActivityPricesAvailability({
               checked={cancellationEnabled}
               onChange={(e) => {
                 setCancellationEnabled(e.target.checked);
-                setBookingRulesTouched(true);
-                dirty();
+                dirty("cancellationRules");
               }}
               disabled={locked}
             />{" "}
@@ -2310,7 +2346,6 @@ export default function ActivityPricesAvailability({
                           "minDaysBefore",
                           e.target.value,
                         );
-                        setBookingRulesTouched(true);
                       }}
                       disabled={locked}
                     />
@@ -2326,7 +2361,6 @@ export default function ActivityPricesAvailability({
                           "maxDaysBefore",
                           e.target.value,
                         );
-                        setBookingRulesTouched(true);
                       }}
                       disabled={locked}
                       placeholder="No upper limit"
@@ -2343,7 +2377,6 @@ export default function ActivityPricesAvailability({
                           "chargeValue",
                           e.target.value,
                         );
-                        setBookingRulesTouched(true);
                       }}
                       disabled={locked}
                     />
@@ -2353,7 +2386,6 @@ export default function ActivityPricesAvailability({
                     value={rule.chargeType}
                     onChange={(e) => {
                       updateCancellation(index, "chargeType", e.target.value);
-                      setBookingRulesTouched(true);
                     }}
                     disabled={locked}
                   >
@@ -2503,6 +2535,6 @@ export default function ActivityPricesAvailability({
           )}
         </div>
       )}
-    </div>
+    </fieldset>
   );
 }

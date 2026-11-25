@@ -4,7 +4,9 @@ const root = path.resolve(__dirname, '../..'), rb = require('node:module').creat
 const evidence = path.resolve(process.env.BULK_IMPORT_EVIDENCE_DIR || path.join(root, 'outputs/import-nine-fixes-20261124/staging')); fs.mkdirSync(evidence, { recursive: true });
 const database = process.env.BULK_IMPORT_STAGING_DATABASE_URL || 'postgresql://voya_staging@127.0.0.1:55445/voya_import_fixes_20261124?schema=public';
 const target=new URL(database); assert(target.hostname==='127.0.0.1' && target.port==='55445' && target.username==='voya_staging' && /^\/voya_import_fixes_\d+$/.test(target.pathname),'Only a disposable local bulk-import staging database is permitted');
-const serve=process.argv.includes('--serve');
+const reuse=process.argv.includes('--serve-existing');
+const serve=process.argv.includes('--serve') || reuse;
+if(reuse){const prior=JSON.parse(fs.readFileSync(path.join(evidence,'staging-verification.json')));assert(prior.pass && prior.database===target.pathname,'Reuse requires a successful rehearsal of this exact disposable database');}
 const stagingPort=Number(process.env.BULK_IMPORT_STAGING_PORT || 4048);
 assert(Number.isInteger(stagingPort) && stagingPort>=1024 && stagingPort<=65535,'Invalid loopback staging port');
 const uiOrigin=process.env.BULK_IMPORT_STAGING_UI_ORIGIN || 'http://127.0.0.1:3040';
@@ -18,7 +20,9 @@ const parsing = require(path.join(root,'activity-saas-frontend/src/components/pr
 const XLSX = require(path.join(root,'activity-saas-frontend/node_modules/xlsx'));
 const { PrismaClient } = rb('@prisma/client'), { JwtService } = rb('@nestjs/jwt');
 const db = new PrismaClient(), jwt = new JwtService({ secret: process.env.JWT_SECRET });
-const checks = [], findings = []; let app, base;
+const checks = [], findings = []; let app, base, browserChecksReady = false;
+const browserSaveDelay = Number(process.env.BULK_IMPORT_STAGING_SAVE_DELAY_MS || 0);
+assert(Number.isInteger(browserSaveDelay) && browserSaveDelay >= 0 && browserSaveDelay <= 5000);
 
 const payload = (model) => ({ Basic_Info: [model.basic], Experience: [model.experience], Options: model.options, Ticket_Types: model.ticketTypes, Rate_Plans: model.ratePlans, Availability: model.availability, Media: model.media, Booking_Questions: model.bookingQuestions, Fulfilment: Object.keys(model.fulfilment).length ? [model.fulfilment] : [] });
 function sample(key) {
@@ -151,10 +155,15 @@ async function main() {
   const { RequestContextService } = require('../dist/common/request-context.service'), { CorrelationIdMiddleware } = require('../dist/common/correlation-id.middleware');
   app = await NestFactory.create(AppModule, { logger: ['error'] });
   const middleware = new CorrelationIdMiddleware(app.get(RequestContextService)); app.use((req,res,next) => middleware.use(req,res,next));
+  if (serve && browserSaveDelay) app.use((req, _res, next) => {
+    if (browserChecksReady && req.method === 'POST' && /^\/api\/products\/[^/]+\/prices-availability\/apply$/.test(req.path)) setTimeout(next, browserSaveDelay);
+    else next();
+  });
   app.enableCors({origin:uiOrigin}); app.setGlobalPrefix('api'); app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true })); await app.init();
   for (const name of app.get(SchedulerRegistry).getCronJobs().keys()) app.get(SchedulerRegistry).deleteCronJob(name);
   await app.listen(serve ? stagingPort : 0, '127.0.0.1'); base = 'http://127.0.0.1:' + app.getHttpServer().address().port + '/api';
   const savedFetch = global.fetch; global.fetch = (url, options) => { assert(String(url).startsWith(base + '/'), 'External HTTP forbidden'); return savedFetch(url, options); };
+  if(reuse) return;
   const owner = await db.user.findUniqueOrThrow({ where: { email: 'owner@harbour-trails.example.com' } });
   const employee = await db.user.findUniqueOrThrow({ where: { email: 'kochi@harbour-trails.example.com' } });
   const foreign = await db.user.findFirstOrThrow({ where: { role: 'VENDOR', tenantId: { not: owner.tenantId }, organizationRole: 'OWNER', active: true } });
@@ -249,6 +258,7 @@ async function main() {
   await require('./verify-bulk-import-six-cases.cjs')({check,request,db,owner,outlet,tag,sample,parsing,XLSX,evidence,base,token,hashFinance});
   await require('./verify-bulk-editor-six-cases.cjs')({check,request,db,owner,outlet,tag,sample,parsing,XLSX,evidence,hashFinance});
   await require('./verify-bulk-editor-four-cases.cjs')({check,request,db,owner,employee,foreign,outlet,tag,sample,parsing,XLSX,evidence,hashFinance});
+  await require('./verify-bulk-editor-five-cases.cjs')({check,request,db,owner,employee,foreign,outlet,tag,sample,parsing,XLSX,evidence,hashFinance});
   await browserFixtures(owner,outlet,tag);
   await check('final protected booking and finance hash comparison',async()=>assert.deepEqual(await hashFinance(),before));
 }
@@ -296,10 +306,10 @@ async function browserFixtures(owner,outlet,tag){
 }
 
 main().catch(error=>{findings.push({fatal:error.message,stack:error.stack});console.error(error.message);process.exitCode=1;}).finally(async()=>{
-  const pass=!findings.length && checks.length>0 && checks.every(check=>check.pass);
+  const pass=!findings.length && (reuse || checks.length>0) && checks.every(check=>check.pass);
   if(!pass)process.exitCode=1;
-  fs.writeFileSync(path.join(evidence,'staging-verification.json'),JSON.stringify({checkedAt:new Date().toISOString(),pass,database:target.pathname,externalDeliveryDisabled:true,checks,findings},null,2));
+  fs.writeFileSync(path.join(evidence,reuse?'staging-server-reuse.json':'staging-verification.json'),JSON.stringify({checkedAt:new Date().toISOString(),pass,database:target.pathname,externalDeliveryDisabled:true,reusedVerifiedDatabase:reuse,checks,findings},null,2));
   await db.$disconnect();
-  if(serve && pass) console.log(`STAGING_READY ${base}; external delivery and all scheduled workers disabled.`);
+  if(serve && pass) { browserChecksReady = true; console.log(`STAGING_READY ${base}; external delivery and all scheduled workers disabled; browser save delay ${browserSaveDelay}ms.`); }
   else await app?.close();
 });
