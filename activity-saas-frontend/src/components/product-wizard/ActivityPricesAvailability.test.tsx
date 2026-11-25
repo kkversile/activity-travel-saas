@@ -35,6 +35,128 @@ function renderEditor(onError = vi.fn(), response: { options: unknown[] } = save
 
 afterEach(() => vi.restoreAllMocks());
 
+describe('ActivityPricesAvailability basis, MRP and selected paste regressions', () => {
+  it('shows every enabled ticket type after reopening group pricing and blocks an incomplete traveller transition', async () => {
+    const response: any = structuredClone(saved); response.options = [response.options[0]];
+    const plan = response.options[0].ratePlans[0];
+    plan.travellerRules = ['ADULT','CHILD','SENIOR','INFANT','YOUTH','GROUP'].map(type => ({type,maxCount:99}));
+    Object.assign(plan.versions[0], {pricingUnit:'GROUP',supplierBaseAmount:'2000',travellerPrices:[],sourcePayload:{mrpMode:'NO'}});
+    const error = vi.fn(), request = renderEditor(error,response,[variants[0]]);
+    await waitFor(() => expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(2000));
+    fireEvent.change(screen.getByLabelText('Entry Only pricing basis'), {target:{value:'PER_PERSON'}});
+    for (const [label,value] of [['adult or base','1900'],['child','950'],['senior','1400']])
+      fireEvent.change(screen.getByLabelText(`Entry Only ${label} price`),{target:{value}});
+    fireEvent.click(screen.getByRole('button',{name:/Save (all prices|changes)/}));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('infant price'));
+    expect(request.mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(false);
+    expect(screen.getByLabelText('Entry Only infant price')).toHaveAttribute('aria-invalid','true');
+    for (const [label,value] of [['infant','0'],['youth','1300.1234'],['group','2100']])
+      fireEvent.change(screen.getByLabelText(`Entry Only ${label} price`),{target:{value}});
+    fireEvent.click(screen.getByRole('button',{name:/Save (all prices|changes)/}));
+    await waitFor(()=>expect(request.mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(true));
+    const body=JSON.parse(String(request.mock.calls.find(([path])=>path.endsWith('/apply'))?.[1]?.body));
+    expect(body.options[0].travellerPrices).toEqual(expect.arrayContaining([
+      {travellerType:'INFANT',amount:'0'},{travellerType:'YOUTH',amount:'1300.1234'},{travellerType:'GROUP',amount:'2100'},
+    ]));
+    expect(body.options[0].travellerPrices).toHaveLength(6);
+  });
+
+  it('sends only the edited additional category so other date-period prices remain server-owned',async()=>{
+    const response:any=structuredClone(saved);response.options=[response.options[0]];
+    response.options[0].ratePlans[0].versions[0].travellerPrices.push({travellerType:'INFANT',amount:'100'},{travellerType:'YOUTH',amount:'1300.1234'});
+    const request=renderEditor(vi.fn(),response,[variants[0]]);
+    await waitFor(()=>expect(screen.getByLabelText('Entry Only infant price')).toHaveValue(100));
+    fireEvent.change(screen.getByLabelText('Entry Only infant price'),{target:{value:'0'}});
+    fireEvent.click(screen.getByRole('button',{name:/Save (all prices|changes)/}));
+    await waitFor(()=>expect(request.mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(true));
+    const body=JSON.parse(String(request.mock.calls.find(([path])=>path.endsWith('/apply'))?.[1]?.body));
+    expect(body.options[0].travellerPrices).toEqual([{travellerType:'INFANT',amount:'0'}]);
+  });
+
+  it('blocks clearing an enabled MRP before sending a preview or save',async()=>{
+    const response:any=structuredClone(saved);response.options=[response.options[0]];
+    response.options[0].ratePlans[0].versions[0].sourcePayload={mrpMode:'YES',mrpAmount:'3000'};
+    const error=vi.fn(),request=renderEditor(error,response,[variants[0]]);
+    const input=await screen.findByLabelText('MRP / gate price');
+    fireEvent.change(input,{target:{value:''}});
+    fireEvent.click(screen.getByRole('button',{name:/Save (all prices|changes)/}));
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('MRP / gate price when MRP is enabled'));
+    expect(input).toHaveAttribute('aria-invalid','true');
+    expect(request.mock.calls.some(([path])=>path.endsWith('/preview')||path.endsWith('/apply'))).toBe(false);
+  });
+
+  it('applies No MRP only to selected options and hides their MRP and savings',async()=>{
+    const response:any=structuredClone(saved);response.options=response.options.slice(0,2);
+    response.options.forEach((o:any)=>o.ratePlans[0].versions[0].sourcePayload={mrpMode:'YES',mrpAmount:'3000'});
+    const request=renderEditor(vi.fn(),response,variants.slice(0,2));
+    await waitFor(()=>expect(screen.getAllByLabelText('MRP / gate price')).toHaveLength(2));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Entry + Adventure'}));
+    fireEvent.click(screen.getByRole('button',{name:'No'}));
+    const rows=Array.from(document.querySelectorAll('.prototype-rate-breakdown-row'));
+    expect(rows[0].textContent).not.toContain('$3000.00');expect(rows[0].textContent).not.toContain('%');
+    expect(rows[1].textContent).toContain('₹3000.00');expect(rows[1].textContent).toContain('%');
+    fireEvent.click(screen.getByRole('button',{name:/Save (all prices|changes)/}));
+    await waitFor(()=>expect(request.mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(true));
+    const body=JSON.parse(String(request.mock.calls.find(([path])=>path.endsWith('/apply'))?.[1]?.body));
+    expect(body.options).toEqual([expect.objectContaining({variantId:'v1',mrpMode:'NO'})]);
+    await waitFor(()=>expect(screen.getByRole('button',{name:/Save (all prices|changes)/})).toBeEnabled());
+    expect(document.querySelectorAll('.prototype-rate-breakdown-row')[0].textContent).not.toContain('$3000.00');
+    expect(document.querySelectorAll('.prototype-rate-breakdown-row')[1].textContent).toContain('₹3000.00');
+  });
+
+  it('keeps MRP and savings hidden after loading No MRP with retained historical amount metadata',async()=>{
+    const response:any=structuredClone(saved);response.options=[response.options[0]];
+    response.options[0].ratePlans[0].versions[0].sourcePayload={mrpMode:'NO',mrpAmount:'3000'};
+    renderEditor(vi.fn(),response,[variants[0]]);
+    await waitFor(()=>expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900));
+    expect(screen.queryByLabelText('MRP / gate price')).not.toBeInTheDocument();
+    const row=document.querySelector('.prototype-rate-breakdown-row')!;
+    expect(row.textContent).not.toContain('3000');expect(row.textContent).not.toContain('%');
+  });
+
+  function travellerRows(){
+    const response:any=structuredClone(saved);
+    Object.assign(response.options[2].ratePlans[0].versions[0],{pricingUnit:'PER_PERSON',travellerPrices:[{travellerType:'ADULT',amount:'1500'}],sourcePayload:{mrpMode:'NO'}});
+    return response;
+  }
+  it('pastes two rows into non-adjacent selected options and saves exactly those options',async()=>{
+    const request=renderEditor(vi.fn(),travellerRows());
+    await waitFor(()=>expect(screen.getByLabelText('Private Jeep Safari adult or base price')).toHaveValue(1500));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Entry + Adventure'}));
+    fireEvent.paste(screen.getByLabelText('Entry Only adult or base price'),{clipboardData:{getData:()=> '2001\t951\t1401\n2201\t1001\t1501'}});
+    expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(2001);
+    expect(screen.getByLabelText('Entry + Adventure adult or base price')).toHaveValue(1200);
+    expect(screen.getByLabelText('Private Jeep Safari adult or base price')).toHaveValue(2201);
+    fireEvent.click(screen.getByRole('button',{name:/Save (all prices|changes)/}));
+    await waitFor(()=>expect(request.mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(true));
+    const body=JSON.parse(String(request.mock.calls.find(([path])=>path.endsWith('/apply'))?.[1]?.body));
+    expect(body.options.map((o:any)=>o.variantId)).toEqual(['v1','v3']);
+    expect(body.options[1].travellerPrices).toContainEqual({travellerType:'ADULT',amount:'2201'});
+  });
+  it('preserves empty leading paste cells and aligns subsequent columns with selected rows',async()=>{
+    renderEditor(vi.fn(),travellerRows());
+    await waitFor(()=>expect(screen.getByLabelText('Private Jeep Safari adult or base price')).toHaveValue(1500));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Entry + Adventure'}));
+    fireEvent.paste(screen.getByLabelText('Entry Only adult or base price'),{clipboardData:{getData:()=> '\t951\r\n\t1001\r\n'}});
+    expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900);
+    expect(screen.getByLabelText('Entry Only child price')).toHaveValue(951);
+    expect(screen.getByLabelText('Private Jeep Safari adult or base price')).toHaveValue(1500);
+    expect(screen.getByLabelText('Private Jeep Safari child price')).toHaveValue(1001);
+  });
+  it.each(['rows','columns','basis','unselected'])('rejects ambiguous %s paste atomically with guidance',async(kind)=>{
+    const error=vi.fn();renderEditor(error);
+    await waitFor(()=>expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900));
+    if(kind==='rows'){fireEvent.click(screen.getByRole('checkbox',{name:'Entry + Adventure'}));fireEvent.click(screen.getByRole('checkbox',{name:'Private Jeep Safari'}));}
+    if(kind==='unselected')fireEvent.click(screen.getByRole('checkbox',{name:'Entry Only'}));
+    const text=kind==='columns'?'1\t2\t3\t4\t5\t6\t7':kind==='basis'?'2001\n2201\n2301':'2001\n2201';
+    fireEvent.paste(screen.getByLabelText('Entry Only adult or base price'),{clipboardData:{getData:()=>text}});
+    expect(error).toHaveBeenCalled();
+    expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900);
+    expect(screen.getByLabelText('Entry + Adventure adult or base price')).toHaveValue(1200);
+    expect(screen.getByLabelText('Private Jeep Safari adult or base price')).toHaveValue(3500);
+  });
+});
+
 describe('ActivityPricesAvailability preserves canonical option booking limits', () => {
   it('loads departure times and shared settings from the edited revision instead of a historical option', async () => {
     const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];

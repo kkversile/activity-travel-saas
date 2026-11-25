@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import { PricingUnit } from '@prisma/client';
+import { PricingUnit, TravellerType } from '@prisma/client';
 import type { ActivityPriceOptionDto } from './catalogue.dto';
 import { bulkRateSegments, type BulkRateVersion } from './bulk-rate-update';
 
@@ -38,7 +38,17 @@ export function activityPricePatchSegments(versions: BulkRateVersion[], plan: Bu
     for (const price of patch.travellerPrices || []) amounts.set(price.travellerType, price.amount);
     option.travellerPrices = option.pricingUnit === PricingUnit.PER_PERSON
       ? [...amounts].map(([travellerType, amount]) => ({ travellerType, amount })) : [];
-    const visitors = new Map((sameBasis ? inherited.visitorPrices || [] : []).map(price => [price.travellerType, { ...price }]));
+    if (option.pricingUnit === PricingUnit.PER_PERSON) {
+      const missing = (plan.travellerRules || []).filter((rule: any) => rule.maxCount > 0)
+        .map((rule: any) => rule.type as TravellerType).filter((type: TravellerType) => !amounts.has(type) || amounts.get(type) === '');
+      if (missing.length) throw new BadRequestException({
+        code: 'TRAVELLER_PRICE_REQUIRED',
+        message: `Enter a price for every enabled ticket type (${missing.join(', ')}) for ${option.effectiveFrom} to ${option.effectiveTo}, or enter 0 for free admission. Changing the pricing basis does not remove enabled ticket types.`,
+      });
+    }
+    // A non-person version may retain visitor terms in its source payload.
+    // Re-entering traveller prices must not discard those foreign prices.
+    const visitors = new Map((sameBasis || option.pricingUnit === PricingUnit.PER_PERSON ? inherited.visitorPrices || [] : []).map(price => [price.travellerType, { ...price }]));
     for (const type of [...(removeVisitorTypes || []), ...(removeTravellerTypes || [])]) visitors.delete(type);
     for (const price of patch.visitorPrices || []) visitors.set(price.travellerType, { ...price });
     // Indian prices follow the ordinary category, including an adult-only edit.

@@ -20,6 +20,34 @@ const patch = (changes: Record<string, unknown> = {}) => ({ updateMode: 'PATCH',
 const resolve = (changes: Record<string, unknown> = {}) => activityPricePatchSegments([version(), version(true)], { currency: 'INR' }, patch(changes));
 
 describe('activity editor field patches', () => {
+  it.each(['GROUP', 'PER_BOOKING', 'PER_UNIT'])('rejects incomplete %s to traveller transitions without changing original versions', unit => {
+    const group = { ...version(), pricingUnit: unit, travellerPrices: [] };
+    const before = structuredClone(group);
+    const plan = { travellerRules: Object.keys(amounts()).map(type => ({ type, maxCount: 99 })) };
+    expect(() => activityPricePatchSegments([group], plan, patch({ pricingUnit: 'PER_PERSON', effectiveTo: '2026-12-20',
+      travellerPrices: [{ travellerType: 'ADULT', amount: '1900' }, { travellerType: 'CHILD', amount: '950' }, { travellerType: 'SENIOR', amount: '1400' }],
+    }))).toThrow(/every enabled ticket type \(INFANT, YOUTH, GROUP\).*enter 0/);
+    expect(group).toEqual(before);
+  });
+  it('accepts a complete basis transition with zero prices and preserves foreign terms', () => {
+    const group = { ...version(), pricingUnit: 'GROUP', travellerPrices: [] };
+    const plan = { travellerRules: [...Object.keys(amounts()).map(type => ({ type, maxCount: 99 })), { type: 'OTHER_DISABLED', maxCount: 0 }] };
+    const [{ option }] = activityPricePatchSegments([group], plan, patch({ pricingUnit: 'PER_PERSON', effectiveTo: '2026-12-20',
+      travellerPrices: Object.entries(amounts()).map(([travellerType, amount]) => ({ travellerType, amount })),
+    }));
+    expect(Object.fromEntries(option.travellerPrices!.map(p => [p.travellerType, p.amount]))).toEqual(amounts());
+    expect(option.visitorPrices).toContainEqual({ travellerType: 'INFANT', indian: '0', foreign: '2600' });
+  });
+  it('also blocks already incomplete per-person versions with enabled missing categories', () => {
+    const broken = { ...version(), travellerPrices: [{ travellerType: 'ADULT', amount: '1800' }] };
+    expect(() => activityPricePatchSegments([broken], { travellerRules: [{ type: 'INFANT', maxCount: 99 }] }, patch({ effectiveTo: '2026-12-20' })))
+      .toThrow(/every enabled ticket type \(INFANT\)/);
+  });
+  it('does not enforce traveller prices while group pricing is active', () => {
+    const [{ option }] = activityPricePatchSegments([version()], { travellerRules: [{ type: 'INFANT', maxCount: 99 }] }, patch({ pricingUnit: 'GROUP', supplierBaseAmount: '2000', effectiveTo: '2026-12-20' }));
+    expect(option.travellerPrices).toEqual([]);
+    expect(option.pricingUnit).toBe('GROUP');
+  });
   it('retains date-specific hidden prices and visitor policies during an adult-only edit', () => {
     const segments = resolve({ travellerPrices: [{ travellerType: 'ADULT', amount: '1950' }] });
     expect(segments).toHaveLength(2);

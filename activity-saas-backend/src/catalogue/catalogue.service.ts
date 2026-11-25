@@ -4881,6 +4881,7 @@ export class CatalogueService {
               orderBy: { versionNumber: "desc" },
             },
             cancellationRules: { orderBy: { minDaysBefore: "desc" } },
+            travellerRules: { orderBy: { type: "asc" } },
             channelMappings: {
               where: { status: "ACTIVE" },
               select: { status: true, enabled: true },
@@ -4940,6 +4941,7 @@ export class CatalogueService {
             advanced: plan.id !== compatiblePlan?.id,
             protected: isProtectedLegacyRatePlan(plan),
             cancellationRules: plan.cancellationRules,
+            travellerRules: plan.travellerRules,
             currency: plan.currency,
             pricingUnit: plan.unitType,
             validFrom: plan.validFrom,
@@ -5145,6 +5147,7 @@ export class CatalogueService {
               where: { variantId: variant.id, ratePlanCode: planCode },
               include: {
                 cancellationRules: true,
+                travellerRules: true,
                 commercialVersions: {
                   where: { status: { in: ["DRAFT", "ACTIVE"] } },
                   orderBy: { versionNumber: "desc" },
@@ -5157,6 +5160,7 @@ export class CatalogueService {
               where: { variantId: variant.id, status: "ACTIVE" },
               include: {
                 cancellationRules: true,
+                travellerRules: true,
                 commercialVersions: {
                   where: { status: { in: ["DRAFT", "ACTIVE"] } },
                   orderBy: { versionNumber: "desc" },
@@ -5187,6 +5191,9 @@ export class CatalogueService {
             chargeValue: rule.chargeValue,
             chargeType: rule.chargeType,
           }));
+          // Prisma's subsequent plan update returns scalar fields only. Keep
+          // the locked rule snapshot for validation inside this transaction.
+          const enabledTravellerRules = plan?.travellerRules || [];
           const previousCancellationRules = (plan?.cancellationRules || []).map(
             (rule: any) => ({
               minDaysBefore: rule.minDaysBefore,
@@ -5443,7 +5450,7 @@ export class CatalogueService {
             }
           } else if (option.updateMode === 'PATCH') {
             desired = history;
-            for (const segment of activityPricePatchSegments(editableVersions, plan, option)) {
+            for (const segment of activityPricePatchSegments(editableVersions, { ...plan, travellerRules: enabledTravellerRules }, option)) {
               const value = segment.option, saved = segment.version;
               const errors = this.activityPriceInput({ ...dto, options: [value] });
               if (errors.length) throw new BadRequestException({ code: 'ACTIVITY_PRICES_INVALID', message: 'Fix the highlighted prices and availability fields.', details: errors });

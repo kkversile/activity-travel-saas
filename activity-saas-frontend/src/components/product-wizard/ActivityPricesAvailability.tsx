@@ -29,6 +29,8 @@ type PriceRow = {
   senior: string;
   additionalTravellerPrices: Array<{ travellerType: string; amount: string }>;
   additionalVisitorPrices: Array<{ travellerType: string; indian: string; foreign: string }>;
+  enabledTravellerTypes: string[];
+  mrpMode: MRPMode;
   mrp: string;
   base: string;
   maxPassengers: string;
@@ -43,6 +45,7 @@ type PriceRow = {
   cutOffMinutes: string;
   expectedVersion?: number;
 };
+type PriceRowChange = keyof PriceRow | `traveller:${string}`;
 type SlotRow = { slotCode: string; startTime: string; endTime: string };
 type Preview = {
   valid: boolean;
@@ -72,6 +75,7 @@ type SavedPriceResponse = {
       maxPax?: number;
       cutOffMinutes?: number;
       cancellationRules?: any[];
+      travellerRules?: Array<{ type: string; maxCount: number }>;
       versions?: Array<{ currency?: string; [key: string]: any }>;
       schedules?: any[];
     }>;
@@ -210,6 +214,8 @@ const emptyRow = (variant: ProductVariant): PriceRow => ({
   senior: "",
   additionalTravellerPrices: [],
   additionalVisitorPrices: [],
+  enabledTravellerTypes: [],
+  mrpMode: "NO",
   mrp: "",
   base: "",
   maxPassengers: "",
@@ -268,7 +274,7 @@ export default function ActivityPricesAvailability({
 }: WizardStepProps & { section?: EditorSection }) {
   const variants = snapshot.variants;
   const [rows, setRows] = useState<PriceRow[]>(() => variants.map(emptyRow));
-  const rowChanges = useRef<Record<string, Set<keyof PriceRow>>>({});
+  const rowChanges = useRef<Record<string, Set<PriceRowChange>>>({});
   const sharedChanges = useRef(new Set<string>());
   const savedPriceData = useRef<SavedPriceResponse>({});
   const [mixedPricingRules, setMixedPricingRules] = useState(false);
@@ -300,7 +306,7 @@ export default function ActivityPricesAvailability({
   const [bookingMode, setBookingMode] = useState("INSTANT");
   const [confirmationSlaMinutes, setConfirmationSlaMinutes] = useState("");
   const [cancellationEnabled, setCancellationEnabled] = useState(false);
-  const [mrpMode, setMrpMode] = useState<MRPMode>("YES");
+  const [mrpMode, setMrpMode] = useState<MRPMode>("NO");
   const [mrpProof, setMrpProof] = useState("");
   const [mrpProofFile, setMrpProofFile] = useState<File | null>(null);
   const [mrpProofUploading, setMrpProofUploading] = useState(false);
@@ -408,6 +414,10 @@ export default function ActivityPricesAvailability({
     if (!/[\t\n]/.test(pasted)) return;
     event.preventDefault();
     const row = rows[rowIndex];
+    if (!row || !selectedVariantIds.includes(row.variantId)) {
+      onError("Select this option before pasting prices.");
+      return;
+    }
     const keys: Array<keyof PriceRow> =
       row?.pricingUnit === "PER_PERSON"
         ? ["adult", "child", "senior", "minPax", "maxPax", "cutOffMinutes"]
@@ -415,13 +425,26 @@ export default function ActivityPricesAvailability({
           ? ["base", "maxPassengers", "minPax", "maxPax", "cutOffMinutes"]
           : ["base", "minPax", "maxPax", "cutOffMinutes"];
     const start = keys.indexOf(key);
-    const matrix = pasted
-      .trim()
-      .split(/\r?\n/)
-      .map((line) => line.split("\t").map((value) => value.trim()));
+    const lines = pasted.replace(/\r\n?/g, "\n").split("\n");
+    while (lines.length && !lines.at(-1)?.trim()) lines.pop();
+    const matrix = lines.map((line) => line.split("\t").map((value) => value.trim()));
+    const targets = rows.slice(rowIndex).filter(candidate => selectedVariantIds.includes(candidate.variantId));
+    if (matrix.length > targets.length) {
+      onError(`Pasted ${matrix.length} rows, but only ${targets.length} selected options remain. Select enough options or paste fewer rows.`);
+      return;
+    }
+    if (targets.slice(0, matrix.length).some(target => target.pricingUnit !== row.pricingUnit)) {
+      onError("Paste prices for one pricing basis at a time. Select only traveller, group, booking or resource options with the same pricing basis.");
+      return;
+    }
+    if (start < 0 || matrix.some(values => values.length > keys.length - start)) {
+      onError("There are more pasted columns than editable fields. Use the column order shown above the prices and paste fewer columns.");
+      return;
+    }
+    const pastedById = new Map(targets.slice(0, matrix.length).map((target, index) => [target.variantId, matrix[index]]));
     setRows((old) =>
-      old.map((row, index) => {
-        const values = matrix[index - rowIndex];
+      old.map((row) => {
+        const values = pastedById.get(row.variantId);
         if (!values) return row;
         const next = { ...row };
         values.forEach((value, offset) => {
@@ -436,6 +459,17 @@ export default function ActivityPricesAvailability({
     );
     dirty();
   };
+  const updateAdditionalPrice = (id: string, type: string, amount: string) => {
+    (rowChanges.current[id] ||= new Set()).add(`traveller:${type}`);
+    setRows(old => old.map(row => row.variantId === id ? { ...row,
+      additionalTravellerPrices: row.additionalTravellerPrices.map(price => price.travellerType === type ? { ...price, amount } : price),
+    } : row));
+    dirty();
+  };
+  const rowMrpMode = (row: PriceRow): MRPMode =>
+    selectedVariantIds.includes(row.variantId) && (sharedChanges.current.has("mrpMode") || !row.expectedVersion) ? mrpMode : row.mrpMode;
+  const mrpError = (row: PriceRow) => selectedVariantIds.includes(row.variantId) && rowMrpMode(row) === "YES"
+    ? moneyError(row.mrp, "the MRP / gate price when MRP is enabled", true) : "";
   const selectDays = (value: DayPreset, pricing: boolean) => {
     if (pricing) {
       setPricingDayPreset(value);
@@ -580,7 +614,7 @@ export default function ActivityPricesAvailability({
         (!version.effectiveTo || text(version.effectiveTo).slice(0, 10) > dateFrom) &&
         version.travellerPrices?.some((price: any) => price.travellerType === type),
       ));
-      if (hasSavedPrice) return `Keep a ${key} price for this selling period, or enter 0 for free admission. Existing ticket types cannot be removed by clearing a rate.`;
+      if (hasSavedPrice || row.enabledTravellerTypes.includes(type)) return `Keep a ${key} price for this selling period, or enter 0 for free admission. Existing ticket types cannot be removed by clearing a rate.`;
     }
     if (key === "adult")
       return row.pricingUnit === "PER_PERSON"
@@ -621,9 +655,14 @@ export default function ActivityPricesAvailability({
       );
     if (row.minPax && row.maxPax && Number(row.maxPax) < Number(row.minPax))
       return "Maximum travellers must be at least the minimum.";
-    if (mrpMode === "YES" && row.mrp && !Number.isFinite(Number(row.mrp)))
-      return "Enter a valid MRP / gate price.";
-    if (mrpMode === "YES" && row.mrp) {
+    if (row.pricingUnit === "PER_PERSON") {
+      for (const price of row.additionalTravellerPrices) {
+        const error = moneyError(price.amount, `the ${price.travellerType.toLowerCase()} price (enter 0 for free admission)`, true);
+        if (error) return error;
+      }
+    }
+    if (mrpError(row)) return mrpError(row);
+    if (rowMrpMode(row) === "YES" && row.mrp) {
       const sellPrices = [row.adult, row.child, row.senior, row.base, row.foreign, row.foreignChild, row.foreignSenior]
         .filter(Boolean)
         .map(Number);
@@ -779,15 +818,17 @@ export default function ActivityPricesAvailability({
               adult: text(traveller.get("ADULT")),
               child: text(traveller.get("CHILD")),
               senior: text(traveller.get("SENIOR")),
-              // The simplified form edits only these three types. Keep every
-              // other stored type when the same draft is saved here.
-              additionalTravellerPrices: (version?.travellerPrices || [])
-                .filter((price: any) => !["ADULT", "CHILD", "SENIOR"].includes(price.travellerType))
-                .map((price: any) => ({ travellerType: price.travellerType, amount: text(price.amount) })),
+              enabledTravellerTypes: (plan?.travellerRules || []).filter(rule => rule.maxCount > 0).map(rule => rule.type),
+              additionalTravellerPrices: [...new Set<string>([
+                ...(version?.travellerPrices || []).map((price: any) => price.travellerType),
+                ...(plan?.travellerRules || []).filter(rule => rule.maxCount > 0).map(rule => rule.type),
+              ])].filter(type => !["ADULT", "CHILD", "SENIOR"].includes(type))
+                .map(travellerType => ({ travellerType, amount: text(traveller.get(travellerType)) })),
               additionalVisitorPrices: visitor
                 .filter((price) => !["ADULT", "CHILD", "SENIOR"].includes(price.travellerType))
                 .map((price) => ({ travellerType: price.travellerType, indian: text(price.indian), foreign: text(price.foreign) })),
               mrp: text((version?.sourcePayload as any)?.mrpAmount),
+              mrpMode: payload.mrpMode === "YES" || (payload.mrpMode !== "NO" && payload.mrpAmount != null) ? "YES" : "NO",
               base: text(version?.supplierBaseAmount),
               maxPassengers: text(payload.maxPassengersPerResource),
               indian: visitorPrice("ADULT", "indian"),
@@ -857,7 +898,7 @@ export default function ActivityPricesAvailability({
               : "RESIDENCY",
           );
           setVisitorVerificationMode(payload.visitorVerificationMode || "NONE");
-          setMrpMode(payload.mrpMode === "NO" ? "NO" : "YES");
+          setMrpMode(payload.mrpMode === "YES" || (payload.mrpMode !== "NO" && payload.mrpAmount != null) ? "YES" : "NO");
           setMrpProof(text(payload.mrpProof));
           setCommissionPercent(text((firstVersion as any).supplierCommissionPercent || payload.supplierCommissionPercent));
           setRatePeriods(
@@ -981,8 +1022,10 @@ export default function ActivityPricesAvailability({
       const amounts = new Map<string, string>((version.travellerPrices || []).map((price: any) => [price.travellerType, text(price.amount)]));
       const source = version.sourcePayload || {};
       const foreign = (type: string) => text(source.visitorPrices?.find((price: any) => price.travellerType === type)?.foreign);
-      const values = { pricingUnit: unitFromSaved(version.pricingUnit), currency: text(version.currency), adult: amounts.get("ADULT") || "", child: amounts.get("CHILD") || "", senior: amounts.get("SENIOR") || "", base: text(version.supplierBaseAmount), mrp: text(source.mrpAmount), foreign: foreign("ADULT"), foreignChild: foreign("CHILD"), foreignSenior: foreign("SENIOR") };
-      return { ...row, ...Object.fromEntries(Object.entries(values).filter(([key]) => !rowChanges.current[row.variantId]?.has(key as keyof PriceRow))) };
+      const values = { pricingUnit: unitFromSaved(version.pricingUnit), currency: text(version.currency), adult: amounts.get("ADULT") || "", child: amounts.get("CHILD") || "", senior: amounts.get("SENIOR") || "", base: text(version.supplierBaseAmount), mrp: text(source.mrpAmount), mrpMode: source.mrpMode === "YES" || (source.mrpMode !== "NO" && source.mrpAmount != null) ? "YES" : "NO", foreign: foreign("ADULT"), foreignChild: foreign("CHILD"), foreignSenior: foreign("SENIOR") };
+      return { ...row, ...Object.fromEntries(Object.entries(values).filter(([key]) => !rowChanges.current[row.variantId]?.has(key as keyof PriceRow))),
+        additionalTravellerPrices: row.additionalTravellerPrices.map(price => rowChanges.current[row.variantId]?.has(`traveller:${price.travellerType}`) ? price : { ...price, amount: amounts.get(price.travellerType) || "" }),
+      };
     }));
   }
   function rowPayload(row: PriceRow, proofOverride = mrpProof) {
@@ -1062,7 +1105,7 @@ export default function ActivityPricesAvailability({
       effectiveFrom: dateFrom,
       effectiveTo: dateTo,
       timezone,
-      mrpMode,
+      mrpMode: rowMrpMode(row),
       mrpProof: proofOverride,
       ratePeriods,
       availabilityBookingType: bookingType,
@@ -1097,7 +1140,7 @@ export default function ActivityPricesAvailability({
       ...(availability ? { availability } : {}),
     };
     if (!row.expectedVersion) return payload;
-    const changed = rowChanges.current[row.variantId] || new Set<keyof PriceRow>();
+    const changed = rowChanges.current[row.variantId] || new Set<PriceRowChange>();
     const patch: Record<string, any> = {
       updateMode: "PATCH", variantId: row.variantId, expectedVersion: row.expectedVersion,
       effectiveFrom: dateFrom, effectiveTo: dateTo,
@@ -1113,6 +1156,8 @@ export default function ActivityPricesAvailability({
       const prices = types.filter(([, key]) => allPrices || changed.has(key));
       if (prices.some(([, key]) => row[key] !== "")) patch.travellerPrices = prices.filter(([, key]) => row[key] !== "").map(([travellerType, key]) => ({ travellerType, amount: row[key] }));
       if (prices.some(([, key]) => row[key] === "")) patch.removeTravellerTypes = prices.filter(([, key]) => row[key] === "").map(([type]) => type);
+      const additional = row.additionalTravellerPrices.filter(price => allPrices || changed.has(`traveller:${price.travellerType}`));
+      if (additional.length) patch.travellerPrices = [...(patch.travellerPrices || []), ...additional];
       if (visitorPricing) {
         const visitors = types.filter(([, , key]) => allPrices || sharedChanges.current.has("visitorPricing") || changed.has(key));
         const pairs = visitors.filter(([, key, foreign]) => row[key] !== "" && row[foreign] !== "");
@@ -1242,6 +1287,10 @@ export default function ActivityPricesAvailability({
         typeof crypto !== "undefined" && crypto.randomUUID
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random()}`;
+      // Commit the accepted per-option mode before clearing shared edits, so
+      // a selected No-MRP save cannot reveal the old preview again.
+      const savedMrpModes = new Map(body.options.filter(option => option.mrpMode).map(option => [option.variantId, option.mrpMode as MRPMode]));
+      setRows(current => current.map(row => savedMrpModes.has(row.variantId) ? { ...row, mrpMode: savedMrpModes.get(row.variantId)! } : row));
       setSaved(true);
       setAvailabilityTouched(false);
       setAlsoUpdateCapacity(false);
@@ -1465,6 +1514,7 @@ export default function ActivityPricesAvailability({
               tab-separated values into the first selected row: traveller
               pricing uses adult, child, senior, min, max and cutoff; resource
               pricing uses base, passengers per resource, min, max and cutoff.
+              {" "}Pasted rows follow selected options in display order. Select one pricing basis at a time; extra rows or columns are rejected.
             </p>
             <div className="activity-option-checks">
               {variants.map((variant) => (
@@ -1726,6 +1776,14 @@ export default function ActivityPricesAvailability({
                         disabled={locked || row.pricingUnit !== "PER_PERSON"}
                       />
                     </Field>
+                    {row.pricingUnit === "PER_PERSON" && row.additionalTravellerPrices.map(price => {
+                      const label = price.travellerType.charAt(0) + price.travellerType.slice(1).toLowerCase();
+                      const error = selectedVariantIds.includes(row.variantId) ? moneyError(price.amount, `the ${label.toLowerCase()} price (enter 0 for free admission)`, true) : "";
+                      return <Field key={price.travellerType} label={`${label} price`} error={error || undefined}>
+                        <input aria-label={`${optionName} ${label.toLowerCase()} price`} aria-invalid={Boolean(error)} type="number" min="0" step="0.0001"
+                          value={price.amount} onChange={event => updateAdditionalPrice(row.variantId, price.travellerType, event.target.value)} disabled={locked} placeholder="Enter price or 0" />
+                      </Field>;
+                    })}
                     <div className="activity-price-row-extra">
                       <Field label="Min travellers">
                         <input
@@ -1788,9 +1846,10 @@ export default function ActivityPricesAvailability({
                           />
                         </Field>
                       )}
-                      {mrpMode === "YES" && (
-                        <Field label="MRP / gate price">
+                      {rowMrpMode(row) === "YES" && (
+                        <Field label="MRP / gate price" error={mrpError(row) || undefined}>
                           <input
+                            aria-invalid={Boolean(mrpError(row))}
                             type="number"
                             min="0"
                             step="0.01"
@@ -1902,7 +1961,7 @@ export default function ActivityPricesAvailability({
             <div className="prototype-rate-breakdown-head"><span>Option</span><span>MRP</span><span>Your sell price</span><span>Commission</span><span>You receive</span><span>Saving shown</span></div>
             {rows.map(row => {
               const value = row.pricingUnit === "PER_PERSON" ? row.adult : row.base;
-              const hasSell = enteredPrice(value), sell = Number(value), mrp = Number(row.mrp);
+              const hasSell = enteredPrice(value), sell = Number(value), mrp = rowMrpMode(row) === "YES" ? Number(row.mrp) : 0;
               const hasCommission = commissionPercent.trim() !== "" && Number.isFinite(Number(commissionPercent));
               const fee = sell * Number(commissionPercent || 0) / 100;
               const saving = mrp > 0 && hasSell ? Math.max(0, (mrp - sell) / mrp * 100) : null;
