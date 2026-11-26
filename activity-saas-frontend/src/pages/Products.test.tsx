@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api';
 import { money } from '../components/Ui';
@@ -9,6 +9,38 @@ const response = { items: [{ id: 'p1', productCode: 'PRD-1', experienceName: 'Te
 afterEach(() => vi.restoreAllMocks());
 
 describe('Products table', () => {
+  it.each([
+    [{ startingPrice: 90.25, startingPriceCurrency: 'USD' }, '$90.25'],
+    [{ startingPrice: 1499, startingPriceCurrency: 'INR' }, '₹1,499.00'],
+    [{ startingPrice: 80, startingPriceCurrency: 'EUR' }, '€80.00'],
+    [{ startingPrice: 0, startingPriceCurrency: 'USD' }, '$0.00'],
+    [{ startingPrice: 175.5, startingPriceCurrency: 'P9X' }, 'P9X 175.5'],
+    [{ startingPrice: 1499 }, '₹1,499.00'],
+    [{ startingPrice: null, startingPriceCurrency: null, startingPrices: [] }, '—'],
+  ])('renders the starting price with its currency (%j)', async (price, expected) => {
+    vi.spyOn(api, 'request').mockResolvedValue({ ...response, items: [{ ...response.items[0], ...price }] } as never);
+    render(<Products />);
+    const row = (await screen.findByText('Tea Walk')).closest('tr')!;
+    expect(within(row).getAllByRole('cell')[3]).toHaveTextContent(expected);
+    if ('startingPriceCurrency' in price && price.startingPriceCurrency === 'USD') expect(within(row).getAllByRole('cell')[3]).not.toHaveTextContent('₹');
+  });
+  it('shows currency-specific minima together without labelling them all INR', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ ...response, items: [{ ...response.items[0], startingPrice: null, startingPriceCurrency: null, startingPrices: [{ currency: 'INR', amount: 900 }, { currency: 'USD', amount: 45 }] }] } as never);
+    render(<Products />);
+    const row = (await screen.findByText('Tea Walk')).closest('tr')!;
+    expect(within(row).getAllByRole('cell')[3]).toHaveTextContent('₹900.00 / $45.00');
+  });
+  it('keeps each product currency independent in the same list', async () => {
+    vi.spyOn(api, 'request').mockResolvedValue({ ...response, items: [
+      { ...response.items[0], startingPriceCurrency: 'INR', startingPrices: [{ currency: 'INR', amount: 1499 }] },
+      { ...response.items[0], id: 'p2', productCode: 'PRD-2', experienceName: 'Harbour Cruise', startingPrice: 90, startingPriceCurrency: 'USD', startingPrices: [{ currency: 'USD', amount: 90 }] },
+    ] } as never);
+    render(<Products />);
+    const usdRow = (await screen.findByText('Harbour Cruise')).closest('tr')!;
+    const inrRow = screen.getByText('Tea Walk').closest('tr')!;
+    expect(within(usdRow).getAllByRole('cell')[3]).toHaveTextContent('$90.00');
+    expect(within(inrRow).getAllByRole('cell')[3]).toHaveTextContent('₹1,499.00');
+  });
   it('does not crash when legacy data contains an invalid currency code', () => { expect(money('175.50', 'P9X')).toBe('P9X 175.5'); });
   it('formats authoritative timestamps as relative time', () => { expect(formatRelativeTime(new Date().toISOString())).toBe('just now'); });
   it('renders the reference columns, score, counts and row action', async () => { vi.spyOn(api, 'request').mockResolvedValue(response as never); render(<Products />); await waitFor(() => expect(screen.getByText('Tea Walk')).toBeInTheDocument()); expect(screen.getByText('Product')).toBeInTheDocument(); expect(screen.getByText('Type')).toBeInTheDocument(); expect(screen.getByText('Bookings · 30 days')).toBeInTheDocument(); expect(screen.getByText('Content')).toBeInTheDocument(); expect(screen.getByText('82%')).toBeInTheDocument(); expect(screen.getAllByText('Live').length).toBeGreaterThan(0); expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument(); });

@@ -37,7 +37,7 @@ module.exports = async ({ check, request, db, owner, foreign, outlet, tag, sampl
   await check('three fixes: incomplete reverse basis change rejects preview and every option write atomically',async()=>{
     const before=await read(), requests=await db.activityPriceApplyRequest.count();
     const dto=await body([patch({variantId:group.variantId,supplierBaseAmount:'7300'}),patch({pricingUnit:'PER_PERSON',travellerPrices:prices(true).slice(0,3)})]);
-    const preview=await request(owner,route+'/preview',dto);assert.equal(preview.body.valid,false);assert(preview.body.errors.some(e=>e.includes('INFANT, YOUTH, GROUP')));
+    const preview=await request(owner,route+'/preview',dto);assert.equal(preview.body.valid,false);assert(preview.body.errors.some(e=>['INFANT','YOUTH','GROUP'].every(type=>e.includes(type))),JSON.stringify(preview));
     const saved=await request(owner,route+'/apply',dto,{'Idempotency-Key':crypto.randomUUID()});assert.equal(saved.status,400,JSON.stringify(saved));
     assert.deepEqual(await read(),before);assert.equal(await db.activityPriceApplyRequest.count(),requests);
   });

@@ -908,6 +908,7 @@ export class CatalogueService {
               adultRequired: true,
               minAdultRequired: true,
               unitType: true,
+              currency: true,
               travellerRules: true,
               cancellationRules: true,
               commercialVersions: {
@@ -1124,6 +1125,26 @@ export class CatalogueService {
       : [];
     const displayVariants =
       working && workingVariants.length ? workingVariants : publishedVariants;
+    // Amounts are comparable only within a currency. Keep each minimum paired
+    // with the commercial version that supplied it, including draft versions.
+    const minimumByCurrency = new Map<string, number>();
+    for (const variant of displayVariants) {
+      for (const plan of variant.ratePlans || []) {
+        const version = plan.commercialVersions?.[0];
+        const currency = String(version?.currency || plan.currency || "INR").trim().toUpperCase() || "INR";
+        for (const price of version?.travellerPrices || []) {
+          if (price.amount == null || String(price.amount).trim() === "") continue;
+          const amount = Number(price.amount);
+          if (!Number.isFinite(amount)) continue;
+          const minimum = minimumByCurrency.get(currency);
+          if (minimum === undefined || amount < minimum) minimumByCurrency.set(currency, amount);
+        }
+      }
+    }
+    const startingPrices = [...minimumByCurrency]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([currency, amount]) => ({ currency, amount }));
+    const singlePrice = startingPrices.length === 1 ? startingPrices[0] : null;
     const readiness = await this.aggregateBookability(
       user,
       { ...product, variants: publishedVariants },
@@ -1175,20 +1196,9 @@ export class CatalogueService {
       workingRevisionStatus: working?.status || null,
       updatedAt: new Date(updatedAt || Date.now()).toISOString(),
       bookings30d: product.bookingCount30d || 0,
-      startingPrice: displayVariants
-        .flatMap((variant: any) =>
-          (variant.ratePlans || []).flatMap((plan: any) =>
-            (plan.commercialVersions?.[0]?.travellerPrices || []).map(
-              (price: any) => Number(price.amount),
-            ),
-          ),
-        )
-        .filter((amount: number) => Number.isFinite(amount))
-        .reduce(
-          (minimum: number | null, amount: number) =>
-            minimum === null ? amount : Math.min(minimum, amount),
-          null,
-        ),
+      startingPrice: singlePrice?.amount ?? null,
+      startingPriceCurrency: singlePrice?.currency ?? null,
+      startingPrices,
       bookability: readiness,
       distribution,
       quality: this.contentScore(display),
