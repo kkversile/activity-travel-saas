@@ -7,11 +7,12 @@ module.exports = async ({ check, request, db, owner, employee, foreign, outlet, 
   const before = await hashFinance(), prefix = 'LIST-CURRENCY-' + tag, products = {};
   for (const suffix of ['USD', 'INR', 'MIXED', 'ZERO']) {
     const fixture = sample(prefix + '-' + suffix);
+    fixture.Basic_Info[0].currency = suffix === 'INR' ? 'INR' : 'USD';
     fixture.Basic_Info[0].product_name = 'Demonstration currency ' + suffix + ' ' + tag;
     for (const row of fixture.Rate_Plans) Object.assign(row, { currency: suffix === 'INR' ? 'INR' : 'USD', valid_from: '2026-12-01', valid_to: '2027-03-01' });
     const shared = fixture.Rate_Plans.find(row => row.option_code === 'SUNRISE-SHARED');
     Object.assign(shared, suffix === 'INR' ? { adult_price: 1800, child_price: 900, senior_price: 1400 } : { adult_price: 175.5, child_price: suffix === 'ZERO' ? 0 : 90.25, senior_price: 140 });
-    if (suffix === 'MIXED') fixture.Rate_Plans.push({ ...shared, rate_plan_code: 'RP-SHARED-INR', rate_plan_name: 'Shared INR rate', currency: 'INR', adult_price: 1800, child_price: 900, senior_price: 1400 });
+    if (suffix === 'MIXED') { fixture.Basic_Info[0].currency = 'INR'; fixture.Rate_Plans.push({ ...shared, rate_plan_code: 'RP-SHARED-INR', rate_plan_name: 'Shared INR rate', currency: 'INR', adult_price: 1800, child_price: 900, senior_price: 1400 }); }
     for (const row of fixture.Availability) Object.assign(row, { effective_from: '2026-12-01', effective_to: '2026-12-07', materialize: false });
     const created = await request(owner, '/products/import/json?outletId=' + outlet.id, fixture);
     assert.equal(created.status, 201, JSON.stringify(created));

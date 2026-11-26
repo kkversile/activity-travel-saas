@@ -23,6 +23,37 @@ function fixture() {
  return {service,dto,blueprint,prisma,tx,audit};
 }
 describe('JSON import write recovery',()=>{
+ it.each(['USD','EUR','INR'])('sets product metadata from uniform %s rates',async currency=>{
+  const {service,dto}=fixture();for(const row of dto.Rate_Plans)row.currency=currency;
+  await service.importJson(vendor,dto);
+  expect(service.createDraft).toHaveBeenCalledWith(vendor,expect.objectContaining({currency}),expect.anything(),undefined);
+ });
+ it('rejects mixed-currency imports without a deliberate product default before any writes',async()=>{
+  const {service,dto}=fixture();dto.Rate_Plans[0].currency='USD';
+  await expect(service.importJson(vendor,dto)).rejects.toMatchObject({response:{issues:expect.arrayContaining([expect.objectContaining({section:'Basic_Info',field:'currency',correction:expect.stringContaining('Set currency')})])}});
+  expect(service.createDraft).not.toHaveBeenCalled();
+ });
+ it.each(['P9X','USD'])('rejects an invalid or conflicting explicit currency %s without creating a draft',async currency=>{
+  const {service,dto}=fixture();dto.Basic_Info[0].currency=currency;
+  await expect(service.importJson(vendor,dto)).rejects.toMatchObject({response:{issues:expect.arrayContaining([expect.objectContaining({field:'currency',correction:expect.any(String)})])}});
+  expect(service.createDraft).not.toHaveBeenCalled();
+ });
+ it('retains an explicit default for a mixed-currency product without converting its rates',async()=>{
+  const {service,dto}=fixture();dto.Rate_Plans[0].currency='USD';dto.Basic_Info[0].currency='usd';
+  await service.importJson(vendor,dto);
+  expect(service.createDraft).toHaveBeenCalledWith(vendor,expect.objectContaining({currency:'USD'}),expect.anything(),undefined);
+ });
+ it('initializes option booking defaults from the matching imported plan, not another option',async()=>{
+  const {service,dto}=fixture();await service.importJson(vendor,dto);
+  expect(service.createVariant).toHaveBeenCalledWith(vendor,'new-product',expect.objectContaining({variantCode:dto.Options[0].option_code,minPax:1,maxPax:15,cutOffMinutes:1440}));
+  expect(service.createVariant).toHaveBeenCalledWith(vendor,'new-product',expect.objectContaining({variantCode:dto.Options[1].option_code,minPax:1,maxPax:6,cutOffMinutes:1440}));
+ });
+ it('does not choose conflicting plan limits as global option defaults',async()=>{
+  const {service,dto}=fixture();dto.Rate_Plans.push({...dto.Rate_Plans[0],rate_plan_code:'OTHER-LIMITS',max_pax:30,cutoff_minutes:0});
+  await service.importJson(vendor,dto);
+  const option=(service.createVariant as jest.Mock).mock.calls[0][2];
+  expect(option.minPax).toBe(1);expect(option).not.toHaveProperty('maxPax');expect(option).not.toHaveProperty('cutOffMinutes');
+ });
  it.each([
   {kind:'IMAGE',external_url:'https://example.com/image.jpg'},
   {kind:'IMAGE',external_url:'https://example.com/image.jpg',file_asset_id:'owned-image'},

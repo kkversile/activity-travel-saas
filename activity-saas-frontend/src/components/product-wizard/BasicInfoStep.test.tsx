@@ -106,3 +106,8 @@ describe('Existing product type selection', () => {
     expect(screen.getByRole('combobox', { name: 'Activity sub-type *' })).toHaveValue('CUSTOM_SERVICE');
   });
 });
+
+it('keeps an imported three-letter currency selected even outside the common currency choices', () => {
+  renderStep(false, false, [], { currency: 'CAD' });
+  expect(screen.getByLabelText('Product currency *')).toHaveValue('CAD');
+});

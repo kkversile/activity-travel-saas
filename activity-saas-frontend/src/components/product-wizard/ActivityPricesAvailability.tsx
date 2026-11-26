@@ -1144,10 +1144,9 @@ export default function ActivityPricesAvailability({
     const patch: Record<string, any> = {
       updateMode: "PATCH", variantId: row.variantId, expectedVersion: row.expectedVersion,
       effectiveFrom: dateFrom, effectiveTo: dateTo,
-      minPax: payload.minPax, maxPax: payload.maxPax, cutOffMinutes: payload.cutOffMinutes,
       ...bookingRules, ...(availability ? { availability } : {}),
     };
-    for (const [key, field] of Object.entries({ pricingUnit: "pricingUnit", currency: "currency", base: "supplierBaseAmount", mrp: "mrpAmount", maxPassengers: "maxPassengersPerResource" })) {
+    for (const [key, field] of Object.entries({ pricingUnit: "pricingUnit", currency: "currency", base: "supplierBaseAmount", mrp: "mrpAmount", maxPassengers: "maxPassengersPerResource", minPax: "minPax", maxPax: "maxPax", cutOffMinutes: "cutOffMinutes" })) {
       if (changed.has(key as keyof PriceRow)) patch[field] = (payload as any)[field];
     }
     const allPrices = changed.has("pricingUnit");

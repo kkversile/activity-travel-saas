@@ -150,6 +150,7 @@ export type RatePlan = {
   minAdultRequired: number;
   travellerRules: TravellerRule[];
   cancellationRules: CancellationRule[];
+  commercialVersions?: Array<{ status: string; minPax?: number | null; maxPax?: number | null; cutOffMinutes?: number | null }>;
   commercialReadiness?: { ready: boolean; reasonCodes: string[]; activeVersion?: CommercialVersion | null; draftVersion?: CommercialVersion | null };
 };
 

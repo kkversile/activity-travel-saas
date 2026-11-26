@@ -231,7 +231,7 @@ describe('ActivityPricesAvailability preserves canonical option booking limits',
     };
   }
 
-  async function expectPreviewAndApplyLimits(request: ReturnType<typeof renderEditor>, limits: { minPax: number; maxPax: number; cutOffMinutes: number }) {
+  async function expectPreviewAndApplyLimits(request: ReturnType<typeof renderEditor>, limits?: { minPax: number; maxPax: number; cutOffMinutes: number }) {
     fireEvent.click(screen.getByRole('button', { name: 'Preview changes' }));
     await screen.findByText('Preview valid');
     const previewCall = request.mock.calls.find(([path]) => path === '/products/p1/prices-availability/preview');
@@ -247,8 +247,24 @@ describe('ActivityPricesAvailability preserves canonical option booking limits',
     for (const [, init] of writes) {
       expect(init?.method).toBe('POST');
       expect(JSON.parse(String(init?.body)).options).toEqual([expect.objectContaining({ variantId: 'v1', ...limits })]);
+      if (!limits) for (const field of ['minPax', 'maxPax', 'cutOffMinutes']) expect(JSON.parse(String(init?.body)).options[0]).not.toHaveProperty(field);
     }
   }
+
+  it.each([
+    ['Min travellers', '2', 'minPax', 2],
+    ['Max travellers', '20', 'maxPax', 20],
+    ['Booking cut-off (hours)', '0', 'cutOffMinutes', 0],
+  ])('sends only the explicitly edited %s limit, including zero', async (label, value, field, expected) => {
+    const request = renderEditor(vi.fn(), legacyResponse(), [variants[0]]);
+    await waitFor(() => expect(screen.getByLabelText('Entry Only adult or base price')).toHaveValue(900));
+    fireEvent.change(screen.getByLabelText(String(label)), { target: { value: String(value) } });
+    fireEvent.click(screen.getByRole('button', { name: /Save (all prices|changes)/ }));
+    await waitFor(() => expect(request.mock.calls.some(([path]) => path.endsWith('/apply'))).toBe(true));
+    const body = JSON.parse(String(request.mock.calls.find(([path]) => path.endsWith('/apply'))?.[1]?.body));
+    expect(body.options[0][String(field)]).toBe(expected);
+    for (const other of ['minPax','maxPax','cutOffMinutes'].filter(key => key !== field)) expect(body.options[0]).not.toHaveProperty(other);
+  });
 
   it('preserves 2/12/120 on the first pricing save for an option with no existing rate plans', async () => {
     const option = { ...variants[0], minPax: 2, maxPax: 12, cutOffMinutes: 120 };
@@ -275,7 +291,7 @@ describe('ActivityPricesAvailability preserves canonical option booking limits',
     expect(screen.getByLabelText('Max travellers')).toHaveValue(12);
     expect(screen.getByLabelText('Booking cut-off (hours)')).toHaveValue(2);
 
-    await expectPreviewAndApplyLimits(request, { minPax: 2, maxPax: 12, cutOffMinutes: 120 });
+    await expectPreviewAndApplyLimits(request);
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -292,7 +308,7 @@ describe('ActivityPricesAvailability preserves canonical option booking limits',
     expect(screen.getByLabelText('Min travellers')).toHaveValue(3);
     expect(screen.getByLabelText('Max travellers')).toHaveValue(30);
 
-    await expectPreviewAndApplyLimits(request, { minPax: 3, maxPax: 30, cutOffMinutes: expected });
+    await expectPreviewAndApplyLimits(request);
     expect(onError).not.toHaveBeenCalled();
   });
 });

@@ -42,6 +42,32 @@ export function canonicalDuration(value: unknown): unknown {
 }
 
 export type ChoiceIssue = { field: string; value: string; allowedValues?: readonly string[]; message: string; correction: string };
+
+export function importProductCurrency(basic: Record<string, unknown>, rates: Record<string, unknown>[]): { currency: string; issue?: ChoiceIssue } {
+  const explicit = String(basic.currency ?? '').trim().toUpperCase();
+  const currencies = [...new Set(rates.map(row => String(row.currency || 'INR').trim().toUpperCase()))];
+  const currency = explicit || currencies[0] || 'INR';
+  const invalid = explicit && !/^[A-Z]{3}$/.test(explicit);
+  const ambiguous = !explicit && currencies.length > 1;
+  const mismatch = explicit && currencies.length > 0 && !currencies.includes(explicit);
+  if (invalid || ambiguous || mismatch) return { currency, issue: {
+    field: 'currency', value: explicit || currencies.join(', '),
+    message: invalid ? 'Product currency must be a three-letter currency code.' : ambiguous ? 'This product has rates in multiple currencies; choose its default currency.' : 'Product currency does not match any imported rate currency.',
+    correction: invalid ? 'Enter a three-letter code such as INR or USD.' : `Set currency on the product row to ${currencies.join(' or ')}, or split the product by currency.`,
+  } };
+  return { currency };
+}
+
+/** Infer only defaults shared by every plan for an option, never pick one of
+ * several conflicting rate-plan limits as an option-wide restriction. */
+export function importOptionBookingDefaults(rates: Record<string, unknown>[]): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const [field, column, fallback] of [['minPax', 'min_pax', 1], ['maxPax', 'max_pax', 99], ['cutOffMinutes', 'cutoff_minutes', 0]] as const) {
+    const values = [...new Set(rates.map(row => row[column] == null || String(row[column]).trim() === '' ? fallback : Number(row[column])))];
+    if (values.length === 1 && Number.isFinite(values[0])) result[field] = values[0];
+  }
+  return result;
+}
 export type ImportNumberRule = { min: number; max?: number; integer?: boolean; exclusiveMin?: boolean; decimals?: number; money?: boolean };
 const money: ImportNumberRule = { min: 0, decimals: 4, money: true };
 const count: ImportNumberRule = { min: 0, integer: true };

@@ -7,7 +7,7 @@ import {
   Optional,
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import { importMediaIssues, isImportDate, isMoneyAmount, MONEY_AMOUNT_GUIDANCE, normalizeImportChoices } from "../common/product-import-contract";
+import { importMediaIssues, importOptionBookingDefaults, importProductCurrency, isImportDate, isMoneyAmount, MONEY_AMOUNT_GUIDANCE, normalizeImportChoices } from "../common/product-import-contract";
 import { fingerprint } from "../bookings/booking-fingerprint";
 import {
   BookingMode,
@@ -1372,6 +1372,7 @@ export class CatalogueService {
         },
         variants: {
           where: { status: { not: VariantStatus.ARCHIVED } },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           include: { ...variantInclude, schedules: availabilityReadModel },
         },
         _count: { select: { variants: true, bookings: true } },
@@ -1908,6 +1909,8 @@ export class CatalogueService {
     const fulfilmentRows = (source.Fulfilment ?? []) as ImportJsonRow[];
     const ticketTypeRows = (source.Ticket_Types ?? []) as ImportJsonRow[];
     const issues: Array<{ section: string; row: number; message: string; field?: string; value?: string; correction?: string }> = [...choiceIssues];
+    const importedCurrency = importProductCurrency(basicRows[0] || {}, ratePlanRows);
+    if (importedCurrency.issue) issues.push({ section: "Basic_Info", row: 3, ...importedCurrency.issue });
     const issue = (section: string, row: number, message: string) =>
       issues.push({ section, row, message });
 
@@ -2170,6 +2173,7 @@ export class CatalogueService {
         user,
         {
           productName: importText(basic, "product_name"),
+          currency: importedCurrency.currency,
           type: importText(basic, "type") as any,
           subType: importText(basic, "sub_type"),
           subCategory: importText(basic, "sub_category"),
@@ -2327,6 +2331,7 @@ export class CatalogueService {
       for (const row of options) {
         const variant = await this.createVariant(user, created.id, {
           variantCode: importText(row, "option_code"),
+          ...importOptionBookingDefaults(ratePlanRows.filter(plan => importText(plan, "option_code") === importText(row, "option_code"))),
           name: importText(row, "option_name"),
           description: importText(row, "description") || undefined,
           durationMinutes: importNumber(row, "duration_minutes", 0),
@@ -4913,7 +4918,7 @@ export class CatalogueService {
           orderBy: { createdAt: "asc" },
         },
       },
-      orderBy: { createdAt: "asc" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     return {
       productId,
@@ -5250,11 +5255,11 @@ export class CatalogueService {
               option.currency || plan?.currency || product.currency || "INR",
             unitType: option.updateMode === 'PATCH' && !option.pricingUnit && plan ? plan.unitType : unitType,
             basePrice: (bulk || option.updateMode === 'PATCH') && plan ? plan.basePrice : baseAmount || plan?.basePrice || 0,
-            minPax: option.minPax ?? variant.minPax ?? plan?.minPax ?? 1,
-            maxPax: option.maxPax ?? variant.maxPax ?? plan?.maxPax ?? 99,
+            minPax: option.minPax ?? (option.updateMode === 'PATCH' ? plan?.minPax : variant.minPax) ?? plan?.minPax ?? 1,
+            maxPax: option.maxPax ?? (option.updateMode === 'PATCH' ? plan?.maxPax : variant.maxPax) ?? plan?.maxPax ?? 99,
             cutOffMinutes:
               option.cutOffMinutes ??
-              variant.cutOffMinutes ??
+              (option.updateMode === 'PATCH' ? plan?.cutOffMinutes : variant.cutOffMinutes) ??
               plan?.cutOffMinutes ??
               0,
             ...(option.bookingMode

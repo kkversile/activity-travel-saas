@@ -8,6 +8,7 @@ module.exports = async ({ check, request, db, owner, employee, foreign, outlet, 
   const input = (key, currency = 'INR') => {
     const model = sample(key);
     model.Basic_Info[0].product_name = 'Demonstration Harbour ' + key;
+    model.Basic_Info[0].currency = currency;
     for (const rate of model.Rate_Plans) Object.assign(rate, { currency, valid_from: '2026-12-01', valid_to: '2027-03-01' });
     for (const availability of model.Availability) Object.assign(availability, { effective_from: '2026-12-01', effective_to: '2026-12-07' });
     return model;

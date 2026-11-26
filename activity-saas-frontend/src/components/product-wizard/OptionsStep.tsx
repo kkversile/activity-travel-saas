@@ -3,15 +3,23 @@ import { api, type ProductVariant } from '../../api';
 import { Badge, Field } from '../Ui';
 import type { VariantForm, WizardStepProps } from './types';
 import { emptyVariantForm, splitList, toVariantForm } from './types';
+import { optionBookingDefaults } from './bookingDefaults';
+
+function bookingSummary(variant: ProductVariant) {
+  const limits = optionBookingDefaults(variant);
+  if (Object.values(limits).some(value => value == null)) return 'Booking limits vary by rate plan. Review Rates for the applicable dates.';
+  return `Booking: ${limits.minPax}–${limits.maxPax} travellers · cutoff ${Number(limits.cutOffMinutes) / 60} hours`;
+}
 
 function payload(form: VariantForm) {
   return {
     variantCode: form.variantCode.trim(), name: form.name.trim(), description: form.description.trim() || undefined,
     durationMinutes: form.durationMinutes ? Number(form.durationMinutes) : undefined,
-    minPax: Number(form.minPax), maxPax: Number(form.maxPax),
+    ...(form.minPax !== '' ? { minPax: Number(form.minPax) } : {}),
+    ...(form.maxPax !== '' ? { maxPax: Number(form.maxPax) } : {}),
     // The prototype asks the supplier for hours. The API/database keep the
     // operational value in minutes so booking eligibility remains unchanged.
-    cutOffMinutes: Math.round(Number(form.cutOffMinutes || 0) * 60),
+    ...(form.cutOffMinutes !== '' ? { cutOffMinutes: Math.round(Number(form.cutOffMinutes) * 60) } : {}),
     privateShared: form.privateShared || undefined, vehicleType: form.vehicleType.trim() || undefined,
     pickupIncluded: form.pickupIncluded, pickupType: form.pickupIncluded ? form.pickupType.trim() || undefined : undefined,
     pickupInput: form.pickupIncluded ? form.pickupInput.trim() || undefined : undefined,
@@ -44,9 +52,9 @@ export default function OptionsStep({ snapshot, locked, onRefresh, onError }: Wi
   async function save() {
     if (!snapshot.product || !form.name.trim() || (!editing && !form.variantCode.trim())) return;
     const minPax = Number(form.minPax); const maxPax = Number(form.maxPax); const cutOffHours = Number(form.cutOffMinutes);
-    if (!Number.isInteger(minPax) || minPax < 1) return onError('Minimum travellers must be a whole number of 1 or more.');
-    if (!Number.isInteger(maxPax) || maxPax < minPax) return onError('Maximum travellers must be a whole number and at least the minimum.');
-    if (!Number.isInteger(cutOffHours) || cutOffHours < 0) return onError('Booking cutoff must be a whole number of 0 hours or more.');
+    if ((!editing || form.minPax !== '') && (!Number.isInteger(minPax) || minPax < 1)) return onError('Minimum travellers must be a whole number of 1 or more.');
+    if ((!editing || form.maxPax !== '') && (!Number.isInteger(maxPax) || maxPax < (form.minPax === '' ? 1 : minPax))) return onError('Maximum travellers must be a whole number and at least the minimum.');
+    if ((!editing || form.cutOffMinutes !== '') && (!Number.isFinite(cutOffHours) || cutOffHours < 0 || Math.abs(cutOffHours * 60 - Math.round(cutOffHours * 60)) > 0.000001)) return onError('Booking cutoff must be 0 hours or more, in whole-minute increments.');
     setBusy(true);
     let persistedVariantId = editing;
     try {
@@ -72,12 +80,12 @@ export default function OptionsStep({ snapshot, locked, onRefresh, onError }: Wi
 
   return <div className="experience-step-stack">
     <div className="experience-step-card"><div className="experience-card-heading"><div><h3>Options &amp; ticket types</h3><p>An option is a bookable variant (private vs shared, with or without lunch). Each option has its own ticket types and rates.</p></div><div className="experience-header-actions">{!locked && <button type="button" className="btn small" onClick={() => addOptionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>+ Add option</button>}<span className="experience-pill">{variants.length} options</span></div></div>
-      {variants.length ? <div className="option-card-grid">{variants.map((variant) => <div className="option-card" key={variant.id}><div className="experience-card-heading"><div><b>{variant.name}</b><small>{variant.variantCode} · {variant.durationMinutes ? `${variant.durationMinutes} min` : 'Duration not set'} · {variant.privateShared || 'Shared'}</small></div><Badge value={variant.status} /></div><p>{[variant.vehicleType, variant.pickupIncluded ? 'Pickup included' : 'No pickup', variant.mealIncluded ? 'Meal included' : 'No meal'].filter(Boolean).join(' · ')}</p><small>Booking: {variant.minPax ?? 1}–{variant.maxPax ?? 99} travellers · cutoff {Math.round((variant.cutOffMinutes ?? 0) / 60)} hours</small><small>{variant.ratePlans?.length || 0} rate plan{variant.ratePlans?.length === 1 ? '' : 's'}</small>{!locked && <div className="experience-footer-actions"><button type="button" className="btn small" onClick={() => edit(variant)}>Edit</button><button type="button" className="btn small" onClick={() => void archive(variant)} disabled={busy}>Archive</button></div>}</div>)}</div> : <div className="experience-empty">No options yet. Add at least one real option before submitting.</div>}
+      {variants.length ? <div className="option-card-grid">{variants.map((variant) => <div className="option-card" key={variant.id}><div className="experience-card-heading"><div><b>{variant.name}</b><small>{variant.variantCode} · {variant.durationMinutes ? `${variant.durationMinutes} min` : 'Duration not set'} · {variant.privateShared || 'Shared'}</small></div><Badge value={variant.status} /></div><p>{[variant.vehicleType, variant.pickupIncluded ? 'Pickup included' : 'No pickup', variant.mealIncluded ? 'Meal included' : 'No meal'].filter(Boolean).join(' · ')}</p><small>{bookingSummary(variant)}</small><small>{variant.ratePlans?.length || 0} rate plan{variant.ratePlans?.length === 1 ? '' : 's'}</small>{!locked && <div className="experience-footer-actions"><button type="button" className="btn small" onClick={() => edit(variant)}>Edit</button><button type="button" className="btn small" onClick={() => void archive(variant)} disabled={busy}>Archive</button></div>}</div>)}</div> : <div className="experience-empty">No options yet. Add at least one real option before submitting.</div>}
     </div>
     {!locked && snapshot.product && <div ref={addOptionRef} className="experience-step-card"><div className="experience-card-heading"><div><h4>{editing ? 'Edit option' : 'Add option'}</h4><p>Operational and booking defaults belong to the option, not to an individual price.</p></div>{editing && <button type="button" className="link-button" onClick={reset}>Cancel edit</button>}</div>
       <div className="experience-form-grid two"><Field label="Option code *"><input value={form.variantCode} onChange={(e) => update('variantCode', e.target.value)} readOnly={Boolean(editing)} placeholder="OPT-SHARED" /></Field><Field label="Option name *"><input value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Standard shared" /></Field><Field label="Duration (minutes)"><input type="number" min="0" value={form.durationMinutes} onChange={(e) => update('durationMinutes', e.target.value)} /></Field><Field label="Shared or private"><select value={form.privateShared} onChange={(e) => update('privateShared', e.target.value)}><option>Shared</option><option>Private</option></select></Field></div>
       <section className="option-pricing-mode"><div className="experience-card-heading"><div><h4>How is this option priced?</h4><p>Choose whether the price is per traveller or for a car, boat, yacht, tent or room.</p></div></div><div className="option-pricing-mode-cards"><button type="button" className={`option-pricing-mode-card ${!form.unitType ? 'selected' : ''}`} onClick={() => setForm((old) => ({ ...old, unitType: '', unitRows: [] }))}><b>Per person</b><span>Price per traveller, split by age band</span></button><button type="button" className={`option-pricing-mode-card ${form.unitType ? 'selected' : ''}`} onClick={() => selectUnitType(form.unitType || 'CAR')}><b>Per unit</b><span>One price for a car, boat, yacht, tent or room</span></button></div></section>
-      <div className="experience-form-grid three option-booking-defaults"><Field label="Minimum travellers" hint="Smallest group size this option accepts"><input type="number" min="1" value={form.minPax} onChange={(e) => update('minPax', e.target.value)} /></Field><Field label="Maximum travellers" hint="Largest group size this option accepts"><input type="number" min="1" value={form.maxPax} onChange={(e) => update('maxPax', e.target.value)} /></Field><Field label="Booking cutoff (hours)" hint="Bookings close this many hours before start"><input type="number" min="0" value={form.cutOffMinutes} onChange={(e) => update('cutOffMinutes', e.target.value)} /></Field></div>
+      <div className="experience-form-grid three option-booking-defaults"><Field label="Minimum travellers" hint={editing ? "Leave blank to keep existing or rate-specific limits" : "Smallest group size this option accepts"}><input type="number" min="1" value={form.minPax} onChange={(e) => update('minPax', e.target.value)} /></Field><Field label="Maximum travellers" hint={editing ? "Leave blank to keep existing or rate-specific limits" : "Largest group size this option accepts"}><input type="number" min="1" value={form.maxPax} onChange={(e) => update('maxPax', e.target.value)} /></Field><Field label="Booking cutoff (hours)" hint={editing ? "Leave blank to keep existing or rate-specific cutoff" : "Bookings close this many hours before start"}><input type="number" min="0" step="any" value={form.cutOffMinutes} onChange={(e) => update('cutOffMinutes', e.target.value)} /></Field></div>
       <details className="advanced-details option-advanced-details"><summary>Advanced option details</summary>
         <div className="experience-form-grid two"><Field label="Vehicle / guide type"><input value={form.vehicleType} onChange={(e) => update('vehicleType', e.target.value)} placeholder="Optional" /></Field><Field label="Description"><textarea rows={2} value={form.description} onChange={(e) => update('description', e.target.value)} /></Field></div>
         <div className="experience-toggle-grid"><label className="wizard-check"><input type="checkbox" checked={form.pickupIncluded} onChange={(e) => update('pickupIncluded', e.target.checked)} /> Pickup included</label><label className="wizard-check"><input type="checkbox" checked={form.dropoffIncluded} onChange={(e) => update('dropoffIncluded', e.target.checked)} /> Drop-off included</label><label className="wizard-check"><input type="checkbox" checked={form.mealIncluded} onChange={(e) => update('mealIncluded', e.target.checked)} /> Meal included</label></div>
