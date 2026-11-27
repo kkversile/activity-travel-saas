@@ -380,6 +380,17 @@ export const buildActivityEditorSourcePayload = (
   };
 };
 
+/** Select only an owned, active, unprotected existing offer. Never fall back
+ * to another offer when an explicit selection is stale or unauthorized. */
+export function explicitActivityPlan(plans: any[], option: ActivityPriceOptionDto) {
+  if (!option.ratePlanId) return undefined;
+  if (option.updateMode !== 'PATCH') throw new BadRequestException('An existing rate-plan edit requires PATCH mode.');
+  const plan = plans.find(plan => plan.id === option.ratePlanId && plan.variantId === option.variantId && (!plan.status || plan.status === 'ACTIVE'));
+  if (!plan) throw new BadRequestException('The selected rate plan is unavailable for this product option. Reload and choose an authorized plan.');
+  if (isProtectedLegacyRatePlan(plan)) throw new ConflictException('This rate plan is protected or channel-linked and cannot be edited here.');
+  return plan;
+}
+
 @Injectable()
 export class CatalogueService {
   constructor(
@@ -4489,6 +4500,7 @@ export class CatalogueService {
       // PATCH requirements (adult/base, MRP, visitor pairs, SLA) are checked
       // again against every resolved segment in preview and inside apply's
       // transaction. Missing values here mean "preserve", not "clear".
+      if (option.ratePlanId && option.updateMode !== 'PATCH') errors.push(`options[${index}]: existing rate-plan edits require PATCH mode`);
       if (option.updateMode === 'PATCH') {
         if (!option.effectiveFrom || !option.effectiveTo || !Number.isFinite(+from) || !Number.isFinite(+to))
           errors.push(`options[${index}]: enter valid selling start and end dates`);
@@ -4705,6 +4717,7 @@ export class CatalogueService {
               include: {
                 cancellationRules: { orderBy: { minDaysBefore: "desc" } },
                 travellerRules: true,
+                channelMappings: { where: { OR: [{ status: "ACTIVE" }, { enabled: true }] }, select: { status: true, enabled: true } },
                 commercialVersions: {
                   where: { status: { in: ["DRAFT", "ACTIVE"] } },
                   include: { travellerPrices: true },
@@ -4732,13 +4745,15 @@ export class CatalogueService {
       if (option.updateMode !== 'PATCH') { resolvedOptions.push(option); continue; }
       if (errors.length) continue;
       const plans = existing.filter(plan => plan.variantId === option.variantId);
-      const plan = plans.find(plan => !isProtectedLegacyRatePlan(plan) &&
+      let selected: any;
+      try { selected = explicitActivityPlan(plans, option); } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); continue; }
+      const plan = selected || plans.find(plan => !isProtectedLegacyRatePlan(plan) &&
         (plan.sourcePayload?.createdFromActivityEditor || plan.ratePlanCode?.startsWith('ACTIVITY-')))
         || (plans.length === 1 && !isProtectedLegacyRatePlan(plans[0]) ? plans[0] : undefined);
       try {
         for (const segment of activityPricePatchSegments(plan?.commercialVersions || [], plan || {}, option)) {
           resolvedOptions.push(segment.option);
-          errors.push(...this.activityPriceInput({ ...dto, options: [segment.option] }, new Map(variants.map(variant => [variant.id, variant.name]))));
+          errors.push(...this.activityPriceInput({ ...dto, options: [{ ...segment.option, ratePlanId: undefined }] }, new Map(variants.map(variant => [variant.id, variant.name]))));
         }
       } catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
     }
@@ -4898,7 +4913,7 @@ export class CatalogueService {
             cancellationRules: { orderBy: { minDaysBefore: "desc" } },
             travellerRules: { orderBy: { type: "asc" } },
             channelMappings: {
-              where: { status: "ACTIVE" },
+              where: { OR: [{ status: "ACTIVE" }, { enabled: true }] },
               select: { status: true, enabled: true },
             },
             scheduleMappings: {
@@ -4952,6 +4967,7 @@ export class CatalogueService {
             id: plan.id,
             code: plan.ratePlanCode,
             name: plan.name,
+            selectable: !isProtectedLegacyRatePlan(plan),
             editable: plan.id === compatiblePlan?.id,
             advanced: plan.id !== compatiblePlan?.id,
             protected: isProtectedLegacyRatePlan(plan),
@@ -5142,7 +5158,17 @@ export class CatalogueService {
             minCount: price.travellerType === TravellerType.ADULT ? 1 : 0,
             maxCount: 99,
           }));
-          let plan: any = await tx.ratePlan.findFirst({
+          let plan: any;
+          if (option.ratePlanId) {
+            const candidates = await tx.ratePlan.findMany({
+              where: { id: option.ratePlanId, variantId: variant.id, status: 'ACTIVE' },
+              include: { cancellationRules: true, travellerRules: true,
+                commercialVersions: { where: { status: { in: ['DRAFT','ACTIVE'] } }, orderBy: { versionNumber: 'desc' } },
+                channelMappings: { where: { OR: [{ status: 'ACTIVE' }, { enabled: true }] }, select: { status: true, enabled: true } } },
+            });
+            plan = explicitActivityPlan(candidates, option);
+          } else {
+          plan = await tx.ratePlan.findFirst({
             where: { variantId: variant.id, ratePlanCode: planCode },
             include: {
               cancellationRules: true,
@@ -5200,6 +5226,7 @@ export class CatalogueService {
                 message: `Option ${variant.name} has multiple existing rate plans. Choose the standard offer in advanced pricing before using the simplified editor.`,
               });
           }
+          }
           const cancellationData = bulk ? undefined : option.cancellationRules?.map((rule) => ({
             minDaysBefore: rule.minDaysBefore,
             maxDaysBefore: rule.maxDaysBefore,
@@ -5228,7 +5255,7 @@ export class CatalogueService {
               : effectiveTo;
           // The Rates step is the final editor for these commercial limits. Keep the
           // variant defaults in sync so reopening Options cannot silently revert them.
-          if (!bulk && (
+          if (!bulk && !option.ratePlanId && (
             option.minPax !== undefined ||
             option.maxPax !== undefined ||
             option.cutOffMinutes !== undefined
@@ -5270,7 +5297,7 @@ export class CatalogueService {
               : {}),
             sourcePayload: {
               ...((plan?.sourcePayload as any) || {}),
-              createdFromActivityEditor: true,
+              ...(!option.ratePlanId ? { createdFromActivityEditor: true } : {}),
             },
           };
           if (!plan) {
@@ -5467,7 +5494,7 @@ export class CatalogueService {
             desired = history;
             for (const segment of activityPricePatchSegments(editableVersions, { ...plan, travellerRules: enabledTravellerRules }, option)) {
               const value = segment.option, saved = segment.version;
-              const errors = this.activityPriceInput({ ...dto, options: [value] });
+              const errors = this.activityPriceInput({ ...dto, options: [{ ...value, ratePlanId: undefined }] });
               if (errors.length) throw new BadRequestException({ code: 'ACTIVITY_PRICES_INVALID', message: 'Fix the highlighted prices and availability fields.', details: errors });
               const data = {
                 ...candidateData,

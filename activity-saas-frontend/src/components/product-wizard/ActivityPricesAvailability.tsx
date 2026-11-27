@@ -1,3 +1,4 @@
+import RatePlanEditor from './RatePlanEditor';
 import {
   useEffect,
   useMemo,
@@ -64,7 +65,12 @@ type VisitorPricingSettings = {
 type SavedPriceResponse = {
   options?: Array<{
     variantId: string;
+    name?: string;
     ratePlans?: Array<{
+      id: string;
+      code?: string;
+      name?: string;
+      selectable?: boolean;
       editable?: boolean;
       advanced?: boolean;
       protected?: boolean;
@@ -779,6 +785,7 @@ export default function ActivityPricesAvailability({
         // The product response also contains options from historical revisions.
         // Populate this editor only from the revision it is currently editing.
         const currentOptions = (data.options || []).filter((item) => variants.some((variant) => variant.id === item.variantId));
+        setSelectedVariantIds(variants.filter(v => { const plans=currentOptions.find(o=>o.variantId===v.id)?.ratePlans || [];return !plans.length || plans.some(p=>p.editable); }).map(v=>v.id));
         const savedByVariant = new Map(
           currentOptions.map((item) => [item.variantId, item]),
         );
@@ -1013,6 +1020,11 @@ export default function ActivityPricesAvailability({
     };
   }, [snapshot.product?.id, variantIds]);
 
+  function canEditStandard(variantId: string) {
+    const plans=savedPriceData.current.options?.find(o=>o.variantId===variantId)?.ratePlans || [];
+    return !plans.length || plans.some(p=>p.editable);
+  }
+
   function showPricesForDate(date: string) {
     setRows(current => current.map(row => {
       const plan = savedPriceData.current.options?.find(option => option.variantId === row.variantId)?.ratePlans?.find(plan => plan.editable);
@@ -1172,9 +1184,9 @@ export default function ActivityPricesAvailability({
     return patch;
   }
   const requestBody = (proofOverride = mrpProof) => ({
-    hasDifferentialVisitorPricing: visitorPricing,
+    ...(sharedChanges.current.has("visitorPricing") || rows.some(row=>selectedVariantIds.includes(row.variantId) && !row.expectedVersion) ? {hasDifferentialVisitorPricing: visitorPricing} : {}),
     options: rows
-      .filter((row) => selectedVariantIds.includes(row.variantId))
+      .filter((row) => selectedVariantIds.includes(row.variantId) && canEditStandard(row.variantId))
       .map((row) => rowPayload(row, proofOverride)),
   });
   async function runPreview() {
@@ -1198,6 +1210,7 @@ export default function ActivityPricesAvailability({
   async function saveAll(): Promise<boolean> {
     if (savingRef.current || busy) return false;
     if (loadingExisting) { onError("Wait for saved rates and availability to finish loading."); return false; }
+    if (!rows.some(row=>canEditStandard(row.variantId))) return Boolean(await onSaveDraft());
     const clientErrors = validationErrors();
     if (clientErrors.length) {
       onError(clientErrors.join(" "));
@@ -1337,6 +1350,7 @@ export default function ActivityPricesAvailability({
           </div>
           <span className="experience-pill">{rows.length} options</span>
         </div>
+        {isPricing && snapshot.product && <RatePlanEditor productId={snapshot.product.id} data={savedPriceData.current as any} locked={locked} onBusyChange={onPricingBusyChange} />}
         <div className="experience-notice">
           <b>How this works:</b>{" "}
           {isPricing
@@ -1355,8 +1369,7 @@ export default function ActivityPricesAvailability({
             <>
               <br />
               <b>Advanced pricing:</b> {advancedRateCount} rate plan(s) need
-              advanced management and are not editable in this simplified
-              editor.
+              a specific offer selection. Use Individual rate plans above; protected contracts stay read only.
             </>
           )}
         </div>
@@ -1529,9 +1542,9 @@ export default function ActivityPricesAvailability({
                       );
                       dirty();
                     }}
-                    disabled={locked}
+                    disabled={locked || !canEditStandard(variant.id)}
                   />{" "}
-                  {variant.name}
+                  {variant.name}{!canEditStandard(variant.id) ? " · Choose an individual rate plan" : ""}
                 </label>
               ))}
             </div>
@@ -1541,7 +1554,7 @@ export default function ActivityPricesAvailability({
               type="button"
               className="btn secondary"
               onClick={() => {
-                setSelectedVariantIds(variants.map((variant) => variant.id));
+                setSelectedVariantIds(variants.filter(v=>canEditStandard(v.id)).map((variant) => variant.id));
                 dirty();
               }}
               disabled={locked}
@@ -1636,7 +1649,7 @@ export default function ActivityPricesAvailability({
               <span>Child</span>
               <span>Senior</span>
             </div>
-            {rows.map((row) => {
+            {rows.filter(row=>canEditStandard(row.variantId)).map((row) => {
               const optionName = byId.get(row.variantId)?.name || "Option";
               const foreignError = visitorAdultError(row);
               return (
@@ -1958,7 +1971,7 @@ export default function ActivityPricesAvailability({
           <div className="experience-card-heading"><div><h4>Commercial price preview</h4><p>Review the customer price, commission and supplier settlement before saving.</p></div><span className="experience-pill">Commission {commissionPercent || "—"}%</span></div>
           <div className="prototype-rate-breakdown">
             <div className="prototype-rate-breakdown-head"><span>Option</span><span>MRP</span><span>Your sell price</span><span>Commission</span><span>You receive</span><span>Saving shown</span></div>
-            {rows.map(row => {
+            {rows.filter(row=>canEditStandard(row.variantId)).map(row => {
               const value = row.pricingUnit === "PER_PERSON" ? row.adult : row.base;
               const hasSell = enteredPrice(value), sell = Number(value), mrp = rowMrpMode(row) === "YES" ? Number(row.mrp) : 0;
               const hasCommission = commissionPercent.trim() !== "" && Number.isFinite(Number(commissionPercent));
@@ -1967,7 +1980,7 @@ export default function ActivityPricesAvailability({
               return <div className="prototype-rate-breakdown-row" key={`breakdown-${row.variantId}`}><b>{byId.get(row.variantId)?.name || "Option"} ({row.currency || "INR"})</b><span>{mrp > 0 ? formatMoney(mrp, row.currency) : "—"}</span><span>{hasSell ? formatMoney(sell, row.currency) : "—"}</span><span>{hasSell && hasCommission ? formatMoney(fee, row.currency) : "—"}</span><span>{hasSell && hasCommission ? formatMoney(sell - fee, row.currency) : "—"}</span><span>{saving !== null ? `${saving.toFixed(1)}%` : "—"}</span></div>;
             })}
           </div>
-          <div className="prototype-final-price-preview"><b>Final price preview</b>{rows.map(row => {
+          <div className="prototype-final-price-preview"><b>Final price preview</b>{rows.filter(row=>canEditStandard(row.variantId)).map(row => {
             const value = row.pricingUnit === "PER_PERSON" ? row.adult : row.base;
             return <span key={`final-${row.variantId}`}>{byId.get(row.variantId)?.name || "Option"}: <strong>{enteredPrice(value) ? formatMoney(Number(value), row.currency) : "Enter a sell price"}</strong> {row.currency || "INR"} {priceBasisLabel[row.pricingUnit]}</span>;
           })}</div>

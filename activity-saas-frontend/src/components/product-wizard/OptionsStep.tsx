@@ -3,12 +3,12 @@ import { api, type ProductVariant } from '../../api';
 import { Badge, Field } from '../Ui';
 import type { VariantForm, WizardStepProps } from './types';
 import { emptyVariantForm, splitList, toVariantForm } from './types';
-import { optionBookingDefaults } from './bookingDefaults';
+import { formatBookingCutoff, optionBookingDefaults } from './bookingDefaults';
 
 function bookingSummary(variant: ProductVariant) {
   const limits = optionBookingDefaults(variant);
   if (Object.values(limits).some(value => value == null)) return 'Booking limits vary by rate plan. Review Rates for the applicable dates.';
-  return `Booking: ${limits.minPax}–${limits.maxPax} travellers · cutoff ${Number(limits.cutOffMinutes) / 60} hours`;
+  return `Booking: ${limits.minPax}–${limits.maxPax} travellers · cutoff ${formatBookingCutoff(Number(limits.cutOffMinutes))}`;
 }
 
 function payload(form: VariantForm) {

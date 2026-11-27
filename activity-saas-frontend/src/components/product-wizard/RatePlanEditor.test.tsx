@@ -1,0 +1,34 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { api } from '../../api';
+import RatePlanEditor,{offerPeriods,type OfferVersion} from './RatePlanEditor';
+afterEach(()=>vi.restoreAllMocks());
+const version:OfferVersion={id:'usd-current',status:'ACTIVE',versionNumber:2,effectiveFrom:'2027-01-01',effectiveTo:'2027-03-01',currency:'USD',pricingUnit:'PER_PERSON',supplierBaseAmount:'0',travellerPrices:[{travellerType:'ADULT',amount:'100'},{travellerType:'CHILD',amount:'0'}],sourcePayload:{mrpMode:'NO'}};
+const data={options:[{variantId:'v',name:'Shared walk',ratePlans:[{id:'r-usd',name:'Winter USD',currency:'USD',advanced:true,selectable:true,versions:[version]},{id:'r-inr',name:'Other INR',currency:'INR',advanced:true,selectable:true,versions:[{...version,id:'inr',currency:'INR'}]}]}]};
+function setup(protectedPlan=false){const request=vi.spyOn(api,'request').mockImplementation(async(path,init)=>path.endsWith('/preview')?{valid:true,errors:[]}:init?.method==='POST'?{saved:[]}:data as any);render(<RatePlanEditor productId="p" data={protectedPlan?{options:[{...data.options[0],ratePlans:[{...data.options[0].ratePlans[0],protected:true,selectable:false}]}]}:data} locked={false}/>);fireEvent.change(screen.getByLabelText('Rate plan'),{target:{value:'r-usd'}});return request;}
+describe('individual rate-plan editing',()=>{
+  it('shows the chosen currency, period and free ticket price',()=>{setup();expect(screen.getByLabelText('Adult price (USD)')).toHaveValue('100');expect(screen.getByLabelText('Child price (USD)')).toHaveValue('0');expect(screen.getByLabelText('Plan selling starts')).toHaveValue('2027-01-01');});
+  it('sends an explicit field patch without changing other offers, currency or booking rules',async()=>{const request=setup();fireEvent.change(screen.getByLabelText('Adult price (USD)'),{target:{value:'110.1234'}});fireEvent.click(screen.getByRole('button',{name:'Save rate plan prices'}));await screen.findByText(/Rate plan prices saved as a draft/);const writes=request.mock.calls.filter(([p])=>p.endsWith('/apply'));expect(writes).toHaveLength(1);expect(JSON.parse(String(writes[0][1]?.body))).toEqual({options:[{updateMode:'PATCH',variantId:'v',ratePlanId:'r-usd',expectedVersion:2,effectiveFrom:'2027-01-01',effectiveTo:'2027-03-01',travellerPrices:[{travellerType:'ADULT',amount:'110.1234'}]}]});});
+  it.each(['','100000000000000','-1'])('blocks an invalid configured price %s before API calls',async amount=>{const request=setup();fireEvent.change(screen.getByLabelText('Adult price (USD)'),{target:{value:amount}});fireEvent.click(screen.getByRole('button',{name:'Save rate plan prices'}));await screen.findByRole('alert');expect(request).not.toHaveBeenCalled();});
+  it('keeps protected contracts read only',()=>{setup(true);expect(screen.getByLabelText('Adult price (USD)')).toBeDisabled();expect(screen.getByRole('button',{name:'Save rate plan prices'})).toBeDisabled();});
+  it('rejects dates outside the selected period',async()=>{const request=setup();fireEvent.change(screen.getByLabelText('Plan selling starts'),{target:{value:'2026-12-01'}});fireEvent.change(screen.getByLabelText('Adult price (USD)'),{target:{value:'110'}});fireEvent.click(screen.getByRole('button',{name:'Save rate plan prices'}));await screen.findByRole('alert');expect(request).not.toHaveBeenCalled();});
+  it('does not apply a rejected preview',async()=>{const request=setup();request.mockResolvedValueOnce({valid:false,errors:['Saved offer changed; reload.']} as any);fireEvent.change(screen.getByLabelText('Adult price (USD)'),{target:{value:'110'}});fireEvent.click(screen.getByRole('button',{name:'Save rate plan prices'}));await screen.findByText('Saved offer changed; reload.');expect(request.mock.calls.some(([p])=>p.endsWith('/apply'))).toBe(false);});
+  it('shows draft overrides while retaining current periods outside the override',()=>{const draft={...version,id:'draft',status:'DRAFT',versionNumber:3,effectiveFrom:'2027-01-15',effectiveTo:'2027-02-01'};expect(offerPeriods([version,draft]).map(p=>[p.from,p.to,p.version.id])).toEqual([['2027-01-01','2027-01-15','usd-current'],['2027-01-15','2027-02-01','draft'],['2027-02-01','2027-03-01','usd-current']]);});
+  it('exposes missing enabled categories so vendors can complete their prices',()=>{
+    const incomplete={options:[{...data.options[0],ratePlans:[{...data.options[0].ratePlans[0],travellerRules:[{type:'SENIOR',maxCount:15}]}]}]};
+    render(<RatePlanEditor productId="p" data={incomplete} locked={false}/>);fireEvent.change(screen.getByLabelText('Rate plan'),{target:{value:'r-usd'}});expect(screen.getByLabelText('Senior price (USD)')).toHaveValue('');
+  });
+  it('sends only changed foreign prices while preserving eligibility and the other offer',async()=>{
+    const visitors={options:[{...data.options[0],ratePlans:[{...data.options[0].ratePlans[0],versions:[{...version,sourcePayload:{visitorPrices:[{travellerType:'ADULT',indian:'100',foreign:'150'}],visitorEligibilityBasis:'RESIDENCY'}}]}]}]};
+    const request=vi.spyOn(api,'request').mockImplementation(async(path,init)=>path.endsWith('/preview')?{valid:true,errors:[]}:init?.method==='POST'?{saved:[]}:visitors as any);
+    render(<RatePlanEditor productId="p" data={visitors} locked={false}/>);fireEvent.change(screen.getByLabelText('Rate plan'),{target:{value:'r-usd'}});fireEvent.change(screen.getByLabelText('Foreign adult price (USD)'),{target:{value:'160'}});fireEvent.click(screen.getByRole('button',{name:'Save rate plan prices'}));await screen.findByText(/Rate plan prices saved as a draft/);
+    const body=JSON.parse(String(request.mock.calls.find(([p])=>p.endsWith('/apply'))?.[1]?.body));expect(body.options[0].visitorPrices).toEqual([{travellerType:'ADULT',indian:'100',foreign:'160'}]);expect(body).not.toHaveProperty('hasDifferentialVisitorPricing');expect(body.options[0]).not.toHaveProperty('visitorEligibilityBasis');
+  });
+  it('does not silently advance the selected version when a sibling editor refreshes',async()=>{
+    const request=vi.spyOn(api,'request').mockResolvedValue({valid:false,errors:['Saved offer changed; reload.']} as any);
+    const view=render(<RatePlanEditor productId="p" data={data} locked={false}/>);fireEvent.change(screen.getByLabelText('Rate plan'),{target:{value:'r-usd'}});
+    const newer={options:[{...data.options[0],ratePlans:[{...data.options[0].ratePlans[0],versions:[{...version,versionNumber:9}]}]}]};
+    view.rerender(<RatePlanEditor productId="p" data={newer} locked={false}/>);fireEvent.change(screen.getByLabelText('Adult price (USD)'),{target:{value:'110'}});fireEvent.click(screen.getByRole('button',{name:'Save rate plan prices'}));await screen.findByRole('alert');
+    expect(JSON.parse(String(request.mock.calls[0][1]?.body)).options[0].expectedVersion).toBe(2);
+  });
+});

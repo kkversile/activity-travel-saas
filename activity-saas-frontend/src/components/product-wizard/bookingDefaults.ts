@@ -1,5 +1,13 @@
 import type { ProductVariant } from '../../api';
 
+export function formatBookingCutoff(minutes: number) {
+  const hours = Math.floor(minutes / 60), remainder = minutes % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`);
+  if (remainder || !hours) parts.push(`${remainder} ${remainder === 1 ? 'minute' : 'minutes'}`);
+  return parts.join(' ');
+}
+
 /** Read legacy inherited limits without writing them back on a price-only save. */
 export function optionBookingDefaults(variant: ProductVariant) {
   const plans = (variant.ratePlans || []).filter(plan => !['ARCHIVED', 'INACTIVE'].includes(plan.status));

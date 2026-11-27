@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { optionBookingDefaults } from './bookingDefaults';
+import { formatBookingCutoff, optionBookingDefaults } from './bookingDefaults';
 import { toVariantForm } from './types';
 
 describe('legacy inherited option limits', () => {
+  it.each([[0,'0 minutes'],[1,'1 minute'],[30,'30 minutes'],[60,'1 hour'],[90,'1 hour 30 minutes'],[1440,'24 hours']])('formats %s minutes clearly', (value,expected)=>expect(formatBookingCutoff(Number(value))).toBe(expected));
   const legacy: any = { ratePlans: [{ status: 'ACTIVE', minPax: 1, maxPax: 15, cutOffMinutes: 1440 }] };
   it('displays imported inherited limits and edits them in hours without persisting a backfill', () => {
     expect(optionBookingDefaults(legacy)).toEqual({ minPax: 1, maxPax: 15, cutOffMinutes: 1440 });

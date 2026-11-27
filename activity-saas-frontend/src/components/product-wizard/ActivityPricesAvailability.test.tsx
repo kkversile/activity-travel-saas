@@ -18,24 +18,64 @@ const saved = {
   })),
 };
 
-function EditorHarness({ onError, editorVariants = variants, section = 'pricing' }: { onError: ReturnType<typeof vi.fn>; editorVariants?: typeof variants; section?: 'pricing' | 'availability' | 'policies' }) {
+function EditorHarness({ onError, editorVariants = variants, section = 'pricing', onSaveDraft = async () => true }: { onError: ReturnType<typeof vi.fn>; editorVariants?: typeof variants; section?: 'pricing' | 'availability' | 'policies'; onSaveDraft?: () => Promise<boolean> }) {
   const [revisionForm, setRevisionForm] = useState({ ...emptyRevisionForm });
-  return <ActivityPricesAvailability section={section} snapshot={{ product: { id: 'p1' } as any, revision: null, variants: editorVariants, schedules: [] }} locked={false} revisionForm={revisionForm} fulfilment={{ ...emptyFulfilmentForm }} onSaveDraft={async () => true} onRevisionChange={(key, value) => setRevisionForm((current) => ({ ...current, [key]: value }))} onFulfilmentChange={vi.fn()} onRefresh={async () => undefined} onError={onError as unknown as (message: string) => void} />;
+  return <ActivityPricesAvailability section={section} snapshot={{ product: { id: 'p1' } as any, revision: null, variants: editorVariants, schedules: [] }} locked={false} revisionForm={revisionForm} fulfilment={{ ...emptyFulfilmentForm }} onSaveDraft={onSaveDraft} onRevisionChange={(key, value) => setRevisionForm((current) => ({ ...current, [key]: value }))} onFulfilmentChange={vi.fn()} onRefresh={async () => undefined} onError={onError as unknown as (message: string) => void} />;
 }
 
-function renderEditor(onError = vi.fn(), response: { options: unknown[] } = saved, editorVariants = variants) {
+function renderEditor(onError = vi.fn(), response: { options: unknown[] } = saved, editorVariants = variants, onSaveDraft?: () => Promise<boolean>) {
   const request = vi.spyOn(api, 'request').mockImplementation(async (path: string) => {
     if (path.endsWith('/prices-availability')) return response as never;
     if (path.endsWith('/prices-availability/preview')) return { valid: true, errors: [], conflicts: [{ type: 'EFFECTIVE_HISTORY_OVERLAP', message: 'This update overlaps existing editor pricing; the save will split the surrounding history.' }], summary: { optionCount: 3, affectedDates: 30, availabilityCount: 0, existingRateCount: 3 }, previousRates: [{ variantId: 'v1', ratePlanName: 'Activity price · Entry Only', effectiveFrom: '2026-11-01', effectiveTo: '2026-12-01', pricingUnit: 'PER_PERSON' }], unchangedFields: ['special and contract rate plans'] } as never;
     return {} as never;
   });
-  render(<EditorHarness onError={onError} editorVariants={editorVariants} />);
+  render(<EditorHarness onError={onError} editorVariants={editorVariants} onSaveDraft={onSaveDraft} />);
   return request;
 }
 
 afterEach(() => vi.restoreAllMocks());
 
 describe('ActivityPricesAvailability basis, MRP and selected paste regressions', () => {
+  it('routes multi-offer options to individual plans and excludes them from standard saves', async () => {
+    const response: any = structuredClone(saved); response.options = response.options.slice(0,2);
+    Object.assign(response.options[0].ratePlans[0], {id:'offer-usd',name:'January offer',advanced:true,editable:false,selectable:true});
+    const request=renderEditor(vi.fn(),response,variants.slice(0,2));
+    await screen.findByRole('combobox',{name:'Rate plan'});
+    expect(screen.getByRole('checkbox',{name:'Entry Only · Choose an individual rate plan'})).toBeDisabled();
+    expect(screen.queryByLabelText('Entry Only adult or base price')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Select all'}));
+    fireEvent.change(screen.getByLabelText('Entry + Adventure adult or base price'),{target:{value:'1250'}});
+    fireEvent.click(screen.getByRole('button',{name:/Save (all prices|changes)/}));
+    await waitFor(()=>expect(request.mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(true));
+    const body=JSON.parse(String(request.mock.calls.find(([path])=>path.endsWith('/apply'))?.[1]?.body));
+    expect(body.options.map((option:any)=>option.variantId)).toEqual(['v2']);
+  });
+
+  it('allows content draft saving when every offer requires individual selection without sending empty pricing',async()=>{
+    const response:any=structuredClone(saved);response.options=[response.options[0]];
+    Object.assign(response.options[0].ratePlans[0],{id:'offer-usd',advanced:true,editable:false,selectable:true});
+    const error=vi.fn(),saveContent=vi.fn(async()=>true),request=renderEditor(error,response,[variants[0]],saveContent);
+    await screen.findByRole('combobox',{name:'Rate plan'});
+    fireEvent.click(screen.getByRole('button',{name:/Save (all prices|changes)/}));
+    await waitFor(()=>expect(saveContent).toHaveBeenCalledOnce());
+    expect(error).not.toHaveBeenCalled();
+    expect(request.mock.calls.some(([path])=>path.endsWith('/preview')||path.endsWith('/apply'))).toBe(false);
+  });
+
+  it('omits an untouched global visitor flag when saving an ordinary option beside another visitor-priced offer',async()=>{
+    const response:any=structuredClone(saved);response.options=response.options.slice(0,2);
+    response.options[0].ratePlans[0].versions[0].sourcePayload.visitorPrices=[{travellerType:'ADULT',indian:'900',foreign:'1500'}];
+    const request=renderEditor(vi.fn(),response,variants.slice(0,2));
+    await waitFor(()=>expect(screen.getByLabelText('Entry + Adventure adult or base price')).toHaveValue(1200));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Entry Only'}));
+    fireEvent.change(screen.getByLabelText('Entry + Adventure adult or base price'),{target:{value:'1250'}});
+    fireEvent.click(screen.getByRole('button',{name:/Save (all prices|changes)/}));
+    await waitFor(()=>expect(request.mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(true));
+    const body=JSON.parse(String(request.mock.calls.find(([path])=>path.endsWith('/apply'))?.[1]?.body));
+    expect(body).not.toHaveProperty('hasDifferentialVisitorPricing');
+    expect(body.options).toHaveLength(1);expect(body.options[0].variantId).toBe('v2');
+  });
+
   it('shows every enabled ticket type after reopening group pricing and blocks an incomplete traveller transition', async () => {
     const response: any = structuredClone(saved); response.options = [response.options[0]];
     const plan = response.options[0].ratePlans[0];

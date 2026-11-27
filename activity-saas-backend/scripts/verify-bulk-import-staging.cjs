@@ -262,6 +262,7 @@ async function main() {
   await require('./verify-bulk-editor-three-cases.cjs')({check,request,db,owner,foreign,outlet,tag,sample,evidence,hashFinance});
   await require('./verify-product-list-currency-staging.cjs')({check,request,db,owner,employee,foreign,outlet,tag,sample,evidence,hashFinance});
   await require('./verify-import-three-gaps-staging.cjs')({check,request,db,owner,foreign,outlet,tag,sample,evidence,hashFinance});
+  await require('./verify-remaining-three-gaps-staging.cjs')({check,request,db,owner,employee,foreign,outlet,tag,sample,evidence,hashFinance,database});
   await browserFixtures(owner,outlet,tag);
   await check('final protected booking and finance hash comparison',async()=>assert.deepEqual(await hashFinance(),before));
 }

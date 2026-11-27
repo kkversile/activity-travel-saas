@@ -331,6 +331,8 @@ export type VisitorVerificationMode = typeof visitorVerificationModes[number];
 
 export class ActivityPriceOptionDto {
   @IsString() variantId!: string;
+  /** Explicit existing offer; ownership and contract protection are checked server-side. */
+  @IsOptional() @IsString() ratePlanId?: string;
   /** PATCH merges only supplied fields against each existing date segment. */
   @IsOptional() @IsIn(['PATCH']) updateMode?: 'PATCH';
   @ValidateIf(option => option.updateMode !== 'PATCH' || option.pricingUnit !== undefined) @IsEnum(PricingUnit) pricingUnit!: PricingUnit;
