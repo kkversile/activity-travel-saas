@@ -43,5 +43,9 @@ export function PartnerEntryGuide() {
 }
 
 export function PartnerEntryFooter() {
-  return <footer className="partner-entry-footer"><b>Voya Partner Hub</b><span>Your experiences. Your local expertise.</span></footer>;
+  return <footer className="partner-entry-footer">
+    <b>Voya Partner Hub</b>
+    <span>Your experiences. Your local expertise.</span>
+    <a href="https://dhisoft.in/case-studies/voya-vendor-platform">Built by DHISOFT</a>
+  </footer>;
 }

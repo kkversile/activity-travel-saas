@@ -70,6 +70,7 @@ html[data-theme] :is(.auth-page,.onboarding-page,.partner-product-builder-shell)
 .partner-entry-faq p { margin:8px 0 0; max-width:70ch; }
 .partner-entry-footer { grid-column:1/-1; justify-self:stretch; width:100%; margin-top:44px; padding:24px 0 32px; display:flex; justify-content:space-between; gap:24px; color:var(--voya-page-muted); font-size:13px; }
 .partner-entry-footer b { color:var(--voya-page-text); font-size:16px; }
+.partner-entry-footer a { color:var(--voya-page-text); font-weight:600; text-decoration:underline; text-underline-offset:3px; }
 /* Verification: quiet navigation, one document-like working surface. */
 .partner-onboarding-shell .onboarding-heading h1 { color:var(--voya-page-text); font-size:28px; line-height:1.2; letter-spacing:-.025em; margin:4px 0 10px; }
 .partner-onboarding-shell .onboarding-heading .onboarding-eyebrow { font-size:12px; letter-spacing:0; text-transform:none; }
