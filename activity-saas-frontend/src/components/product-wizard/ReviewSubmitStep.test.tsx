@@ -17,9 +17,11 @@ function readinessFixture(): ProductReadiness {
   };
 }
 
-function renderReview(readiness: ProductReadiness, mode: FulfilmentForm['mode'] = 'AUTO') {
+function renderReview(readiness: ProductReadiness, mode: FulfilmentForm['mode'] = 'AUTO', saveResult = true) {
   const request = vi.spyOn(api, 'request').mockResolvedValue(readiness);
   const onNavigate = vi.fn();
+  const onSaveDraft = vi.fn(async () => saveResult);
+  const onRefresh = vi.fn(async () => undefined);
   render(<ReviewSubmitStep
     snapshot={{
       product: { id: 'product-42', tenantId: 'vendor-42', productCode: 'ACT-42', status: 'DRAFT' },
@@ -32,14 +34,23 @@ function renderReview(readiness: ProductReadiness, mode: FulfilmentForm['mode'] 
     onNavigate={onNavigate}
     onRevisionChange={vi.fn()}
     onFulfilmentChange={vi.fn()}
-    onSaveDraft={async () => true}
-    onRefresh={async () => undefined}
+    onSaveDraft={onSaveDraft}
+    onRefresh={onRefresh}
     onError={vi.fn()}
   />);
-  return { request, onNavigate };
+  return { request, onNavigate, onSaveDraft, onRefresh };
 }
 
 describe('ReviewSubmitStep fulfilment readiness', () => {
+  it.each([true, false])('refreshes canonical setup progress only after a successful fulfilment save (%s)', async saved => {
+    const { onSaveDraft, onRefresh } = renderReview(readinessFixture(), 'AUTO', saved);
+    await screen.findByText('Ready for submission.');
+    fireEvent.click(screen.getByText('Fulfilment settings'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save fulfilment' }));
+    await screen.findByRole('button', { name: 'Save fulfilment' });
+    expect(onSaveDraft).toHaveBeenCalledOnce();
+    expect(onRefresh).toHaveBeenCalledTimes(saved ? 1 : 0);
+  });
   it('immediately shows required fulfilment settings when no mode is selected', async () => {
     const { request } = renderReview(readinessFixture(), '');
 

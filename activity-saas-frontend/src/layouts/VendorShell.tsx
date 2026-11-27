@@ -21,7 +21,7 @@ type Props = {
   outlets?: VendorOutlet[];
   outletAccess?: 'ALL' | 'ASSIGNED';
   activeOutletId?: string | null;
-  onOutletChange?: (id: string | null) => void;
+  onOutletChange?: (id: string | null) => boolean | void;
   children: ReactNode;
 };
 
@@ -106,7 +106,7 @@ export default function VendorShell({
           <button type="button" className="partner-link-button" onClick={onSignOut}>Sign out</button>
         </div>
       </header>
-      <div className="partner-scope-bar">          {showOutletSelector && onOutletChange && <label className="partner-outlet-switcher"><span>Outlet</span><select aria-label="Current outlet" value={outletAccess === 'ALL' ? (activeOutletId || '') : (activeOutletId || activeOutlets[0]?.id || '')} onChange={(event) => onOutletChange(event.target.value || null)}>{outletAccess === 'ALL' && <option value="">All outlets</option>}{activeOutlets.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}{outlet.status === 'INACTIVE' ? ' (inactive)' : ''}</option>)}</select></label>}
+      <div className="partner-scope-bar">          {showOutletSelector && onOutletChange && <label className="partner-outlet-switcher"><span>Outlet</span><select aria-label="Current outlet" value={outletAccess === 'ALL' ? (activeOutletId || '') : (activeOutletId || activeOutlets[0]?.id || '')} onChange={(event) => { if (onOutletChange(event.target.value || null) === false) event.currentTarget.value = activeOutletId || (outletAccess === 'ASSIGNED' ? activeOutlets[0]?.id || '' : ''); }}>{outletAccess === 'ALL' && <option value="">All outlets</option>}{activeOutlets.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}{outlet.status === 'INACTIVE' ? ' (inactive)' : ''}</option>)}</select></label>}
           <span className="partner-outlet-scope" aria-live="polite">{outletLabel}</span>
 </div>
       <div className="partner-content" id="partner-page-content" tabIndex={-1}>{children}</div>

@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, type Product, type ProductReadiness, type ProductRevision } from '../../api';
-import ExperienceWizardModal, { activityContentSettingsPath, productBuilderStatus, selectProductRevision, shouldPersistBeforeStepChange } from './ExperienceWizardModal';
+import ExperienceWizardModal, { activityContentSettingsPath, productBuilderStatus, productSetupProgress, selectProductRevision, shouldPersistBeforeStepChange } from './ExperienceWizardModal';
+import { BEFORE_OUTLET_CHANGE } from './outletNavigation';
 
 const revision = (id: string, status: string) => ({ id, status } as ProductRevision);
 
@@ -66,6 +67,7 @@ describe('pricing save coordination', () => {
     for (const button of within(screen.getByRole('navigation', { name: 'Experience setup steps' })).getAllByRole('button')) expect(button).toBeDisabled();
     expect(screen.queryByText('Draft saved successfully.')).not.toBeInTheDocument();
     const pending = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(pending); expect(pending.defaultPrevented).toBe(true);
+    const outletChange = new Event(BEFORE_OUTLET_CHANGE, { cancelable: true }); window.dispatchEvent(outletChange); expect(outletChange.defaultPrevented).toBe(true);
     await act(async () => release());
     await waitFor(() => expect(price).toBeEnabled());
     const completed = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(completed); expect(completed.defaultPrevented).toBe(fail);
@@ -108,6 +110,39 @@ describe('ExperienceWizardModal readiness mapping', () => {
     // The remaining fulfilment issue still appears in final review.
     expect(await screen.findByText('Fulfilment policy is missing')).toBeInTheDocument();
     expect(screen.getByText('Items need attention before submission.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Setup progress 89 percent')).toBeInTheDocument();
+    expect(screen.getByText('Fulfilment needs attention in final review')).toBeInTheDocument();
+  });
+});
+
+describe('product setup progress', () => {
+  it('reserves full completion for all content sections plus verified fulfilment readiness', () => {
+    const content = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(productSetupProgress(content, false)).toBe(89);
+    expect(productSetupProgress(content, null)).toBe(89);
+    expect(productSetupProgress(content, true)).toBe(100);
+    expect(productSetupProgress(new Set([...content, 9]), false)).toBe(89);
+    expect(productSetupProgress(new Set([1, 2]), false)).toBe(22);
+  });
+});
+
+describe('unsaved product outlet guard', () => {
+  it('keeps entered details when an outlet change is cancelled and permits an explicit discard', async () => {
+    vi.spyOn(api, 'request').mockImplementation(async path => path.endsWith('/activity-categories') ? [] as never : { terms: [], howToRedeem: [], bookingQuestions: [] } as never);
+    render(<ExperienceWizardModal fullPage onDone={vi.fn()} onChanged={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/Product title/), { target: { value: 'Unfinished coastal walk' } });
+    const proceed = vi.fn();
+    const cancelled = new CustomEvent(BEFORE_OUTLET_CHANGE, { cancelable: true, detail: { proceed } });
+    act(() => { window.dispatchEvent(cancelled); });
+    expect(cancelled.defaultPrevented).toBe(true);
+    expect(await screen.findByRole('dialog', { name: 'Discard unsaved product changes?' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByLabelText(/Product title/)).toHaveValue('Unfinished coastal walk');
+    expect(proceed).not.toHaveBeenCalled();
+    const approved = new CustomEvent(BEFORE_OUTLET_CHANGE, { cancelable: true, detail: { proceed } });
+    act(() => { window.dispatchEvent(approved); });
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard and change outlet' }));
+    expect(proceed).toHaveBeenCalledOnce();
   });
 });
 

@@ -1,7 +1,7 @@
 import ProductListingPreview from './ProductListingPreview';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type Product, type ProductReadiness, type ProductRevision } from '../../api';
-import { ErrorBox, Loading } from '../Ui';
+import { ConfirmDialog, ErrorBox, Loading } from '../Ui';
 import ActivityPricesAvailability from './ActivityPricesAvailability';
 import BasicInfoStep from './BasicInfoStep';
 import ExperienceStep from './ExperienceStep';
@@ -11,6 +11,7 @@ import ReviewSubmitStep from './ReviewSubmitStep';
 import VoucherStep from './VoucherStep';
 import WizardFooter from './WizardFooter';
 import WizardNavigation from './WizardNavigation';
+import { BEFORE_OUTLET_CHANGE, type OutletChangeDetail } from './outletNavigation';
 import type { ActivityContentSettings, FulfilmentForm, RevisionForm, WizardSnapshot, WizardStep } from './types';
 import { emptyFulfilmentForm, emptyRevisionForm, splitList, toFulfilmentForm, toRevisionForm, vendorProductEditPath } from './types';
 
@@ -40,6 +41,11 @@ export function shouldPersistBeforeStepChange(hasProduct: boolean, hasUnsavedCha
   return !hasProduct || hasUnsavedChanges;
 }
 
+export function productSetupProgress(completed: Set<number>, fulfilmentReady: boolean | null) {
+  const contentSections = [1, 2, 3, 4, 5, 6, 7, 8].filter(step => completed.has(step)).length;
+  return Math.round(((contentSections + (fulfilmentReady === true ? 1 : 0)) / 9) * 100);
+}
+
 export function productBuilderStatus(productStatus?: Product['status'], revisionStatus?: ProductRevision['status']) {
   if (productStatus === 'ARCHIVED') return { label: 'Archived', live: false, draftEdit: false, description: 'This product is archived and is not available for sale.' };
   if (revisionStatus === 'UNDER_REVIEW') {
@@ -67,6 +73,8 @@ export default function ExperienceWizardModal({ product, initialStep = 1, prefer
   const unifiedInitialStep = initialStep;
   const [activeStep, setActiveStep] = useState<WizardStep>(unifiedInitialStep);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [fulfilmentReady, setFulfilmentReady] = useState<boolean | null>(null);
+  const [pendingOutletChange, setPendingOutletChange] = useState<OutletChangeDetail | null>(null);
   const [pricingBusy, setPricingBusy] = useState(false);
   const pricingBusyRef = useRef(false);
   const onPricingBusyChange = useCallback((value: boolean, saved?: boolean) => {
@@ -101,6 +109,7 @@ export default function ExperienceWizardModal({ product, initialStep = 1, prefer
       const latestRejected = loaded.revisions?.filter((revision) => revision.status === 'REJECTED').sort((a, b) => b.versionNumber - a.versionNumber)[0] || null;
       setSnapshot({ product: loaded, revision: revisionWithQuestions, variants: loaded.variants || [], schedules: [] });
       setRejected(latestRejected);
+      setFulfilmentReady(null);
       // Refresh persisted completion even when unsaved form values are kept.
       // Child saves (such as itinerary uploads) must update sidebar progress.
       {
@@ -112,7 +121,7 @@ export default function ExperienceWizardModal({ product, initialStep = 1, prefer
         if ((loaded.variants || []).length) existing.add(4);
         if ((loaded.variants || []).some((variant) => (variant.ratePlans || []).length)) existing.add(5);
         if (prototype.voucherCodeSource || prototype.voucherAcceptedAs || prototype.voucherInstructions) existing.add(8);
-        try { const readiness = await api.request<ProductReadiness>(`/products/${id}/readiness`); const keys = ['basicInfo', 'experience', 'mediaFulfilment', 'options', 'rates', 'availability', 'policies', 'voucher'] as const; keys.forEach((key, index) => { const section = readiness.sections[key]; const ready = key === 'mediaFulfilment' ? Boolean(revisionWithQuestions?.media?.some(media => media.kind === 'IMAGE')) && !section.reasonCodes.some(code => !code.startsWith('FULFILMENT_')) : section.ready; if (ready) existing.add(index + 1); else existing.delete(index + 1); }); } catch { /* Retain saved-content indicators if readiness is unavailable. */ }
+        try { const readiness = await api.request<ProductReadiness>(`/products/${id}/readiness`); setFulfilmentReady(!readiness.sections.mediaFulfilment.reasonCodes.some(code => code.startsWith('FULFILMENT_'))); const keys = ['basicInfo', 'experience', 'mediaFulfilment', 'options', 'rates', 'availability', 'policies', 'voucher'] as const; keys.forEach((key, index) => { const section = readiness.sections[key]; const ready = key === 'mediaFulfilment' ? Boolean(revisionWithQuestions?.media?.some(media => media.kind === 'IMAGE')) && !section.reasonCodes.some(code => !code.startsWith('FULFILMENT_')) : section.ready; if (ready) existing.add(index + 1); else existing.delete(index + 1); }); } catch { /* Retain saved-content indicators if readiness is unavailable. */ }
         setCompletedSteps(existing);
       }
       if (!preserveEditor) {
@@ -140,8 +149,33 @@ export default function ExperienceWizardModal({ product, initialStep = 1, prefer
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+    const onBeforeOutletChange = (event: Event) => {
+      if (busyRef.current || pricingBusyRef.current) { event.preventDefault(); return; }
+      if (dirtyRef.current) {
+        event.preventDefault();
+        const detail = (event as CustomEvent<OutletChangeDetail>).detail;
+        if (typeof detail?.proceed === 'function') setPendingOutletChange(detail);
+      }
+    };
+    window.addEventListener(BEFORE_OUTLET_CHANGE, onBeforeOutletChange);
+    return () => { window.removeEventListener('beforeunload', onBeforeUnload); window.removeEventListener(BEFORE_OUTLET_CHANGE, onBeforeOutletChange); };
   }, []);
+  useEffect(() => {
+    if (!pendingOutletChange) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current?.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="confirm-dialog-title"]');
+    dialog?.querySelector<HTMLElement>('.modal-actions button')?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setPendingOutletChange(null); }
+      if (event.key !== 'Tab' || !dialog) return;
+      const buttons = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('keydown', onKeyDown); if (opener?.isConnected) opener.focus(); };
+  }, [pendingOutletChange]);
   useEffect(() => {
     if (!error) return;
     const stepGuidance = [
@@ -250,8 +284,8 @@ export default function ExperienceWizardModal({ product, initialStep = 1, prefer
   async function close() { if (busyRef.current) return; if (dirtyRef.current && !window.confirm('You have unsaved changes. Close without saving? Your persisted draft will remain available.')) return; onDone(); }
   const completed = new Set<number>(completedSteps);
   if (pricingSaved || snapshot.variants.some((variant) => (variant.ratePlans || []).length)) completed.add(5);
-  const contentScore = Math.min(100, Math.round((completed.size / 8) * 100));
-  const stepProps = { snapshot, locked: locked || pricingBusy, adminContext, viewOnly, vendorNameOverride, revisionForm: form, fulfilment, contentSettings, onPricingBusyChange, onSaveDraft: async () => Boolean(await saveDraft()), onSaveDraftWithId: saveDraft, onContentDirty: () => { setDirty(true); setNotice(''); }, onRegisterContentSave: (handler: (() => Promise<boolean>) | null) => { contentSaveRef.current = handler; }, onRegisterPricingSave: (handler: (() => Promise<boolean>) | null) => { pricingSaveRef.current = handler; }, onRevisionChange, onFulfilmentChange: (nextValue: FulfilmentForm) => { setFulfilment(nextValue); setDirty(true); setError(''); setNotice(''); }, onRefresh: refresh, onError, onPricingDirty: () => { setDirty(true); setError(''); setNotice(''); }, onPricingSaved: () => { setPricingSaved(true); setDirty(false); setError(''); setNotice('Draft saved successfully. Pricing and availability saved.'); } };
+  const contentScore = productSetupProgress(completed, fulfilmentReady);
+  const stepProps = { snapshot, locked: locked || pricingBusy, adminContext, viewOnly, vendorNameOverride, revisionForm: form, fulfilment, contentSettings, onPricingBusyChange, onSaveDraft: async () => Boolean(await saveDraft()), onSaveDraftWithId: saveDraft, onContentDirty: () => { setDirty(true); setNotice(''); }, onRegisterContentSave: (handler: (() => Promise<boolean>) | null) => { contentSaveRef.current = handler; }, onRegisterPricingSave: (handler: (() => Promise<boolean>) | null) => { pricingSaveRef.current = handler; }, onRevisionChange, onFulfilmentChange: (nextValue: FulfilmentForm) => { setFulfilment(nextValue); setFulfilmentReady(false); setDirty(true); setError(''); setNotice(''); }, onRefresh: refresh, onError, onPricingDirty: () => { setDirty(true); setError(''); setNotice(''); }, onPricingSaved: () => { setPricingSaved(true); setDirty(false); setError(''); setNotice('Draft saved successfully. Pricing and availability saved.'); } };
   // Keep the navigation wording identical to the Partner Hub prototype.
   const unifiedLabels = ['Basics', 'Content & itinerary', 'Photos', 'Options & tickets', 'Rates', 'Availability', 'Policies', 'Voucher', 'Review & submit'];
   async function saveActiveStep() { const saved = await persistStep(); if (saved) setCompletedSteps((current) => new Set(current).add(activeStep)); }
@@ -272,6 +306,6 @@ export default function ExperienceWizardModal({ product, initialStep = 1, prefer
     ['Voucher and redemption', 'Tell guests what to bring and how to redeem their booking when they arrive.'],
     ['Final review', 'Check required content, rates, inventory and policies before sending this activity for review.'],
   ];
-  const frame = <div ref={dialogRef} className={fullPage ? 'partner-editor-card voya-experience-ux' : `voya-experience-ux experience-modal${adminEditorClass}${viewOnly && vendorNameOverride ? ' partner-editor-frame partner-editor-card admin-product-view' : ''}`} {...(fullPage ? { 'aria-labelledby': 'experience-modal-title' } : { role: 'dialog', 'aria-modal': true, 'aria-labelledby': 'experience-modal-title' })}><header className="experience-modal-header"><div><h2 id="experience-modal-title">{snapshot.product ? (viewOnly ? (form.productName || 'View marketplace experience') : 'Edit marketplace experience') : 'Create marketplace experience'}</h2><p>{viewOnly ? [vendorNameOverride, snapshot.product?.publicCode || snapshot.product?.productCode, 'Read-only product details'].filter(Boolean).join(' · ') : 'Add the activity once, then configure pricing and availability as separate steps.'}</p></div>{!fullPage && previewControl}<button ref={closeRef} type="button" className="experience-modal-close" aria-label="Close experience wizard" disabled={busy || pricingBusy} onClick={() => void close()}>×</button></header>{loading ? <Loading text="Loading experience…" /> : <><div className="experience-modal-body">{error && <ErrorBox error={error} />}{notice && <div className="alert success">{notice}</div>}{!adminContext && adminEdit?.editedByAdmin && <div className="alert info" role="status">Updated by {adminEdit.lastEditedByName || 'Voya Admin'}{adminEdit.lastEditedAt ? ` · ${new Date(adminEdit.lastEditedAt).toLocaleString()}` : ''}. Please review the latest activity details.</div>}{rejected && !revision && <div className="alert error"><b>Revision rejected:</b> {rejected.rejectionReason || 'No reason supplied.'} <button type="button" className="link-button" onClick={() => void startRevision(rejected.id)}>Create corrected draft</button></div>}{snapshot.product && revision && revision.status !== 'DRAFT' && <div className="experience-readonly-banner"><b>{revision.status === 'UNDER_REVIEW' ? 'Under review' : revision.status === 'PUBLISHED' ? 'Published revision' : revision.status}</b><span>This revision is read-only. {revision.status === 'PUBLISHED' && 'Create a working revision to make changes.'}</span>{revision.status !== 'UNDER_REVIEW' && !viewOnly && <button type="button" className="btn small" onClick={() => void startRevision()}>Create working revision</button>}</div>}<div className={`experience-wizard${previewOpen ? ' has-listing-preview' : ''}`}><WizardNavigation activeStep={activeStep} completed={completed} onSelect={selectStep} locked={false} busy={busy || pricingBusy} labels={unifiedLabels} score={contentScore} />{previewOpen && <ProductListingPreview form={form} snapshot={snapshot} />}<main className="experience-wizard-content"><label className="experience-wizard-mobile-step">Step {activeStep} of {unifiedLabels.length}<select aria-label="Go to activity section" disabled={busy || pricingBusy} value={activeStep} onChange={(event) => void selectStep(Number(event.target.value) as WizardStep)}>{unifiedLabels.map((label, i) => <option key={label} value={i + 1}>{i + 1}. {label}</option>)}</select></label><div className="experience-step-context" role="note"><b>{stepGuidance[activeStep - 1][0]}</b><p>{stepGuidance[activeStep - 1][1]}</p><span className="experience-draft-state" role="status">{locked ? 'Read-only revision. Your saved content is shown below.' : busy || pricingBusy ? 'Saving your changes…' : dirty ? 'Unsaved changes · save this section to keep your progress.' : snapshot.product ? 'Working draft loaded. Save this section after making changes.' : 'Your first save creates a working draft.'}</span></div><>{activeStep === 1 && <BasicInfoStep {...stepProps} />}{activeStep === 2 && <ExperienceStep {...stepProps} />}{activeStep === 3 && <PhotosStep {...stepProps} />}{activeStep === 4 && <OptionsStep {...stepProps} />}{activeStep === 5 && <ActivityPricesAvailability {...stepProps} section="pricing" />}{activeStep === 6 && <ActivityPricesAvailability {...stepProps} section="availability" />}{activeStep === 7 && <ActivityPricesAvailability {...stepProps} section="policies" />}{activeStep === 8 && <VoucherStep {...stepProps} />}{activeStep === 9 && <ReviewSubmitStep {...stepProps} onNavigate={selectStep} />}</>{fullPage && footer}</main></div></div>{!fullPage && footer}</>}</div>;
+  const frame = <div ref={dialogRef} className={fullPage ? 'partner-editor-card voya-experience-ux' : `voya-experience-ux experience-modal${adminEditorClass}${viewOnly && vendorNameOverride ? ' partner-editor-frame partner-editor-card admin-product-view' : ''}`} {...(fullPage ? { 'aria-labelledby': 'experience-modal-title' } : { role: 'dialog', 'aria-modal': true, 'aria-labelledby': 'experience-modal-title' })}>{pendingOutletChange && <ConfirmDialog title="Discard unsaved product changes?" message="Changing outlet will discard your unsaved edits. Your saved draft stays in its current outlet. Cancel to keep editing and save your work first." confirmLabel="Discard and change outlet" busy={busy || pricingBusy} onCancel={() => setPendingOutletChange(null)} onConfirm={() => { const change = pendingOutletChange; setPendingOutletChange(null); change.proceed(); }} />}<header className="experience-modal-header"><div><h2 id="experience-modal-title">{snapshot.product ? (viewOnly ? (form.productName || 'View marketplace experience') : 'Edit marketplace experience') : 'Create marketplace experience'}</h2><p>{viewOnly ? [vendorNameOverride, snapshot.product?.publicCode || snapshot.product?.productCode, 'Read-only product details'].filter(Boolean).join(' · ') : 'Add the activity once, then configure pricing and availability as separate steps.'}</p></div>{!fullPage && previewControl}<button ref={closeRef} type="button" className="experience-modal-close" aria-label="Close experience wizard" disabled={busy || pricingBusy} onClick={() => void close()}>×</button></header>{loading ? <Loading text="Loading experience…" /> : <><div className="experience-modal-body">{error && <ErrorBox error={error} />}{notice && <div className="alert success">{notice}</div>}{!adminContext && adminEdit?.editedByAdmin && <div className="alert info" role="status">Updated by {adminEdit.lastEditedByName || 'Voya Admin'}{adminEdit.lastEditedAt ? ` · ${new Date(adminEdit.lastEditedAt).toLocaleString()}` : ''}. Please review the latest activity details.</div>}{rejected && !revision && <div className="alert error"><b>Revision rejected:</b> {rejected.rejectionReason || 'No reason supplied.'} <button type="button" className="link-button" onClick={() => void startRevision(rejected.id)}>Create corrected draft</button></div>}{snapshot.product && revision && revision.status !== 'DRAFT' && <div className="experience-readonly-banner"><b>{revision.status === 'UNDER_REVIEW' ? 'Under review' : revision.status === 'PUBLISHED' ? 'Published revision' : revision.status}</b><span>This revision is read-only. {revision.status === 'PUBLISHED' && 'Create a working revision to make changes.'}</span>{revision.status !== 'UNDER_REVIEW' && !viewOnly && <button type="button" className="btn small" onClick={() => void startRevision()}>Create working revision</button>}</div>}<div className={`experience-wizard${previewOpen ? ' has-listing-preview' : ''}`}><WizardNavigation activeStep={activeStep} completed={completed} onSelect={selectStep} locked={false} busy={busy || pricingBusy} labels={unifiedLabels} score={contentScore} fulfilmentReady={fulfilmentReady} />{previewOpen && <ProductListingPreview form={form} snapshot={snapshot} />}<main className="experience-wizard-content"><label className="experience-wizard-mobile-step">Step {activeStep} of {unifiedLabels.length}<select aria-label="Go to activity section" disabled={busy || pricingBusy} value={activeStep} onChange={(event) => void selectStep(Number(event.target.value) as WizardStep)}>{unifiedLabels.map((label, i) => <option key={label} value={i + 1}>{i + 1}. {label}</option>)}</select></label><div className="experience-step-context" role="note"><b>{stepGuidance[activeStep - 1][0]}</b><p>{stepGuidance[activeStep - 1][1]}</p><span className="experience-draft-state" role="status">{locked ? 'Read-only revision. Your saved content is shown below.' : busy || pricingBusy ? 'Saving your changes…' : dirty ? 'Unsaved changes · save this section to keep your progress.' : snapshot.product ? 'Working draft loaded. Save this section after making changes.' : 'Your first save creates a working draft.'}</span></div><>{activeStep === 1 && <BasicInfoStep {...stepProps} />}{activeStep === 2 && <ExperienceStep {...stepProps} />}{activeStep === 3 && <PhotosStep {...stepProps} />}{activeStep === 4 && <OptionsStep {...stepProps} />}{activeStep === 5 && <ActivityPricesAvailability {...stepProps} section="pricing" />}{activeStep === 6 && <ActivityPricesAvailability {...stepProps} section="availability" />}{activeStep === 7 && <ActivityPricesAvailability {...stepProps} section="policies" />}{activeStep === 8 && <VoucherStep {...stepProps} />}{activeStep === 9 && <ReviewSubmitStep {...stepProps} onNavigate={selectStep} />}</>{fullPage && footer}</main></div></div>{!fullPage && footer}</>}</div>;
   return fullPage ? <div className="partner-editor-frame">{pageHeader}{frame}</div> : <div className="experience-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) void close(); }}>{frame}</div>;
 }

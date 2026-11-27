@@ -14,6 +14,12 @@ body:has(.auth-page) { background:var(--voya-page); }
 .auth-page .auth-brand-title small { font-size:13px; }
 .auth-page .auth-header-action { color:var(--voya-page-muted); font-size:14px; }
 .auth-page .auth-header-action button { min-height:44px; border:1px solid var(--voya-control); border-radius:8px; font-size:14px; background:var(--voya-surface); color:var(--voya-surface-text); transform:none; }
+.partner-product-outlet-prompt { max-width:640px; padding:24px; border:1px solid var(--voya-border); border-radius:12px; background:var(--voya-surface); color:var(--voya-surface-text); }
+.partner-product-outlet-prompt h1 { margin:0 0 12px; font-size:24px; }
+.partner-product-outlet-prompt p { line-height:1.6; }
+.partner-product-outlet-prompt .field { margin:20px 0; }
+.partner-product-outlet-prompt select { width:100%; min-height:44px; }
+.partner-product-outlet-prompt .btn { min-height:44px; white-space:normal; }
 .auth-page .partner-story { grid-column:1; grid-row:2; position:sticky; top:24px; margin:0; width:100%; }
 .partner-story-copy h1 { font-size:clamp(36px,4vw,56px); line-height:1.03; letter-spacing:-.045em; margin:0; font-weight:650; color:var(--voya-page-text); }
 .partner-story-copy>p { max-width:45ch; margin:20px 0 28px; font-size:17px; line-height:1.6; color:var(--voya-page-muted); }
@@ -180,6 +186,10 @@ html[data-theme] :is(.auth-page,.onboarding-page,.partner-product-builder-shell)
   .auth-page .auth-brand-title b { font-size:16px; }
   .auth-page .auth-brand-title small { font-size:12px; }
   .auth-page .auth-header-action>span { display:none; }
+  .auth-page .auth-header { height:auto; flex-wrap:wrap; gap:12px; padding:16px 0; }
+  .auth-page .auth-brand { min-width:0; max-width:100%; }
+  .auth-page .auth-header-action { min-width:0; max-width:100%; margin-left:auto; }
+  .auth-page .auth-header-action button { max-width:100%; white-space:normal; }
   .auth-page .partner-story { position:static; grid-column:1; grid-row:2; }
   .partner-story-copy h1 { font-size:38px; }
   .partner-story-copy>p { margin:16px 0 20px; font-size:16px; }
@@ -211,6 +221,8 @@ html[data-theme] :is(.auth-page,.onboarding-page,.partner-product-builder-shell)
   .listing-preview-heading { border:0; }
   .voya-experience-ux .experience-step-footer { flex-wrap:wrap; gap:8px; }
   .voya-experience-ux .experience-step-footer>div { flex-wrap:wrap; min-width:0; }
+  .partner-app-shell .voya-experience-ux .prototype-voucher-body { display:grid; grid-template-columns:minmax(0,1fr); gap:20px; }
+  .partner-app-shell .voya-experience-ux .prototype-voucher-code { max-width:100%; justify-self:start; }
 }
 @keyframes voya-photo-in { from{opacity:.75} to{opacity:1} }
 @media(prefers-reduced-motion:reduce) {

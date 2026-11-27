@@ -9,6 +9,8 @@ import ChangePasswordDialog from './components/ChangePasswordDialog';
 import type { AgentSearchContext, AgentSearchState } from './pages/AgentMarketplace';
 import AgentShell, { type AgentNavKey } from './layouts/AgentShell';
 import AuthIntroduction, { PartnerEntryFooter, PartnerEntryGuide } from './components/PartnerIntroduction';
+import ProductOutletPrompt from './components/ProductOutletPrompt';
+import { BEFORE_OUTLET_CHANGE } from './components/product-wizard/outletNavigation';
 import './layouts/vendor-hub.css';
 import './layouts/agent-hub.css';
 import './admin-theme.css';
@@ -74,6 +76,18 @@ export default function App() {
   }, [publicRoute, user, checking]);
   function navigateVendor(next: VendorPage) { setPage(next); const nextPath = appPath(vendorPaths[next]) + (activeOutletId ? `?outletId=${encodeURIComponent(activeOutletId)}` : ''); if (window.location.pathname !== nextPath) window.history.pushState({}, '', nextPath); }
   function openVendorProduct(id: string) { const path = appPath(`/vendor/products/${encodeURIComponent(id)}/edit`) + (activeOutletId ? `?outletId=${encodeURIComponent(activeOutletId)}` : ''); window.history.pushState({}, '', path); setPage('edit-product'); }
+  function changeVendorOutlet(id: string | null) {
+    if (id === activeOutletId || (id && !outlets.some(outlet => outlet.id === id))) return false;
+    const proceed = () => {
+      setActiveOutletId(id); api.setActiveOutletId(id);
+      const url = new URL(window.location.href);
+      if (id) url.searchParams.set('outletId', id); else url.searchParams.delete('outletId');
+      window.history.pushState({}, '', url);
+    };
+    if (!window.dispatchEvent(new CustomEvent(BEFORE_OUTLET_CHANGE, { cancelable: true, detail: { proceed } }))) return false;
+    proceed();
+    return true;
+  }
   function logout() { const url = new URL(window.location.href); url.searchParams.delete('outletId'); window.history.replaceState({}, '', url); api.setToken(null); api.setActiveOutletId(null); sessionStorage.removeItem('voya_impersonation_original_token'); setUser(null); setProfile(null); setOnboardingStatus(null); setHubCounts({ bookings: 0, products: 0, kyc: 0 }); setOutlets([]); setOutletAccess(null); setActiveOutletId(null); setChangePasswordOpen(false); }
   function navigatePublic(path: string) {
     const accountAnchor = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches ? '#partner-account' : '';
@@ -125,7 +139,9 @@ export default function App() {
     else if (page === 'bookings') content = <PartnerBookingsPage />;
     else if (page === 'payouts') content = <PartnerPaymentsPage />;
     else if (page === 'onboarding') content = <PartnerOnboardingPage onNavigate={() => navigateVendor('products')} onStatusChange={setOnboardingStatus} />;
-    else if (page === 'add-product') content = <PartnerAddProductPage onDone={() => navigateVendor('products')} onChanged={() => undefined} />;
+    else if (page === 'add-product') content = outlets.some(outlet => outlet.id === activeOutletId && outlet.status === 'ACTIVE')
+      ? <PartnerAddProductPage onDone={() => navigateVendor('products')} onChanged={() => undefined} />
+      : <ProductOutletPrompt outlets={outlets} onSelect={changeVendorOutlet} />;
     else if (page === 'bulk-upload') content = <PartnerBulkUploadPage onEditRoute={openVendorProduct} />;
     else if (page === 'promotions') content = <PartnerPromotionsPage />;
     else if (page === 'reports') content = <PartnerReportsPage readOnly={Boolean(user.isImpersonating)} />;
@@ -133,7 +149,7 @@ export default function App() {
     else if (page === 'developer-notes') content = <DeveloperNotesPage />;
     else content = <div className="partner-legacy-page"><LegacyComponent /></div>;
     const hubNav = partnerHubNavigation.map((item) => ({ ...item, ...(item.key === 'bookings' ? { count: hubCounts.bookings } : item.key === 'onboarding' ? { count: hubCounts.kyc } : {}) }));
-    app = <VendorShell key={activeOutletId || 'all-outlets'} onboardingStatus={onboardingStatus} activeKey={page} navItems={hubNav} vendorName={vendorName} vendorLocation={[profile?.operatingCity, profile?.operatingRegion].filter(Boolean).join(', ') || user.email} statusLabel={statusLabel} outlets={outlets} outletAccess={outletAccess || undefined} activeOutletId={activeOutletId} onOutletChange={(id) => { setActiveOutletId(id); api.setActiveOutletId(id); const url = new URL(window.location.href); if (id) url.searchParams.set('outletId', id); else url.searchParams.delete('outletId'); window.history.pushState({}, '', url); }} onNavigate={(key) => navigateVendor(key as VendorPage)} onSignOut={logout} onChangePassword={() => setChangePasswordOpen(true)}><Suspense fallback={<Loading />}>{content}</Suspense></VendorShell>;
+    app = <VendorShell key={activeOutletId || 'all-outlets'} onboardingStatus={onboardingStatus} activeKey={page} navItems={hubNav} vendorName={vendorName} vendorLocation={[profile?.operatingCity, profile?.operatingRegion].filter(Boolean).join(', ') || user.email} statusLabel={statusLabel} outlets={outlets} outletAccess={outletAccess || undefined} activeOutletId={activeOutletId} onOutletChange={changeVendorOutlet} onNavigate={(key) => navigateVendor(key as VendorPage)} onSignOut={logout} onChangePassword={() => setChangePasswordOpen(true)}><Suspense fallback={<Loading />}>{content}</Suspense></VendorShell>;
   }
   const passwordDialog = user && changePasswordOpen ? <ChangePasswordDialog key={`${user.id || user.sub || user.email}-${Boolean(user.mustChangePassword)}`} theme={user.role === 'VENDOR' ? 'vendor' : 'console'} required={Boolean(user.mustChangePassword)} onClose={() => setChangePasswordOpen(false)} onChanged={() => setUser((current) => current ? { ...current, mustChangePassword: false } : current)} /> : null;
   return user.isImpersonating ? <><ImpersonationBanner user={user} onEnded={() => { setUser(null); window.location.assign(import.meta.env.BASE_URL); }} />{app}{passwordDialog}</> : <>{app}{passwordDialog}</>;

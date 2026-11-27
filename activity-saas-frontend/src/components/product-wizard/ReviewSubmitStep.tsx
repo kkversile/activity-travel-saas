@@ -22,7 +22,7 @@ const reasonLabels: Record<string, string> = {
   SHORT_SUMMARY_MISSING: 'Short summary is missing', HIGHLIGHTS_COUNT_INVALID: 'Add between 3 and 6 highlights', INCLUDED_MISSING: 'What is included is missing', NOT_INCLUDED_MISSING: 'What is not included is missing', END_POINT_MISSING: 'End point is missing', ITINERARY_STOPS_MISSING: 'Add itinerary stops or choose single-location activity', ITINERARY_STOP_NAME_MISSING: 'Every itinerary stop needs a name', CANCELLATION_POLICY_MISSING: 'Cancellation policy is missing', VOUCHER_CONFIGURATION_MISSING: 'Voucher configuration is incomplete', VOUCHER_INSTRUCTIONS_MISSING: 'Redemption instructions are missing', SUPPLIER_VOUCHER_INTEGRATION_MISSING: 'Supplier voucher integration is not configured', COVER_IMAGE_MISSING: 'Cover image is missing', EXTERNAL_IMAGE_QUALITY_UNVERIFIED: 'External image quality needs verification; upload a validated image', FULFILMENT_POLICY_MISSING: 'Fulfilment policy is missing', CHANNEL_PRODUCT_NOT_MAPPED: 'Product is not connected to the Agent Marketplace',
 };
 
-export default function ReviewSubmitStep({ snapshot, locked, onNavigate, fulfilment, onFulfilmentChange, onSaveDraft }: WizardStepProps & { onNavigate: (step: WizardStep) => void }) {
+export default function ReviewSubmitStep({ snapshot, locked, onNavigate, fulfilment, onFulfilmentChange, onSaveDraft, onRefresh }: WizardStepProps & { onNavigate: (step: WizardStep) => void }) {
   const [data, setData] = useState<ProductReadiness | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -99,7 +99,7 @@ export default function ReviewSubmitStep({ snapshot, locked, onNavigate, fulfilm
       <details ref={fulfilmentDetails} className="experience-step-card advanced-details review-fulfilment-details" open={!fulfilment.mode || data?.sections.mediaFulfilment.reasonCodes.some(code => code.startsWith('FULFILMENT_'))}>
         <summary>Fulfilment settings{!fulfilment.mode ? ' · Required before submission' : ''}</summary>
         <p className="experience-help">Choose when the booking voucher is issued and provide the supplier contacts guests can reach.</p>
-        <FulfilmentSection value={fulfilment} locked={locked} onChange={onFulfilmentChange} onSave={onSaveDraft} />
+        <FulfilmentSection value={fulfilment} locked={locked} onChange={onFulfilmentChange} onSave={async () => { const saved = await onSaveDraft(); if (saved) await onRefresh(); return saved; }} />
       </details>
     </div>
   );
