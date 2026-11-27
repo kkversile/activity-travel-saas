@@ -13,6 +13,8 @@ import { CatalogueService } from './catalogue.service';
 import { CatalogueEmailService } from './catalogue-email.service';
 import { ProductReadinessService } from './product-readiness.service';
 import { VendorOutletsModule } from '../vendor-outlets/vendor-outlets.module';
+import { ProductDestinationsService } from './product-destinations.service';
+import { ProductReferenceController } from './product-reference.controller';
 
-@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, CommercialModule, DistributionModule, RatePlansModule, SchedulesModule, VendorOutletsModule], controllers: [CatalogueController], providers: [CatalogueService, CatalogueEmailService, ProductReadinessService], exports: [CatalogueService, ProductReadinessService] })
+@Module({ imports: [PrismaModule, AuthModule, AuditModule, OutboxModule, StorageModule, CommercialModule, DistributionModule, RatePlansModule, SchedulesModule, VendorOutletsModule], controllers: [CatalogueController, ProductReferenceController], providers: [CatalogueService, CatalogueEmailService, ProductReadinessService, ProductDestinationsService], exports: [CatalogueService, ProductReadinessService] })
 export class CatalogueModule {}

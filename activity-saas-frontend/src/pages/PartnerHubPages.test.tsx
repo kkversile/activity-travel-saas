@@ -11,14 +11,16 @@ describe('Partner Hub bulk upload prototype flow', () => {
     expect(screen.getByRole('heading', { name: 'Bulk upload' })).toBeInTheDocument();
     expect(screen.getByText('Step 1')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Download template' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Product template' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Blank product template' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Completed product sample' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Rate update template' })).toBeInTheDocument();
     expect(screen.getByText('Step 2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Choose file & validate' })).toBeInTheDocument();
     expect(screen.getByText('Step 3')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Choose file & validate' }));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Product template (Excel)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Blank product template (Excel)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Completed product sample (Excel)' })).toBeInTheDocument();
     expect(screen.getByLabelText('Completed Excel, CSV or JSON file')).toBeInTheDocument();
   });
 });

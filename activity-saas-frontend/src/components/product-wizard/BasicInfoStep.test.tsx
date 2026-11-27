@@ -57,24 +57,40 @@ describe('Admin activity channel controls', () => {
   });
 });
 
-describe('Product destination field', () => {
-  it('clears a stale region when the destination is changed to a city only', () => {
-    const onRevisionChange = renderStep(false, false, [], { cityName: 'North Goa', stateName: 'Goa', countryName: 'India' });
-
-    fireEvent.change(screen.getByPlaceholderText('City, state / region'), { target: { value: 'Munnar' } });
-
-    expect(onRevisionChange).toHaveBeenCalledWith('cityName', 'Munnar');
-    expect(onRevisionChange).toHaveBeenCalledWith('stateName', '');
+describe('Dependent product destinations', () => {
+  it('clears the old city when a different region is selected', () => {
+    const change=renderStep(false,false,[],{countryName:'India',stateName:'Goa',cityName:'North Goa'});
+    fireEvent.focus(screen.getByRole('combobox',{name:'State / region *'}));
+    fireEvent.change(screen.getByRole('combobox',{name:'State / region *'}),{target:{value:'Kerala'}});
+    fireEvent.click(screen.getByRole('button',{name:'Kerala'}));
+    expect(change).toHaveBeenCalledWith('stateName','Kerala');
+    expect(change).toHaveBeenCalledWith('cityName','');
   });
-
-  it('updates the city and region together while preserving the separate country field', () => {
-    const onRevisionChange = renderStep(false, false, [], { cityName: 'North Goa', stateName: 'Goa', countryName: 'India' });
-
-    fireEvent.change(screen.getByPlaceholderText('City, state / region'), { target: { value: 'Munnar, Kerala' } });
-
-    expect(onRevisionChange).toHaveBeenCalledWith('cityName', 'Munnar');
-    expect(onRevisionChange).toHaveBeenCalledWith('stateName', 'Kerala');
-    expect(onRevisionChange).not.toHaveBeenCalledWith('countryName', '');
+  it('clears both dependent selections when the country changes', () => {
+    const change=renderStep(false,false,[],{countryName:'India',stateName:'Kerala',cityName:'Munnar'});
+    fireEvent.focus(screen.getByRole('combobox',{name:'Country *'}));
+    fireEvent.change(screen.getByRole('combobox',{name:'Country *'}),{target:{value:'Singapore'}});
+    fireEvent.click(screen.getByRole('button',{name:'Singapore'}));
+    expect(change).toHaveBeenCalledWith('countryName','Singapore');expect(change).toHaveBeenCalledWith('stateName','');expect(change).toHaveBeenCalledWith('cityName','');
+  });
+  it('shows only cities in the chosen region and discards unselected free text', () => {
+    const change=renderStep(false,false,[],{countryName:'India',stateName:'Kerala',cityName:'Munnar'});
+    const city=screen.getByRole('combobox',{name:'Destination city *'});
+    fireEvent.focus(city);fireEvent.change(city,{target:{value:'Munn'}});fireEvent.keyDown(city,{key:'Enter'});
+    expect(change).toHaveBeenCalledWith('cityName','Munnar');change.mockClear();
+    fireEvent.focus(city);fireEvent.change(city,{target:{value:'wrong city'}});fireEvent.blur(city);
+    expect(change).not.toHaveBeenCalled();expect(city).toHaveValue('Munnar');
+  });
+  it('clears a number and disables numeric input when Flexible is selected', () => {
+    const change=renderStep(false,false,[],{durationUnit:'HOURS',durationValue:'2'});
+    fireEvent.change(screen.getByRole('combobox',{name:'Duration unit'}),{target:{value:'FLEXIBLE'}});
+    expect(change).toHaveBeenCalledWith('durationUnit','FLEXIBLE');expect(change).toHaveBeenCalledWith('durationValue','');
+  });
+  it('selects an exact city match ahead of a longer containing name', () => {
+    const change=renderStep(false,false,[],{countryName:'India',stateName:'Kerala'});
+    const city=screen.getByRole('combobox',{name:'Destination city *'});
+    fireEvent.focus(city);fireEvent.change(city,{target:{value:'Kochi'}});fireEvent.keyDown(city,{key:'Enter'});
+    expect(change).toHaveBeenCalledWith('cityName','Kochi');
   });
 });
 

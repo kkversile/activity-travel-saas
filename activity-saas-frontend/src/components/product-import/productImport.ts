@@ -1,6 +1,7 @@
+import { PRODUCT_IMPORT_REQUIRED_FIELDS } from '../../../../activity-saas-backend/src/common/product-entry-contract';
 import * as XLSX from 'xlsx';
 import { importMediaIssues, importProductCurrency, importProductContentKey, isImportDate, isMoneyAmount, MONEY_AMOUNT_GUIDANCE, normalizeImportChoices } from '../../../../activity-saas-backend/src/common/product-import-contract';
-import { importSheetHeaders, inspectImportHeaders } from './productImportStructure';
+import { importSheetHeaders, inspectImportHeaders, normalizeImportHeader } from './productImportStructure';
 
 export const IMPORT_SHEETS = ['Basic_Info', 'Experience', 'Options', 'Ticket_Types', 'Rate_Plans', 'Availability', 'Media', 'Booking_Questions', 'Fulfilment'] as const;
 export const PROTOTYPE_IMPORT_SHEETS = ['Products', 'Options', 'Ticket types', 'Rates', 'Time slots'] as const;
@@ -38,8 +39,8 @@ function locatedIssue(issue: ImportIssue): ImportIssue {
 function workbookRows(workbook: XLSX.WorkBook, name: string, headerRow = 0): ImportRow[] {
   const sheet = workbook.Sheets[name];
   if (!sheet) return [];
-  const columns = (XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, range: headerRow, blankrows: true })[0] || []).map(String);
-  return XLSX.utils.sheet_to_json<ImportRow>(sheet, { range: headerRow, defval: '' })
+  const columns = (XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, range: headerRow, blankrows: true })[0] || []).map(normalizeImportHeader);
+  return XLSX.utils.sheet_to_json<ImportRow>(sheet, { header: columns, range: headerRow + 1, defval: '' })
     .filter((row) => Object.values(row).some((value) => String(value ?? '').trim() !== ''))
     .map((row) => {
       for (const field of ['valid_from', 'valid_to', 'effective_from', 'effective_to']) {
@@ -124,7 +125,7 @@ export function createSampleWorkbook() {
   const products: ImportRow[] = demoRows.Basic_Info.map((row, index) => ({ ...row, full_description: demoRows.Experience[index]?.full_description, highlights: demoRows.Experience[index]?.highlights, important_information: demoRows.Experience[index]?.important_information }));
   const linked = (sheet: string): ImportRow[] => (demoRows[sheet] || []).map((row) => ({ product_code: row.product_key, ...Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'product_key')) }));
   const prototypeRows: Record<string, ImportRow[]> = {
-    Products: products.map((row) => ({ product_code: row['product_key'], product_name: row['product_name'], type: row['type'], sub_type: row['sub_type'], sub_category: row['sub_category'], city: row['city'], state: row['state'], country: row['country'], meeting_model: row['meeting_model'], short_description: row['short_description'], full_description: row['full_description'], meeting_point: row['meeting_point'], address: row['address'], latitude: row['latitude'], longitude: row['longitude'], duration_value: '2', duration_unit: 'HOURS', guide_included: 'WITH_GUIDE', guide_languages: 'English|Hindi', included: 'Guided nature walk|Spice garden visit|Tea tasting', not_included: 'Personal expenses|Meals not listed', end_point: 'Munnar Spice Garden entrance', things_to_know: 'Wear comfortable walking shoes; paths may be uneven.', accessibility: 'Uneven terrain', follow_itinerary: true, itinerary_stops_json: JSON.stringify([{ stopName: 'Spice garden entrance', stopType: 'MEETING_POINT', stayDurationMinutes: 15, travelTimeToNextMinutes: 10, ticketPolicy: 'Included' }, { stopName: 'Tea tasting pavilion', stopType: 'guided', stayDurationMinutes: 25, ticketPolicy: 'Included' }]), voucher_code_source: 'PLATFORM', voucher_accepted_as: 'MOBILE_VOUCHER', voucher_instructions: 'Show the confirmation voucher to the host at the meeting point.', cancellation_preset: 'MODERATE', traveller_details: 'Lead name|Mobile', amendment_policy: 'DATE_CHANGE_24H', labels: row['labels'], highlights: row['highlights'], important_information: row['important_information'], things_to_carry: row['things_to_carry'], safety_measures: row['safety_measures'], terms: row['terms'], how_to_redeem: row['how_to_redeem'], additional_information: row['additional_information'], currency: row['currency'] || '' })),
+    Products: products.map((row) => ({ product_code: row['product_key'], product_name: row['product_name'], type: row['type'], sub_type: String(row['sub_type'] || '').trim().toUpperCase().replace(/[\s-]+/g, '_'), sub_category: 'CITY_TOURS', city: row['city'], state: row['state'], country: row['country'], meeting_model: row['meeting_model'], short_description: row['short_description'], full_description: row['full_description'], meeting_point: row['meeting_point'], address: row['address'], latitude: row['latitude'], longitude: row['longitude'], duration_value: '2', duration_unit: 'HOURS', guide_included: 'WITH_GUIDE', guide_languages: 'English|Hindi', included: 'Guided nature walk|Spice garden visit|Tea tasting', not_included: 'Personal expenses|Meals not listed', end_point: 'Munnar Spice Garden entrance', things_to_know: 'Wear comfortable walking shoes; paths may be uneven.', accessibility: 'Uneven terrain', follow_itinerary: true, itinerary_stops_json: JSON.stringify([{ stopName: 'Spice garden entrance', stopType: 'MEETING_POINT', stayDurationMinutes: 15, travelTimeToNextMinutes: 10, ticketPolicy: 'Included' }, { stopName: 'Tea tasting pavilion', stopType: 'guided', stayDurationMinutes: 25, ticketPolicy: 'Included' }]), voucher_code_source: 'PLATFORM', voucher_accepted_as: 'MOBILE_VOUCHER', voucher_instructions: 'Show the confirmation voucher to the host at the meeting point.', cancellation_preset: 'MODERATE', traveller_details: 'Lead name|Mobile', amendment_policy: 'DATE_CHANGE_24H', labels: row['labels'], highlights: row['highlights'], important_information: row['important_information'], things_to_carry: row['things_to_carry'], safety_measures: row['safety_measures'], terms: row['terms'], how_to_redeem: row['how_to_redeem'], additional_information: row['additional_information'], currency: row['currency'] || '', category: 'DAY_TOURS_SIGHTSEEING' })),
     Options: linked('Options'),
     'Ticket types': linked('Ticket_Types'),
     Rates: linked('Rate_Plans').map(({ product_code, ...row }) => ({ product_code, ...row })),
@@ -161,13 +162,7 @@ export function createSampleImportCsv() {
   return XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(rows));
 }
 
-const requiredImportFields: Record<string, string[]> = {
-  Basic_Info: ['product_key', 'product_name', 'type', 'sub_type', 'sub_category', 'city', 'state', 'country', 'meeting_model', 'short_description'],
-  Experience: ['product_key', 'full_description'], Options: ['product_key', 'option_code', 'option_name'],
-  Ticket_Types: ['product_key', 'option_code', 'ticket_type'],
-  Rate_Plans: ['product_key', 'option_code', 'rate_plan_code', 'rate_plan_name', 'valid_from', 'valid_to'],
-  Availability: ['product_key', 'option_code', 'schedule_code', 'effective_from', 'effective_to', 'operating_days'],
-};
+const requiredImportFields = PRODUCT_IMPORT_REQUIRED_FIELDS;
 const prototypeSections: Record<string, string> = { Products: 'Basic_Info', Options: 'Options', 'Ticket types': 'Ticket_Types', Rates: 'Rate_Plans', 'Time slots': 'Availability' };
 export const looksLikeProductWorkbook = (names: string[]) => names.some((name) => ['Products', 'Options', 'Ticket types', 'Time slots', 'Basic_Info', 'Experience', 'Rate_Plans', 'Availability'].includes(name));
 
@@ -324,7 +319,7 @@ function prototypeRowsToImport(rows: Record<string, ImportRow[]>) {
     rowChoiceIssues.set(row, normalized.issues.map((issue) => ({ ...issue, sheet: sections[name], row: 0, rowData: row })));
     return row;
   })]));
-  const products = rows.Products.map((row) => inheritSource({ product_key: row.product_code, product_name: row.product_name, currency: row.currency, type: row.type, sub_type: row.sub_type, sub_category: row.sub_category, city: row.city, state: row.state, country: row.country, meeting_model: row.meeting_model, short_description: row.short_description, meeting_point: row.meeting_point, address: row.address, latitude: row.latitude, longitude: row.longitude, duration_value: row.duration_value, duration_unit: row.duration_unit, guide_included: row.guide_included, guide_languages: row.guide_languages, included: row.included, not_included: row.not_included, end_point: row.end_point, things_to_know: row.things_to_know, accessibility: row.accessibility, follow_itinerary: row.follow_itinerary, itinerary_stops_json: row.itinerary_stops_json, voucher_code_source: row.voucher_code_source, voucher_accepted_as: row.voucher_accepted_as, voucher_instructions: row.voucher_instructions, cancellation_preset: row.cancellation_preset, traveller_details: row.traveller_details, amendment_policy: row.amendment_policy, labels: row.labels }, row));
+  const products = rows.Products.map((row) => inheritSource({ product_key: row.product_code, product_name: row.product_name, currency: row.currency, type: row.type, sub_type: row.sub_type, category: row.category, sub_category: row.sub_category, city: row.city, state: row.state, country: row.country, meeting_model: row.meeting_model, short_description: row.short_description, meeting_point: row.meeting_point, address: row.address, latitude: row.latitude, longitude: row.longitude, duration_value: row.duration_value, duration_unit: row.duration_unit, guide_included: row.guide_included, guide_languages: row.guide_languages, included: row.included, not_included: row.not_included, end_point: row.end_point, things_to_know: row.things_to_know, accessibility: row.accessibility, follow_itinerary: row.follow_itinerary, itinerary_stops_json: row.itinerary_stops_json, voucher_code_source: row.voucher_code_source, voucher_accepted_as: row.voucher_accepted_as, voucher_instructions: row.voucher_instructions, cancellation_preset: row.cancellation_preset, traveller_details: row.traveller_details, amendment_policy: row.amendment_policy, labels: row.labels }, row));
   const experience = rows.Products.map((row) => inheritSource({ product_key: row.product_code, full_description: row.full_description, highlights: row.highlights, important_information: row.important_information, things_to_carry: row.things_to_carry, safety_measures: row.safety_measures, terms: row.terms, how_to_redeem: row.how_to_redeem, additional_information: row.additional_information }, row));
   const mapLinked = (sheet: string, map: (row: ImportRow) => ImportRow = (row) => row) => rows[sheet].map((row) => inheritSource({ product_key: row.product_code, ...map(Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'product_code'))) }, row));
   const scheduleGroups = new Map<string, ImportRow[]>();
@@ -407,7 +402,7 @@ function validateImportRows(rows: Record<string, ImportRow[]>): { model: ImportW
   if (currency.issue) issues.push({ sheet: 'Basic_Info', row: 3, rowData: basic, ...currency.issue });
   else basic.currency = currency.currency;
   const key = text(basic, 'product_key');
-  const requiredBasic = ['product_key', 'product_name', 'type', 'sub_type', 'sub_category', 'city', 'state', 'country', 'meeting_model', 'short_description'];
+  const requiredBasic = PRODUCT_IMPORT_REQUIRED_FIELDS.Basic_Info;
   requiredBasic.forEach((field) => { if (!text(basic, field)) issues.push({ sheet: 'Basic_Info', row: 3, message: `${field} is required.` }); });
   if (!experienceRows.length) issues.push({ sheet: 'Experience', row: 3, message: 'Add one Experience row.' });
   if (experienceRows.length > 1) issues.push({ sheet: 'Experience', row: 4, message: 'Provide only one Experience row for this import.' });

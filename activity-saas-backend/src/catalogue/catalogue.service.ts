@@ -8,6 +8,8 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import { importMediaIssues, importOptionBookingDefaults, importProductCurrency, isImportDate, isMoneyAmount, MONEY_AMOUNT_GUIDANCE, normalizeImportChoices } from "../common/product-import-contract";
+import { destinationIssue, resolveProductDestination, PRODUCT_IMPORT_REQUIRED_FIELDS } from '../common/product-entry-contract';
+import { ProductDestinationsService } from './product-destinations.service';
 import { fingerprint } from "../bookings/booking-fingerprint";
 import {
   BookingMode,
@@ -407,7 +409,38 @@ export class CatalogueService {
     @Optional() private readonly materializer?: SessionMaterializerService,
     @Optional() private readonly catalogueEmail?: CatalogueEmailService,
     @Optional() private readonly outletAccess?: VendorOutletAccessService,
+    @Optional() private readonly productDestinations?: ProductDestinationsService,
   ) {}
+
+  /** Validate supplied/changed fields; incomplete drafts and unchanged legacy values remain supported. */
+  private async normalizeEntry<T extends Record<string, any>>(input: T, previous?: Record<string, any>): Promise<T> {
+    const dto = { ...input };
+    const fields: Record<string, string> = { type: 'type', subType: 'sub_type', durationValue: 'duration_value', durationUnit: 'duration_unit', guideIncluded: 'guide_included', meetingModel: 'meeting_model', voucherCodeSource: 'voucher_code_source', voucherAcceptedAs: 'voucher_accepted_as' };
+    const row: Record<string, unknown> = { type: input.type ?? previous?.type };
+    for (const [field, column] of Object.entries(fields)) if (input[field] !== undefined && (!previous || input[field] !== previous[field])) row[column] = input[field];
+    if (input.type !== undefined && previous && input.type !== previous.type && input.subType === previous.subType) row.sub_type = input.subType;
+    const normalized = normalizeImportChoices('Basic_Info', row);
+    const reverse = Object.fromEntries(Object.entries(fields).map(([field,column]) => [column,field]));
+    const issues: Array<{field:string;value:string;message:string;correction:string}> = normalized.issues.map(issue => ({ ...issue, field: reverse[issue.field] || issue.field }));
+    for (const [field,column] of Object.entries(fields)) if (input[field] !== undefined && normalized.row[column] !== undefined) (dto as any)[field] = normalized.row[column];
+    if ((dto.durationUnit ?? previous?.durationUnit) === 'FLEXIBLE') (dto as any).durationValue = null;
+    const locationChanged = ['cityName','stateName','countryName'].some(key => input[key] !== undefined && (!previous || input[key] !== previous[key]));
+    if (locationChanged) {
+      const location = { country: String(input.countryName ?? previous?.countryName ?? ''), state: String(input.stateName ?? previous?.stateName ?? ''), city: String(input.cityName ?? previous?.cityName ?? '') };
+      const destinations = this.productDestinations ? await this.productDestinations.list() : undefined;
+      const problem = destinationIssue(location, destinations);
+      if (problem) issues.push({ ...problem, field: ({ country:'countryName', state:'stateName', city:'cityName' } as any)[problem.field] });
+      const canonical = resolveProductDestination(location, destinations);
+      if (canonical) for (const [key,column] of [['countryName','country'],['stateName','state'],['cityName','city']]) (dto as any)[key] = canonical[column as keyof typeof canonical];
+    }
+    if (this.productDestinations && input.category && (!previous || input.category !== previous.category || input.subCategory !== previous.subCategory)) {
+      const category = await this.prisma.activityCategory.findFirst({ where: { code: String(input.category).trim(), active: true }, include: { subcategories: { where: { active: true } } } });
+      if (!category) issues.push({ field:'category', value:String(input.category), message:'Choose an active activity category.', correction:'Choose a category from the current category list.' });
+      else if (input.subCategory && String(input.subCategory).split(/[,|]/).some(code => !category.subcategories.some(item => item.code === code.trim()))) issues.push({ field:'subCategory', value:String(input.subCategory), message:'Sub-category tags must belong to the selected category.', correction:'Choose tags from the selected category, or leave optional tags blank.' });
+    }
+    if (issues.length) throw new BadRequestException({ code:'PRODUCT_ENTRY_INVALID', message:issues[0].message, issues });
+    return dto;
+  }
 
   /** Validate the prototype's image quality contract before an asset reaches storage. */
   validateMediaFile(file: any, kind: string) {
@@ -1497,7 +1530,7 @@ export class CatalogueService {
     if (!dto.initialRevision)
       throw new BadRequestException("initialRevision is required");
     const initialRevision = {
-      ...dto.initialRevision,
+      ...await this.normalizeEntry(dto.initialRevision),
       sourcePayload: sourcePayloadForRole(user.role, dto.initialRevision.sourcePayload) || undefined,
     };
     const created = await this.prisma
@@ -1597,6 +1630,7 @@ export class CatalogueService {
     identity?: ImportIdentity,
     outletId?: string,
   ) {
+    dto = await this.normalizeEntry(dto);
     const selectedOutletId = user.role === UserRole.VENDOR
       ? (await this.outletAccess!.resolve(user, outletId, { mutation: true })).outletIds![0]
       : (await this.prisma.vendorOutlet.findFirst({ where: { tenantId, isDefault: true, status: 'ACTIVE' }, select: { id: true } }))?.id;
@@ -1920,6 +1954,14 @@ export class CatalogueService {
     const fulfilmentRows = (source.Fulfilment ?? []) as ImportJsonRow[];
     const ticketTypeRows = (source.Ticket_Types ?? []) as ImportJsonRow[];
     const issues: Array<{ section: string; row: number; message: string; field?: string; value?: string; correction?: string }> = [...choiceIssues];
+    const destinationRows = this.productDestinations ? await this.productDestinations.list() : undefined;
+    for (const [index, basic] of basicRows.entries()) {
+      const location = { country: importText(basic, 'country'), state: importText(basic, 'state'), city: importText(basic, 'city') };
+      const problem = destinationIssue(location, destinationRows);
+      if (problem) issues.push({ ...problem, section:'Basic_Info', row:index+3 });
+      const canonical = resolveProductDestination(location, destinationRows);
+      if (canonical) Object.assign(basic, canonical);
+    }
     const importedCurrency = importProductCurrency(basicRows[0] || {}, ratePlanRows);
     if (importedCurrency.issue) issues.push({ section: "Basic_Info", row: 3, ...importedCurrency.issue });
     const issue = (section: string, row: number, message: string) =>
@@ -1976,18 +2018,7 @@ export class CatalogueService {
           issue(section, index + 3, `product_key must be ${productKey}.`);
       });
     }
-    [
-      "product_key",
-      "product_name",
-      "type",
-      "sub_type",
-      "sub_category",
-      "city",
-      "state",
-      "country",
-      "meeting_model",
-      "short_description",
-    ].forEach((field) => {
+    PRODUCT_IMPORT_REQUIRED_FIELDS.Basic_Info.forEach((field) => {
       if (!importText(basic, field))
         issue("Basic_Info", 3, `${field} is required.`);
     });
@@ -2100,6 +2131,11 @@ export class CatalogueService {
       if (!importText(row, "code") || !importText(row, "label"))
         issue("Booking_Questions", index + 3, "code and label are required.");
     });
+    if (this.productDestinations && basicRows[0] && importText(basicRows[0],'category')) {
+      const category = await this.prisma.activityCategory.findFirst({ where:{code:importText(basicRows[0],'category'),active:true},include:{subcategories:{where:{active:true}}} });
+      if (!category) issues.push({section:'Basic_Info',row:3,field:'category',value:importText(basicRows[0],'category'),message:'Choose an active activity category.',correction:'Download a current template and choose a category code from Categories.'});
+      else if (importText(basicRows[0],'sub_category') && importText(basicRows[0],'sub_category').split(/[,|]/).some(code=>!category.subcategories.some(item=>item.code===code.trim()))) issues.push({section:'Basic_Info',row:3,field:'sub_category',value:importText(basicRows[0],'sub_category'),message:'Sub-category tags must belong to the selected category.',correction:'Choose a tag belonging to the selected category, or leave optional tags blank.'});
+    }
     if (issues.length)
       throw new BadRequestException({
         code: "IMPORT_VALIDATION_FAILED",
@@ -2187,6 +2223,7 @@ export class CatalogueService {
           currency: importedCurrency.currency,
           type: importText(basic, "type") as any,
           subType: importText(basic, "sub_type"),
+          category: importText(basic, "category") || undefined,
           subCategory: importText(basic, "sub_category"),
           shortDescription: importText(basic, "short_description"),
           cityName: importText(basic, "city"),
@@ -2243,6 +2280,7 @@ export class CatalogueService {
         productName: importText(basic, "product_name"),
         type: importText(basic, "type") as any,
         subType: importText(basic, "sub_type"),
+        category: importText(basic, "category") || undefined,
         subCategory: importText(basic, "sub_category"),
         shortDescription: importText(basic, "short_description"),
         description: importText(experience, "full_description"),
@@ -3401,6 +3439,7 @@ export class CatalogueService {
       const current = await tx.productRevision.findUnique({ where: { id } });
       if (!current) throw new NotFoundException("Product revision not found");
       this.assertMutableRevision(current);
+      dto = await this.normalizeEntry(dto, current);
       const updateData = this.data(dto) as Prisma.ProductRevisionUpdateInput;
       if (user.role === UserRole.VENDOR && dto.sourcePayload !== undefined) {
         const currentPayload = current.sourcePayload && typeof current.sourcePayload === "object" && !Array.isArray(current.sourcePayload)

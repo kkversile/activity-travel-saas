@@ -1,0 +1,100 @@
+VOYA PRODUCT ENTRY IMPLEMENTATION REPORT
+Verified: 2026-11-28T02:39:06.168125+05:30
+Base commit: 9739fe6. Changes remain local and uncommitted. No push, deployment, SSH access or live database changes were performed.
+
+IMPLEMENTED
+- Retained row-based workbooks and original column order. Added version 2.0, instructions first, separate empty template and completed sample, required markers with stage-specific Field guide, wider text columns, 96 pt product rows / 48 pt linked rows, top-aligned wrapping and frozen headers / identification columns. Column defaults also format newly entered rows.
+- Header notes are hidden until requested. Native Excel exposed notes covering data and a range-return issue in dependent validation formulas; both were corrected and regression coverage added.
+- Dependent Excel country/state/city, product subtype and category/tag dropdowns use named lookup ranges rather than long inline lists. Shared enumerations and backend checks protect pasted cells, CSV/JSON and direct requests. Normalized sample subtypes match dropdown values.
+- Clarified temporary import references versus system-generated Voya activity IDs. Initial product workbooks include options, rates and availability. Separate rate updates are optional later work, and remain INR-only; USD uses the existing advanced pricing editor.
+- Added searchable dependent location controls. Country changes clear state/city; state changes clear city. Exact matches rank before containing names. Search text is not persisted until selected. Unchanged historical values remain visible.
+- Added administrator destination maintenance in Configuration, reusing GlobalSetting, authentication, role/permission guards and audit records. Additions are idempotent and serialized with a transaction advisory lock. Catalogue merging deduplicates in linear time and is covered with a large-data test.
+- Shared import-stage requirements across Excel/parser/API/AI schema. Sub-category tags are optional. Duration is required at review: positive Hours/Days or explicit Flexible without a fabricated number. Draft saving remains available; rate-only updates do not acquire unrelated content requirements. Already published revisions do not gain these new duration submission blockers.
+- Preserved existing business/content defaults, guided wizard, draft recovery, media checks, approvals, outlet permissions, theme tokens and pricing/finance rules. Existing detailed row/cell corrections and recovery flows remain in use. AI preview no longer truncates away remaining import issues; no AI provider was called.
+
+VALIDATION
+- Baseline: 958 backend tests and 483 frontend tests passed.
+- Final backend: 983 / 983 tests, 133 / 133 suites passed.
+- Final frontend: 496 / 496 tests, 61 / 61 files passed with one worker.
+- Frontend demo-build checks: 2 / 2 passed. Backend NestJS build and frontend TypeScript/Vite build passed.
+- Staging API rehearsal: 14 / 14 checks passed, including authentication, settings permissions, audit/idempotency, current workbook generation, invalid value rejection before writes, optional draft fields, full draft import, duplicate protection, tenant/outlet isolation, duration submission checks, rate updates and USD protection.
+- PostgreSQL staging copy restored from the previous isolated staging database, not fetched from live. Target: voya_import_fixes_2026112801 at 127.0.0.1:55445. SMTP, webhooks, AI and scheduled delivery disabled. External HTTP blocked in the rehearsal process.
+- Prisma migrate status: all 99 existing migrations applied; schema up to date. No Prisma schema or migration files were changed and no new dependency was introduced.
+- Protected data: hashes/counts matched for 12 finance tables and 12 existing catalogue tables through the rehearsal and browser work. Only demonstration records and catalogue configuration in the disposable staging copy were changed.
+- Actual Codex browser downloads verified against current theme #8b504b and administrator-added Athirappilly, Kerala, India. Blank template contains zero products; completed sample parses successfully, uses canonical subtype values, has hidden notes and current dependent formulas.
+
+CODEX BROWSER / NATIVE EXCEL EVIDENCE
+- Manual Harbour Trails draft created in Fort Kochi: 6feffd2c-0197-4a78-a4cc-fb2f5eee97bd, generated TA-KL-0113. Flexible duration saved, numeric input disabled; incomplete draft survived refresh.
+- Duplicate workbook showed Products!A3, original Products!A2, entered reference and correction; import remained blocked.
+- Corrected workbook imported products/options/rates/schedules together: 26b2b3c1-493f-42dc-a4a9-47f47e45e108, generated TA-KL-0114. A clearly labelled demonstration image was uploaded, all review sections became ready, QC submission succeeded and Under review / locked editing persisted after refresh.
+- Existing INR rate update validated and saved as a draft. Reopening the product and selecting its December 2026 effective period showed INR 1,940; unrelated option/traveller amounts remained present.
+- Super administrator added Athirappilly from Configuration; the vendor received it under India / Kerala and newly downloaded templates included it. Normal vendors could not mutate platform destinations.
+- 390 x 844 mobile viewport: controls stacked and no page horizontal overflow (page width 375, viewport 390). Desktop viewport restored to 1280. Final browser tab kept open; Chrome/user tabs were not closed. A debugger synchronization issue on the earlier tab was recovered using a fresh Codex verification tab.
+- Microsoft Excel opened the generated files without a repair prompt. Verified readable row spacing, frozen identifiers, hidden notes, India-specific states and Kerala-specific cities. Changing Excel parents requires reselecting dependent cells; no macros are used and API validation rejects stale/pasted combinations.
+- Final verification tab console contained no errors.
+
+EVIDENCE FILES
+outputs/product-entry-20261128/backend-tests-release.log
+outputs/product-entry-20261128/frontend-tests-release.log
+outputs/product-entry-20261128/backend-build-release.log
+outputs/product-entry-20261128/frontend-build-final.log
+outputs/product-entry-20261128/demo-build-tests.log
+outputs/product-entry-20261128/prisma-staging-status.log
+outputs/product-entry-20261128/staging-verification.json
+outputs/product-entry-20261128/browser-before.json
+outputs/product-entry-20261128/browser-after.json
+outputs/product-entry-20261128/browser-download-verification.json
+outputs/product-entry-20261128/client-workbooks/voya-product-import-template.xlsx
+outputs/product-entry-20261128/client-workbooks/voya-product-import-sample.xlsx
+
+MIGRATIONS AND ROLLOUT
+No new schema migration or backfill is required. Existing GlobalSetting storage holds optional additional destinations under PRODUCT_DESTINATION_CATALOGUE. Existing products are not rewritten. Review the code and staging demonstration before a separately authorized production rollout. The staging database and its demonstration fixtures must not be deployed to live.
+
+LIMITS / REMAINING CLIENT VALIDATION
+No regression was detected in the covered checks; this is not a guarantee about every future input or integration. Real vendor UAT is still needed to measure the desired 5-10 minute entry target and confirm the supported destination/taxonomy list. The starter destination list is curated; administrators can add missing places. Native Excel was checked on this Windows machine; other spreadsheet applications were not separately verified. Real OpenAI, SMS/DLT, external payment and email delivery are outside this change and were not exercised.
+
+An initial unrestricted parallel frontend test/build run exhausted machine memory. Bounded-worker reruns succeeded. An existing finance-dialog focus assertion intermittently failed during a parallel run; its affected-file rerun and the complete single-worker suite passed without changing finance code.
+
+Header-note visibility follows the public SheetJS documentation: https://docs.sheetjs.com/docs/csf/features/comments/
+
+DEMO INSTRUCTIONS
+See docs/PRODUCT_ENTRY_STAGING_TEST_GUIDE.md. Staging UI: http://127.0.0.1:3088/vendor/bulk-upload
+
+MODIFIED / ADDED IMPLEMENTATION FILES
+- activity-saas-backend/scripts/export-product-entry-samples.cjs
+- activity-saas-backend/scripts/verify-product-entry-downloads.cjs
+- activity-saas-backend/scripts/verify-product-entry-preservation.cjs
+- activity-saas-backend/scripts/verify-product-entry-staging.cjs
+- activity-saas-backend/src/activity-ai/activity-ai.schema.ts
+- activity-saas-backend/src/catalogue/catalogue.module.ts
+- activity-saas-backend/src/catalogue/catalogue.service.ts
+- activity-saas-backend/src/catalogue/product-destinations.service.spec.ts
+- activity-saas-backend/src/catalogue/product-destinations.service.ts
+- activity-saas-backend/src/catalogue/product-entry-regression.spec.ts
+- activity-saas-backend/src/catalogue/product-readiness.service.spec.ts
+- activity-saas-backend/src/catalogue/product-readiness.service.ts
+- activity-saas-backend/src/catalogue/product-reference.controller.ts
+- activity-saas-backend/src/common/product-entry-contract.spec.ts
+- activity-saas-backend/src/common/product-entry-contract.ts
+- activity-saas-backend/src/common/product-import-contract.ts
+- activity-saas-frontend/src/components/ActivityAiModal.tsx
+- activity-saas-frontend/src/components/ProductDestinationSettings.tsx
+- activity-saas-frontend/src/components/product-import/ProductImportModal.tsx
+- activity-saas-frontend/src/components/product-import/productEntryWorkbook.test.ts
+- activity-saas-frontend/src/components/product-import/productImport.ts
+- activity-saas-frontend/src/components/product-import/productImportHygiene.test.ts
+- activity-saas-frontend/src/components/product-import/productImportSanity.test.ts
+- activity-saas-frontend/src/components/product-import/productImportStructure.ts
+- activity-saas-frontend/src/components/product-import/productImportTemplate.ts
+- activity-saas-frontend/src/components/product-wizard/BasicInfoStep.test.tsx
+- activity-saas-frontend/src/components/product-wizard/BasicInfoStep.tsx
+- activity-saas-frontend/src/components/product-wizard/DestinationPicker.tsx
+- activity-saas-frontend/src/components/product-wizard/ReviewSubmitStep.tsx
+- activity-saas-frontend/src/components/product-wizard/destinations.css
+- activity-saas-frontend/src/components/readinessLabels.ts
+- activity-saas-frontend/src/pages/AdminSettings.tsx
+- activity-saas-frontend/src/pages/PartnerHubPages.test.tsx
+- activity-saas-frontend/src/pages/PartnerHubPages.tsx
+- docs/PRODUCT_ENTRY_IMPLEMENTATION_PLAN.md
+- docs/PRODUCT_ENTRY_IMPLEMENTATION_REPORT.txt
+- docs/PRODUCT_ENTRY_STAGING_TEST_GUIDE.md

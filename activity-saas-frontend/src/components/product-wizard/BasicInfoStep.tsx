@@ -1,16 +1,12 @@
+import DestinationPicker from './DestinationPicker';
+import { PRODUCT_SUBTYPES } from '../../../../activity-saas-backend/src/common/product-entry-contract';
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import { Badge, Field } from '../Ui';
 import type { WizardStepProps } from './types';
 
 const productTypeCards: Array<[string, string, string, string, string]> = [['ATTRACTION', 'Attraction ticket', 'Theme park, museum, ASI monument', 'ACTIVITY', 'ATTRACTION'], ['GUIDED_TOUR', 'Guided tour', 'Day tour, walking tour, city tour', 'ACTIVITY', 'GUIDED_TOUR'], ['EXPERIENCE', 'Activity', 'Scuba, paragliding, trek, workshop', 'ACTIVITY', 'EXPERIENCE'], ['TRANSFER', 'Transfer / ferry', 'Point-to-point, seat map, sectors', 'TRANSFER', 'POINT_TO_POINT'], ['COMBO', 'Combo', 'Two or more products sold together', 'PACKAGE_ADDON', 'EXCURSION']];
-const subTypeOptions: Record<string, string[]> = {
-  ACTIVITY: ['EXPERIENCE', 'GUIDED_TOUR', 'ATTRACTION', 'TICKET_ONLY'],
-  MEALS: ['RESTAURANT', 'DINING_EXPERIENCE', 'COOKING_CLASS'],
-  TRANSFER: ['AIRPORT_TRANSFER', 'POINT_TO_POINT', 'SHUTTLE'],
-  PACKAGE_ADDON: ['EXCURSION', 'EQUIPMENT_RENTAL', 'SERVICE_ADDON'],
-  OTHERS: ['OTHER'],
-};
+const subTypeOptions = PRODUCT_SUBTYPES;
 const meetingOptions = [['FIXED_MEETING_POINT', 'Fixed meeting point'], ['PICKUP_AVAILABLE', 'Pickup available'], ['FLEXIBLE_ENTRY', 'Flexible entry']];
 type Taxonomy = { id: string; code: string; name: string; subcategories: Array<{ id: string; code: string; name: string }> };
 
@@ -54,8 +50,8 @@ export default function BasicInfoStep({ revisionForm: form, onRevisionChange: se
       <Field label="Product code" hint="🔒 Generated automatically when the draft is created. Can't be edited."><input className="mono-input" value={snapshot.product?.publicCode || snapshot.product?.productCode || 'Generated when the draft is created'} readOnly /></Field>
       <Field label="Category *"><select value={form.category} onChange={(e) => { set('category', e.target.value); set('subCategory', ''); set('subCategories', []); }} disabled={locked}><option value="">Select a category</option>{taxonomy.map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}</select></Field>
       <Field label="Sub-category tags"><div className="product-tags">{selectedCategory?.subcategories.map((item) => { const selected = form.subCategories.includes(item.code); return <button type="button" className={`product-tag ${selected ? 'selected' : ''}`} key={item.id} onClick={() => { const next = selected ? form.subCategories.filter((value) => value !== item.code) : [...form.subCategories, item.code]; set('subCategories', next); set('subCategory', next[0] || ''); }} disabled={locked}>{item.name}</button>; }) || <small className="experience-help">Choose a category first.</small>}</div><small className="experience-help">Select all that apply.</small></Field>
-      <div className="form-full"><Field label="Destination city *" hint="Use the customer-facing destination, for example: North Goa, Goa."><input value={[form.cityName, form.stateName].filter(Boolean).join(', ')} onChange={(e) => { const parts = e.target.value.split(',').map((value) => value.trim()); set('cityName', parts[0] || ''); set('stateName', parts[1] || ''); if (parts[2] !== undefined) set('countryName', parts.slice(2).join(', ')); }} disabled={locked} placeholder="City, state / region" /></Field></div>
-      <Field label="Duration"><div className="inline-fields"><input type="number" min="0" value={form.durationValue} onChange={(e) => set('durationValue', e.target.value)} disabled={locked} placeholder="Duration" /><select value={form.durationUnit} onChange={(e) => set('durationUnit', e.target.value as typeof form.durationUnit)} disabled={locked}><option value="">Select</option><option value="HOURS">Hours</option><option value="DAYS">Days</option><option value="FLEXIBLE">Flexible</option></select></div></Field>
+      <DestinationPicker form={form} locked={locked} onChange={set} />
+      <Field label="Duration *" hint="Required before submission. Hours / Days need a positive number; Flexible does not need a number."><div className="inline-fields"><input aria-label="Duration value" type="number" min="0.01" step="any" value={form.durationUnit === 'FLEXIBLE' ? '' : form.durationValue} onChange={(e) => set('durationValue', e.target.value)} disabled={locked || form.durationUnit === 'FLEXIBLE'} placeholder={form.durationUnit === 'FLEXIBLE' ? 'Not needed' : 'Duration'} /><select aria-label="Duration unit" value={form.durationUnit} onChange={(e) => { set('durationUnit', e.target.value as typeof form.durationUnit); if(e.target.value === 'FLEXIBLE') set('durationValue', ''); }} disabled={locked}><option value="">Select</option><option value="HOURS">Hours</option><option value="DAYS">Days</option><option value="FLEXIBLE">Flexible</option></select></div></Field>
       <div className="form-full"><Field label="Guide"><div className="prototype-segmented-control" role="group" aria-label="Guide availability"><button type="button" className={form.guideIncluded === 'WITH_GUIDE' ? 'selected' : ''} onClick={() => set('guideIncluded', 'WITH_GUIDE')} disabled={locked}>With guide</button><button type="button" className={form.guideIncluded === 'WITHOUT_GUIDE' ? 'selected' : ''} onClick={() => set('guideIncluded', 'WITHOUT_GUIDE')} disabled={locked}>Without guide</button></div>{form.guideIncluded !== 'WITHOUT_GUIDE' && <div className="guide-language-picker"><span className="experience-help">Guide languages (select all that apply)</span><div className="product-tags">{guideLanguageOptions.map((language) => <button type="button" className={`product-tag ${guideLanguages.includes(language) ? 'selected' : ''}`} key={language} onClick={() => toggleGuideLanguage(language)} disabled={locked}>{language}</button>)}</div></div>}</Field></div>
       <details className="advanced-details form-full" open>
         <summary>Listing settings &amp; location</summary>
@@ -63,8 +59,6 @@ export default function BasicInfoStep({ revisionForm: form, onRevisionChange: se
           <div className="experience-form-grid two">
             <Field label="Product currency *"><select value={form.currency} onChange={(e) => set('currency', e.target.value)} disabled={locked}>{form.currency && !['INR','USD','EUR','GBP','AED'].includes(form.currency) && <option value={form.currency}>{form.currency} · Existing currency</option>}<option value="INR">INR · Indian rupee</option><option value="USD">USD · US dollar</option><option value="EUR">EUR · Euro</option><option value="GBP">GBP · Pound sterling</option><option value="AED">AED · UAE dirham</option></select></Field>
             <Field label="Activity sub-type *"><select value={form.subType} onChange={(e) => set('subType', e.target.value)} disabled={locked}><option value="">Select a sub-type</option>{unsupportedLegacySubtype && <option value={form.subType}>{form.subType.replaceAll('_', ' ')} (existing)</option>}{subtypeOptions.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></Field>
-            <Field label="State / region *"><input value={form.stateName} onChange={(e) => set('stateName', e.target.value)} disabled={locked} placeholder="State / region" /></Field>
-            <Field label="Country *"><input value={form.countryName} onChange={(e) => set('countryName', e.target.value)} disabled={locked} placeholder="Country" /></Field>
             <Field label="Meeting model *"><select value={form.meetingModel || ''} onChange={(e) => set('meetingModel', e.target.value as typeof form.meetingModel)} disabled={locked}><option value="">Select a meeting model</option>{meetingOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
           </div>
         </div>

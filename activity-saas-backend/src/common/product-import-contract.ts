@@ -1,3 +1,4 @@
+import { PRODUCT_SUBTYPES } from './product-entry-contract';
 // Pure contract shared with the browser's Excel/CSV/JSON importer.
 // Keep this module free of server dependencies so templates and API checks agree.
 export const DURATION_UNITS = ['HOURS', 'DAYS', 'FLEXIBLE'] as const;
@@ -123,6 +124,13 @@ export function normalizeImportChoices(section: string, original: Record<string,
   }
   const problem = (field: string, correction: string, message = `“${String(row[field] ?? '')}” is not a valid ${field}.`) =>
     issues.push({ field, value: String(row[field] ?? ''), message, correction });
+  if (section === 'Basic_Info' && present(row.sub_type) && present(row.type)) {
+    const rawSubtype = token(row.sub_type);
+    const subtype = ({ TOUR:'GUIDED_TOUR', GUIDED_EXPERIENCE:'GUIDED_TOUR', SIGHTSEEING:'GUIDED_TOUR' } as Record<string,string>)[rawSubtype] || rawSubtype;
+    const allowed = PRODUCT_SUBTYPES[String(row.type)] || [];
+    if (allowed.includes(subtype)) row.sub_type = subtype;
+    else problem('sub_type', `Choose a sub-type for ${String(row.type)}: ${allowed.join(', ')}.`);
+  }
   for (const [field, rule] of Object.entries(importNumberRules[section] || {})) {
     if (!present(row[field])) continue;
     const raw = String(row[field]).trim(); const number = Number(raw);

@@ -1,0 +1,10 @@
+.destination-select { position:relative; min-width:0; }
+.destination-select>label { font-weight:600; }
+.destination-select>input { width:100%; min-height:44px; }
+.destination-options { position:absolute; z-index:30; top:100%; left:0; right:0; max-height:240px; overflow-y:auto; margin:4px 0 0; padding:4px; list-style:none; background:var(--voya-surface); color:var(--voya-surface-text); border:1px solid var(--voya-border); border-radius:8px; box-shadow:0 4px 12px #0002; }
+.destination-options li { margin:0; padding:0; }
+.destination-options button { display:block; width:100%; min-height:44px; padding:10px 12px; text-align:left; background:transparent; color:inherit; border:0; border-radius:4px; }
+.destination-options [aria-selected="true"]>button,.destination-options button:hover { background:var(--voya-raised); color:var(--voya-raised-text); }
+.destination-catalogue-list { max-height:280px; overflow-y:auto; padding-left:24px; }
+.destination-catalogue-list li { padding:4px 0; }
+@media(max-width:640px) { .experience-form-grid.three:has(.destination-select) { grid-template-columns:1fr; } }

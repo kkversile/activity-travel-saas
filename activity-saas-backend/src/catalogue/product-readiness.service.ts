@@ -5,6 +5,8 @@ import { AuthUser } from '../common/auth.types';
 import { requireTenant } from '../common/tenant';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChannelDistributionReadinessService, ProductDistributionReadiness } from '../distribution/channel-distribution-readiness.service';
+import { destinationIssue, durationReadiness } from '../common/product-entry-contract';
+import { ProductDestinationsService } from './product-destinations.service';
 
 export type ReadinessSection = { ready: boolean; reasonCodes: string[]; details?: Record<string, unknown> };
 export type ProductReadiness = {
@@ -36,7 +38,7 @@ const startOfToday = () => {
 
 @Injectable()
 export class ProductReadinessService {
-  constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService) {}
+  constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, @Optional() private readonly distributionReadiness?: ChannelDistributionReadinessService, @Optional() private readonly destinations?: ProductDestinationsService) {}
 
   async evaluate(user: AuthUser, productId: string, client: any = this.prisma): Promise<ProductReadiness> {
     const tenantId = user.role === UserRole.VENDOR ? requireTenant(user) : undefined;
@@ -93,6 +95,12 @@ export class ProductReadinessService {
     if (!revision?.category?.trim()) basicReasons.push('CATEGORY_MISSING');
     if (!revision?.cityName?.trim() || !revision?.stateName?.trim() || !revision?.countryName?.trim()) basicReasons.push('DESTINATION_MISSING');
     if (!revision?.meetingModel) basicReasons.push('MEETING_MODEL_MISSING');
+    // Working submissions need complete content; published bookability is not changed by these new rules.
+    if (revision && ['DRAFT', 'UNDER_REVIEW'].includes(revision.status)) {
+      const durationProblem = durationReadiness(revision.durationValue, revision.durationUnit);
+      if (durationProblem) basicReasons.push(durationProblem);
+      if (this.destinations && destinationIssue({ country: revision.countryName || '', state: revision.stateName || '', city: revision.cityName || '' }, await this.destinations.list(client))) basicReasons.push('DESTINATION_INVALID');
+    }
 
     const experienceReasons: string[] = [];
     if (!revision?.shortDescription?.trim()) experienceReasons.push('SHORT_SUMMARY_MISSING');

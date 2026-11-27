@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { ImportIssue } from './productImport';
+export const normalizeImportHeader = (value: unknown) => String(value ?? '').replace(/\s+\*$/, '');
 
 function distance(left: string, right: string): number {
   let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
@@ -33,7 +34,7 @@ export function importSheetHeaders(workbook: XLSX.WorkBook, sheet: string, heade
   const ws = workbook.Sheets[sheet];
   if (!ws) return [];
   const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-  const fields = Array.from({ length: range.e.c + 1 }, (_, column) => String(ws[XLSX.utils.encode_cell({ r: headerRow - 1, c: column })]?.v ?? ''));
+  const fields = Array.from({ length: range.e.c + 1 }, (_, column) => normalizeImportHeader(ws[XLSX.utils.encode_cell({ r: headerRow - 1, c: column })]?.v));
   let last = -1;
   fields.forEach((field, index) => { if (field !== '') last = index; });
   for (const [address, cell] of Object.entries(ws)) {

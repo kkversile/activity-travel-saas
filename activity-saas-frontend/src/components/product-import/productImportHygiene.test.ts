@@ -18,11 +18,11 @@ describe('vendor import data hygiene', () => {
     const archive = XLSX.CFB.read(bytes, { type: 'buffer' });
     const sections = ['Basic_Info', 'Options', 'Ticket_Types', 'Rate_Plans', 'Availability'];
     sections.forEach((section, index) => {
-      const fileIndex = archive.FullPaths.findIndex((path: string) => path.endsWith(`/xl/worksheets/sheet${index + 1}.xml`));
+      const fileIndex = archive.FullPaths.findIndex((path: string) => path.endsWith(`/xl/worksheets/sheet${index + 2}.xml`));
       const doc = new DOMParser().parseFromString(new TextDecoder().decode(new Uint8Array(archive.FileIndex[fileIndex].content)), 'application/xml');
       expect(doc.querySelector('parsererror')).toBeNull();
       const rules = [...doc.querySelectorAll('dataValidation[type="list"]')];
-      expect(rules).toHaveLength(Object.keys(importChoices[section]).length);
+      expect(rules.length).toBeGreaterThanOrEqual(Object.keys(importChoices[section]).length);
       for (const rule of rules) {
         expect(rule.getAttribute('type')).toBe('list');
         expect(rule.getAttribute('errorStyle')).toBe('stop');

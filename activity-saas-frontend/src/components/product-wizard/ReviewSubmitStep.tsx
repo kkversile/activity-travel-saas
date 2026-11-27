@@ -11,6 +11,10 @@ const sectionLabels: Array<[keyof ProductReadiness['sections'], string, WizardSt
 ];
 const reasonLabels: Record<string, string> = {
   PRODUCT_NAME_MISSING: 'Product name is missing', PRODUCT_TYPE_MISSING: 'Product type is missing', PRODUCT_SUBTYPE_MISSING: 'Product type classification is missing',
+  DURATION_MISSING: 'Choose a duration unit: Hours, Days or Flexible',
+  DURATION_INVALID: 'Choose Hours, Days or Flexible for duration',
+  DURATION_VALUE_REQUIRED: 'Enter a positive duration for Hours or Days',
+  DESTINATION_INVALID: 'Choose a supported city belonging to the selected state and country',
   CATEGORY_MISSING: 'Category is missing', DESTINATION_MISSING: 'Complete city, state and country', MEETING_MODEL_MISSING: 'Meeting model is missing',
   EXPERIENCE_DESCRIPTION_MISSING: 'Full description is missing', MEETING_POINT_MISSING: 'Meeting point is missing for this model', OPTIONS_MISSING: 'No option has been created',
   RATE_PLAN_MISSING: 'No active rate plan exists', CANCELLATION_RULES_MISSING: 'Cancellation policy is missing', VISITOR_PRICES_MISSING: 'Indian and foreign visitor prices are incomplete',

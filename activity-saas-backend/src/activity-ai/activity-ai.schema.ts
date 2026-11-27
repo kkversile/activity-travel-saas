@@ -1,19 +1,14 @@
 import { ProductType } from '@prisma/client';
+import { PRODUCT_SUBTYPES, PRODUCT_IMPORT_REQUIRED_FIELDS } from '../common/product-entry-contract';
 
 type Row = Record<string, any>;
 
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 const list = (value: unknown) => Array.isArray(value) ? value.map(text).filter(Boolean) : text(value).split('|').map((item) => item.trim()).filter(Boolean);
 
-export const VOYA_TAXONOMY = {
-  ACTIVITY: ['EXPERIENCE', 'GUIDED_TOUR', 'ATTRACTION', 'TICKET_ONLY'],
-  MEALS: ['RESTAURANT', 'DINING_EXPERIENCE', 'COOKING_CLASS'],
-  TRANSFER: ['AIRPORT_TRANSFER', 'POINT_TO_POINT', 'SHUTTLE'],
-  PACKAGE_ADDON: ['EXCURSION', 'EQUIPMENT_RENTAL', 'SERVICE_ADDON'],
-  OTHERS: ['OTHER'],
-} as const;
+export const VOYA_TAXONOMY = PRODUCT_SUBTYPES;
 
-type TaxonomyType = keyof typeof VOYA_TAXONOMY;
+type TaxonomyType = ProductType;
 
 /** Map free-form AI/category text into the same taxonomy used by the wizard. */
 export function normalizeTaxonomy(rawType: unknown, rawSubType: unknown, rawCategory: unknown) {
@@ -66,7 +61,7 @@ export function validateImportContract(payload: Record<string, any>) {
 
   const basic = (basicRows[0] || {}) as Row;
   const experience = (experienceRows[0] || {}) as Row;
-  for (const field of ['product_key', 'product_name', 'type', 'sub_type', 'sub_category', 'city', 'state', 'country', 'meeting_model', 'short_description']) {
+  for (const field of PRODUCT_IMPORT_REQUIRED_FIELDS.Basic_Info) {
     if (!text(basic[field])) errors.push(`Basic_Info: ${field} is required.`);
   }
   if (text(basic.type) && !Object.values(ProductType).includes(text(basic.type).toUpperCase() as ProductType)) {
