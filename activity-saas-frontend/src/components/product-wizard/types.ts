@@ -4,9 +4,9 @@ import { optionBookingDefaults } from './bookingDefaults';
 export type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 export type WizardMode = 'CREATE' | 'EDIT';
 
-export function vendorProductEditPath(productId: string, baseUrl = import.meta.env.BASE_URL) {
+export function vendorProductEditPath(productId: string, baseUrl = import.meta.env.BASE_URL, outletId?: string | null) {
   const basePath = baseUrl === '/' ? '' : baseUrl.replace(/\/$/, '');
-  return `${basePath}/vendor/products/${encodeURIComponent(productId)}/edit`;
+  return `${basePath}/vendor/products/${encodeURIComponent(productId)}/edit${outletId ? `?outletId=${encodeURIComponent(outletId)}` : ''}`;
 }
 
 export type RevisionForm = {

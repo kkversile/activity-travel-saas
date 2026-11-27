@@ -5,9 +5,41 @@ import ExperienceWizardModal, { activityContentSettingsPath, productBuilderStatu
 
 const revision = (id: string, status: string) => ({ id, status } as ProductRevision);
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); api.setActiveOutletId(null); });
 
 describe('pricing save coordination', () => {
+  it('keeps the selected outlet on the stable edit route after creating a full-page draft',async()=>{
+    api.setActiveOutletId('fort-kochi');
+    const draft={...revision('new-draft','DRAFT'),productName:'Waterfront discovery',type:'ACTIVITY',subType:'EXPERIENCE'} as ProductRevision;
+    const product:Product={id:'new-product',tenantId:'vendor',productCode:'PRD-NEW',currency:'INR',status:'DRAFT',revisions:[draft],variants:[]};
+    vi.spyOn(api,'request').mockImplementation(async path=>path==='/products/drafts'||path==='/products/new-product'?product as never:path.endsWith('/activity-content-settings')?{terms:[],howToRedeem:[],bookingQuestions:[]} as never:path.endsWith('/booking-questions')||path.endsWith('/activity-categories')?[] as never:{} as never);
+    const replace=vi.spyOn(window.history,'replaceState').mockImplementation(()=>undefined);
+    render(<ExperienceWizardModal fullPage onDone={vi.fn()} onChanged={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/Product title/),{target:{value:'Waterfront discovery'}});
+    fireEvent.change(screen.getByRole('combobox',{name:'Activity sub-type *'}),{target:{value:'EXPERIENCE'}});
+    fireEvent.click(screen.getAllByRole('button',{name:'Save draft'})[0]);
+    await waitFor(()=>expect(replace).toHaveBeenCalledWith({},'',expect.stringMatching(/\/vendor\/products\/new-product\/edit\?outletId=fort-kochi$/)));
+    expect(await screen.findByText('Draft saved successfully.')).toBeInTheDocument();
+  });
+
+  it('previews unsaved content without saving, publishing or changing the selected section',async()=>{
+    const draft={...revision('preview-draft','DRAFT'),productName:'A walk through Kochi',type:'ACTIVITY',subType:'WALK',shortDescription:'Local stories by the harbour.'} as ProductRevision;
+    const product:Product={id:'preview-product',tenantId:'preview-vendor',productCode:'PREVIEW-ONLY',currency:'USD',status:'DRAFT',revisions:[draft],variants:[]};
+    const request=vi.spyOn(api,'request').mockImplementation(async path=>path==='/products/preview-product'?product as never:path.endsWith('/activity-content-settings')?{terms:[],howToRedeem:[],bookingQuestions:[]} as never:path.endsWith('/booking-questions')||path.endsWith('/activity-categories')?[] as never:{} as never);
+    render(<ExperienceWizardModal product={product} fullPage onDone={vi.fn()} onChanged={vi.fn()} />);
+    const title=await screen.findByLabelText(/Product title/);
+    fireEvent.change(title,{target:{value:'Kochi with a local storyteller'}});
+    fireEvent.click(screen.getByRole('button',{name:'Preview listing'}));
+    const preview=screen.getByRole('complementary',{name:'Your experience preview'});
+    expect(within(preview).getByRole('heading',{name:'Kochi with a local storyteller'})).toBeInTheDocument();
+    expect(within(preview).getByText('Working draft')).toBeInTheDocument();
+    expect(screen.getByRole('combobox',{name:'Go to activity section'})).toHaveValue('1');
+    expect(request.mock.calls.some(([,options])=>['POST','PATCH','DELETE'].includes(String(options?.method)))).toBe(false);
+    fireEvent.click(screen.getByRole('button',{name:'Hide preview'}));
+    expect(screen.queryByRole('complementary',{name:'Your experience preview'})).not.toBeInTheDocument();
+    expect(title).toHaveValue('Kochi with a local storyteller');
+  });
+
   it.each([false, true])('locks wizard navigation until pricing finishes and preserves the unload warning on failure (%s)', async fail => {
     const draft = { ...revision('draft-lock', 'DRAFT'), productName: 'Harbour pricing', type: 'ACTIVITY', subType: 'WALK', meetingModel: 'FIXED_MEETING_POINT' } as ProductRevision;
     const option: any = { id: 'variant-lock', productId: 'product-lock', name: 'Harbour walk', variantCode: 'WALK', status: 'ACTIVE', version: 1 };

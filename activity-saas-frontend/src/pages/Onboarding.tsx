@@ -5,6 +5,7 @@ import { SharedDatePicker } from "../components/SharedDatePicker";
 import { indiaStates, citiesForState } from "../components/onboardingRegions";
 import ApprovedOnboardingDashboard from "../components/ApprovedOnboardingDashboard";
 import FilePreviewDialog from "../components/FilePreviewDialog";
+import OnboardingCompanion, { OnboardingPreparation } from "../components/OnboardingCompanion";
 
 const steps = [
   "Business profile",
@@ -1225,11 +1226,12 @@ export default function Onboarding({
       <div className="onboarding-page">
         <div className="onboarding-welcome">
           <div className="onboarding-eyebrow">Account / Business profile &amp; KYC · {application.id.slice(-6).toUpperCase()}</div>
-          <h2>Build your partner profile</h2>
+          <h1>Build your partner profile</h1>
           <p>
             Complete the eight sections to verify your business, contacts,
             documents, payout details and agreement.
           </p>
+          <OnboardingPreparation />
           <div className="onboarding-benefits">
             <span>✓ Save and resume anytime</span>
             <span>✓ Private document storage</span>
@@ -1422,7 +1424,7 @@ export default function Onboarding({
       <div className="onboarding-heading">
         <div>
           <div className="onboarding-eyebrow">Account / Business profile &amp; KYC</div>
-          <h2>Business profile &amp; verification</h2>
+          <h1>Business profile &amp; verification</h1>
           <p className="onboarding-description">
             Complete these sections to start selling. You can create products while we verify; they go live once you&apos;re approved.
           </p>
@@ -1498,6 +1500,7 @@ export default function Onboarding({
             <small>7 setup sections, followed by final review.</small><div className="onboarding-summary-bar"><i style={{ width: `${Math.round((completeSections / 7) * 100)}%` }} /></div>
           </div>
         </nav>
+        <OnboardingCompanion step={step} />
         <main className="onboarding-card">
           <div className="onboarding-current-step" ref={stepHeadingRef} tabIndex={-1}>
             <span>Step {step} of 8 · {steps[step - 1]}</span>

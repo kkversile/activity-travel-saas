@@ -23,16 +23,33 @@ describe('vendor passwordless login flow', () => {
     expect(login).not.toHaveBeenCalled();
   });
 
-  it('matches the Partner Hub prototype entry layout on vendor routes', () => {
+  it('keeps the Voya entry message and authentication actions on vendor routes', () => {
     window.history.replaceState({}, '', '/vendor/products');
 
     render(<Login onLogin={vi.fn()} onRegister={vi.fn()} />);
 
-    expect(screen.getByRole('heading', { name: 'Bring your experiences to millions of travellers.' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Your experiences,\s*on Voya\./ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Create account' })[0]).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Vendor Login' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
+  it('lets partners explore inspiration without losing login input or submitting credentials', () => {
+    const login=vi.spyOn(api,'login');
+    render(<Login onLogin={vi.fn()} onRegister={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Email or mobile'),{target:{value:'partner@example.com'}});
+    fireEvent.change(screen.getByLabelText('Password'),{target:{value:'EnteredPassword123'}});
+    fireEvent.click(screen.getByRole('button',{name:'On the water'}));
+    expect(screen.getByRole('button',{name:'On the water'})).toHaveAttribute('aria-pressed','true');
+    expect(screen.getByRole('button',{name:'Nature trails'})).toHaveAttribute('aria-pressed','false');
+    expect(screen.getByRole('img',{name:'A traditional houseboat on the palm-lined Alleppey backwaters'})).toBeInTheDocument();
+    expect(screen.getByLabelText('Email or mobile')).toHaveValue('partner@example.com');
+    expect(screen.getByLabelText('Password')).toHaveValue('EnteredPassword123');
+    expect(login).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button',{name:'Local stories'}));
+    expect(screen.getByRole('button',{name:'Local stories'})).toHaveAttribute('aria-pressed','true');
+    expect(screen.getByRole('link',{name:/Photo: Ingo Mehling/})).toHaveAttribute('href','https://commons.wikimedia.org/wiki/File:Chinese_Fishing_Nets_-_2.jpg');
   });
 
   it('sends the prototype email-or-mobile identifier to the password login API', async () => {

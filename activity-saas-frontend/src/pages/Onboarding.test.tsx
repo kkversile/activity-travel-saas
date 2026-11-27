@@ -46,6 +46,24 @@ const draft = {
 afterEach(() => vi.restoreAllMocks());
 
 describe('Vendor onboarding', () => {
+  it('keeps an edited business name while section guidance changes and saves through the existing draft API',async()=>{
+    const application={...draft,startedAt:new Date().toISOString(),businessDisplayName:'Coastal Journeys',legalBusinessName:'Coastal Journeys'};
+    const request=vi.spyOn(api,'request').mockImplementation(async (_path,options)=>options?.method==='PATCH'?{...application,...JSON.parse(String(options.body))} as never:application as never);
+    render(<Onboarding />);
+    const name=await screen.findByLabelText(/Brand \/ trade name/);
+    fireEvent.change(name,{target:{value:'Coastal Journeys and local stories'}});
+    fireEvent.click(screen.getByRole('button',{name:'3. KYC documents'}));
+    fireEvent.click(screen.getByText('Help with this section'));
+    expect(screen.getByText('Make verification straightforward')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'1. Business profile'}));
+    expect(screen.getByLabelText(/Brand \/ trade name/)).toHaveValue('Coastal Journeys and local stories');
+    fireEvent.click(screen.getByRole('button',{name:'Save draft'}));
+    await waitFor(()=>expect(request.mock.calls.some(([,options])=>options?.method==='PATCH')).toBe(true));
+    const body=JSON.parse(String(request.mock.calls.find(([,options])=>options?.method==='PATCH')?.[1]?.body));
+    expect(body.businessDisplayName).toBe('Coastal Journeys and local stories');
+    expect(request.mock.calls.filter(([,options])=>options?.method==='PATCH')).toHaveLength(1);
+  });
+
   it('does not show the temporary vendor placeholder as business data', async () => {
     vi.spyOn(api, 'request').mockResolvedValueOnce({ ...draft, startedAt: new Date().toISOString(), currentStep: 1, businessDisplayName: 'Vendor pending onboarding', legalBusinessName: 'Vendor pending onboarding' } as never);
 

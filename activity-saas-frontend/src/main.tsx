@@ -5,6 +5,7 @@ import './styles.css';
 import './login.css';
 import 'leaflet/dist/leaflet.css';
 import './theme/platform-theme.css';
+import './partner-experience.css';
 import { startPlatformTheme } from './theme/platformTheme';
 
 const stopPlatformTheme = startPlatformTheme();

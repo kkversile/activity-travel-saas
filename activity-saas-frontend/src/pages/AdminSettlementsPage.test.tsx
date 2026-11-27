@@ -227,7 +227,8 @@ describe('Settlement hold controls', () => {
     dialog = within(screen.getByRole('dialog', { name: 'Release settlement hold' }));
     fireEvent.change(dialog.getByRole('textbox', { name: 'Reason' }), { target: { value: '  Review complete  ' } });
     fireEvent.click(dialog.getByRole('button', { name: 'Release hold' }));
-    expect(await dialog.findByRole('alert')).toHaveFocus();
+    const errorAlert = await dialog.findByRole('alert');
+    await waitFor(() => expect(errorAlert).toHaveFocus());
     expect(dialog.getByRole('textbox', { name: 'Reason' })).toHaveValue('  Review complete  ');
     fireEvent.click(dialog.getByRole('button', { name: 'Release hold' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());

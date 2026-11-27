@@ -28,6 +28,10 @@ describe('product wizard channel selections', () => {
 });
 
 describe('product edit routes', () => {
+  it('preserves the outlet through first save and refresh without leaking other query parameters', () => {
+    expect(vendorProductEditPath('product-1', '/voya/', 'outlet/a b')).toBe('/voya/vendor/products/product-1/edit?outletId=outlet%2Fa%20b');
+    expect(vendorProductEditPath('product-1', '/', null)).toBe('/vendor/products/product-1/edit');
+  });
   it('keeps the persisted draft edit route under the configured application base path', () => {
     expect(vendorProductEditPath('draft/with space', '/voya/')).toBe('/voya/vendor/products/draft%2Fwith%20space/edit');
     expect(vendorProductEditPath('product-1', '/')).toBe('/vendor/products/product-1/edit');

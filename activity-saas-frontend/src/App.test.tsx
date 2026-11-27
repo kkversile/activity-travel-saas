@@ -1,6 +1,43 @@
-import { describe, expect, it } from 'vitest';
-import { adminPageForRole, agentCanBook, agentPageFromPath } from './App';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import App, { adminPageForRole, agentCanBook, agentPageFromPath } from './App';
+import { api } from './api';
 import { partnerHubCountsFromDashboard } from './layouts/vendorNavigation';
+
+describe('account navigation', () => {
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  afterEach(() => {
+    cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+    api.setToken(null); window.history.replaceState({}, '', '/');
+  });
+
+  it.each([true, false])('takes mobile account links directly to the form while preserving desktop navigation (%s)', mobile => {
+    api.setToken(null); window.history.replaceState({}, '', '/');
+    const scroll = vi.fn(); HTMLElement.prototype.scrollIntoView = scroll;
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: mobile })));
+    vi.spyOn(api, 'request').mockResolvedValue({ items: [] } as never);
+    const login = vi.spyOn(api, 'login');
+    render(<App />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create account' })[0]);
+    expect(window.location.pathname).toBe('/register');
+    expect(screen.getByRole('heading', { name: 'Become a Voya partner' })).toBeInTheDocument();
+    expect(window.location.hash).toBe(mobile ? '#partner-account' : '');
+    if (mobile) {
+      expect(scroll).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' });
+      expect(document.activeElement).toBe(document.getElementById('partner-account'));
+    } else expect(scroll).not.toHaveBeenCalled();
+
+    scroll.mockClear();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Log in' })[0]);
+    expect(window.location.pathname).toBe('/');
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(window.location.hash).toBe(mobile ? '#partner-account' : '');
+    expect(scroll).toHaveBeenCalledTimes(mobile ? 1 : 0);
+    expect(login).not.toHaveBeenCalled();
+  });
+});
 
 describe('admin route authorization', () => {
   it('keeps Admin Users available only to Super Admin', () => {
